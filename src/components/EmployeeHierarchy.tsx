@@ -2,6 +2,9 @@ import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { useEmployees } from '@/hooks/use-employees';
+import { Button } from '@/components/ui/button';
+import { RefreshCw } from 'lucide-react';
 
 type Employee = {
   id: string;
@@ -19,26 +22,46 @@ interface EmployeeHierarchyProps {
 const POSITION_LEVELS = {
   level1: ['CEO', 'CTO', 'CFO', 'CSO'],
   level2: ['VP', 'Vice President'],
-  level3: ['Senior Director'],
-  level4: ['Director'],
-  level5: ['Senior Architect', 'Senior QA Architect', 'Senior Manager'],
-  level6: ['Architect', 'QA Architect', 'Manager'],
-  level7: ['Senior Engineer'],
-  level8: ['Engineer']
+  level3: ['Director', 'Senior Director'], // Consolidated all Directors into Level 3
+  level4: ['Senior Architect', 'Senior QA Architect', 'Senior Manager'],
+  level5: ['Architect', 'QA Architect', 'Manager'],
+  level6: ['Senior Engineer'],
+  level7: ['Engineer']
 };
 
 // Function to determine employee level based on position
 const getEmployeeLevel = (position: string): number => {
   const pos = position.toLowerCase();
   
+  // Check for C-level executives first (most specific) - use word boundaries
+  if (pos.includes(' ceo ') || pos.includes(' cto ') || pos.includes(' cfo ') || pos.includes(' cso ') ||
+      pos.startsWith('ceo') || pos.startsWith('cto') || pos.startsWith('cfo') || pos.startsWith('cso') ||
+      pos.endsWith('ceo') || pos.endsWith('cto') || pos.endsWith('cfo') || pos.endsWith('cso')) {
+    return 1;
+  }
+  
+  // Check for VP level
+  if (pos.includes('vp') || pos.includes('vice president')) {
+    return 2;
+  }
+  
+  // Check for all Director types (both Director and Senior Director) - consolidated into Level 3
+  if (pos.includes('director')) {
+    return 3;
+  }
+  
+  // Check for other levels
   for (const [level, positions] of Object.entries(POSITION_LEVELS)) {
+    if (level === 'level1' || level === 'level2' || level === 'level3') {
+      continue; // Already handled above
+    }
     if (positions.some(p => pos.includes(p.toLowerCase()))) {
       return parseInt(level.replace('level', ''));
     }
   }
   
-  // Default to level 8 if position doesn't match any hierarchy
-  return 8;
+  // Default to level 7 if position doesn't match any hierarchy
+  return 7;
 };
 
 // Function to get level name
@@ -46,12 +69,11 @@ const getLevelName = (level: number): string => {
   const levelNames = {
     1: 'Executive Leadership',
     2: 'Vice Presidents',
-    3: 'Senior Directors',
-    4: 'Directors',
-    5: 'Senior Leadership',
-    6: 'Leadership',
-    7: 'Senior Engineers',
-    8: 'Engineers'
+    3: 'Directors', // All Directors (including Senior Directors) are now in Level 3
+    4: 'Senior Leadership',
+    5: 'Leadership',
+    6: 'Senior Engineers',
+    7: 'Engineers'
   };
   return levelNames[level as keyof typeof levelNames] || 'Other';
 };
@@ -65,16 +87,27 @@ const getLevelColor = (level: number): string => {
     4: 'bg-green-100 text-green-800 border-green-200',
     5: 'bg-blue-100 text-blue-800 border-blue-200',
     6: 'bg-indigo-100 text-indigo-800 border-indigo-200',
-    7: 'bg-purple-100 text-purple-800 border-purple-200',
-    8: 'bg-gray-100 text-gray-800 border-gray-200'
+    7: 'bg-gray-100 text-gray-800 border-gray-200'
   };
   return colors[level as keyof typeof colors] || 'bg-gray-100 text-gray-800 border-gray-200';
 };
 
 export function EmployeeHierarchy({ employees }: EmployeeHierarchyProps) {
+  const { clearCache, fetchEmployees } = useEmployees();
+  
+  // Force refresh function
+  const handleForceRefresh = () => {
+    clearCache();
+    fetchEmployees();
+  };
+  
   // Group employees by hierarchy level
   const employeesByLevel = employees.reduce((acc, employee) => {
     const level = getEmployeeLevel(employee.position);
+    
+    // Debug logging
+    console.log(`Employee: ${employee.name}, Position: ${employee.position}, Level: ${level}`);
+    
     if (!acc[level]) {
       acc[level] = [];
     }
@@ -92,6 +125,15 @@ export function EmployeeHierarchy({ employees }: EmployeeHierarchyProps) {
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold mb-2">Organization Chart</h2>
         <p className="text-muted-foreground">Hierarchical view based on position levels</p>
+        <Button 
+          onClick={handleForceRefresh}
+          variant="outline" 
+          size="sm" 
+          className="mt-4"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh Hierarchy
+        </Button>
       </div>
 
       {sortedLevels.map((level) => (

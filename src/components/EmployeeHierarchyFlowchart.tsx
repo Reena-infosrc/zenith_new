@@ -156,15 +156,17 @@ export function EmployeeHierarchyFlowchart({ employees }: EmployeeHierarchyFlowc
       const getHierarchyLevel = (position: string): number => {
         const pos = position.toLowerCase();
         
-        // Executive level (highest)
-        if (pos.includes('ceo') || pos.includes('cto') || pos.includes('cfo') || pos.includes('cso')) {
+        // Executive level (highest) - only C-level executives - use word boundaries
+        if (pos.includes(' ceo ') || pos.includes(' cto ') || pos.includes(' cfo ') || pos.includes(' cso ') ||
+            pos.startsWith('ceo') || pos.startsWith('cto') || pos.startsWith('cfo') || pos.startsWith('cso') ||
+            pos.endsWith('ceo') || pos.endsWith('cto') || pos.endsWith('cfo') || pos.endsWith('cso')) {
           return 1;
         }
         // VP level
         if (pos.includes('vp') || pos.includes('vice president')) {
           return 2;
         }
-        // Director level
+        // All Director types (both Director and Senior Director) - consolidated into Level 3
         if (pos.includes('director')) {
           return 3;
         }

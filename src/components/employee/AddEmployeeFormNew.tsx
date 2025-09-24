@@ -370,9 +370,9 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
                         <SelectValue placeholder="Select Gender" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Male">Male</SelectItem>
-                        <SelectItem value="Female">Female</SelectItem>
-                        <SelectItem value="Other">Other</SelectItem>
+                        <SelectItem value="MALE">MALE</SelectItem>
+                        <SelectItem value="FEMALE">FEMALE</SelectItem>
+                        <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
