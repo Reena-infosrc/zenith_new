@@ -7,10 +7,12 @@ import { useFeatureFlags } from "@/hooks/use-feature-flags";
 import { getFirstAvailableModuleRoute } from "@/utils/navigation";
 import { useMsal } from "@azure/msal-react";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
+import { Loader2 } from "lucide-react";
 
 export default function Login() {
   const [loginClicked, setLoginClicked] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isProcessingLogin, setIsProcessingLogin] = useState(false); // New state to track login processing
   const navigate = useNavigate();
   const { featureFlagStatus, isLoading: flagsLoading } = useFeatureFlags();
   const { instance, accounts } = useMsal();
@@ -59,12 +61,21 @@ export default function Login() {
     };
   }, [navigate, flagsLoading, featureFlagStatus]);
 
-  const completeLoginWithToken = async (accessToken: string) => {
+  const completeLoginWithToken = async (accessToken: string, clearTimeout?: () => void) => {
+    // Clear the loading timeout if provided
+    if (clearTimeout) {
+      clearTimeout();
+    }
+    
+    // Set processing state to maintain loading UI during API calls
+    setIsProcessingLogin(true);
+    
     // Fetch user profile from Microsoft Graph
     const graphRes = await fetch("https://graph.microsoft.com/v1.0/me", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!graphRes.ok) {
+      setIsProcessingLogin(false);
       throw new Error("Failed to fetch profile from Microsoft Graph");
     }
     const profile = await graphRes.json();
@@ -261,19 +272,29 @@ export default function Login() {
 
   const handleLogin = async () => {
     setIsLoading(true);
+    
+    // Set a timeout to reset loading state in case of issues
+    const loadingTimeout = setTimeout(() => {
+      setIsLoading(false);
+      setIsProcessingLogin(false);
+      toast.error("Sign-in is taking longer than expected. Please try again.");
+    }, 30000); // 30 seconds timeout
+    
     try {
       // Prefer redirect to avoid popup/cookie issues
       await instance.loginRedirect({ scopes: ["User.Read"] });
       // Flow continues after redirect back
     } catch (err: any) {
+      clearTimeout(loadingTimeout);
       // Fallback to popup if redirect fails for some reason
       try {
         const loginResponse = await instance.loginPopup({ scopes: ["User.Read"] });
-        await completeLoginWithToken(loginResponse.accessToken);
+        await completeLoginWithToken(loginResponse.accessToken, () => clearTimeout(loadingTimeout));
       } catch (popupErr) {
         console.error("SSO login error:", popupErr);
         toast.error("Microsoft sign-in failed or was cancelled.");
         setIsLoading(false);
+        setIsProcessingLogin(false);
       }
     }
   };
@@ -281,12 +302,21 @@ export default function Login() {
   // After redirect, if we have an account, acquire token silently and continue
   useEffect(() => {
     const acquireAndProceed = async () => {
-      if (!accounts || accounts.length === 0) return;
+      if (!accounts || accounts.length === 0) {
+        // Only reset loading state if we're not in the middle of a login process
+        // This prevents flickering when accounts are initially empty during redirect
+        if (!loginClicked && !isProcessingLogin) {
+          setIsLoading(false);
+        }
+        return;
+      }
       
       // Check if user explicitly logged out - if so, don't auto-login
       const hasLoggedOut = sessionStorage.getItem('user_logged_out');
       if (hasLoggedOut) {
         sessionStorage.removeItem('user_logged_out');
+        setIsLoading(false);
+        setIsProcessingLogin(false);
         return;
       }
       
@@ -298,7 +328,9 @@ export default function Login() {
         await completeLoginWithToken(result.accessToken);
       } catch (silentErr) {
         // If silent fails, let user click button again
+        console.warn("Silent token acquisition failed:", silentErr);
         setIsLoading(false);
+        setIsProcessingLogin(false);
       }
     };
     acquireAndProceed();
@@ -391,9 +423,18 @@ export default function Login() {
                   className="w-full bg-gradient-hr-primary hover:opacity-90" 
                   size="lg"
                   onClick={handleLogin}
-                  disabled={isLoading || loginClicked}
+                  disabled={isLoading || isProcessingLogin || loginClicked}
                 >
-                  {isLoading ? "Signing In..." : loginClicked ? "Signed In" : "Sign in with Microsoft"}
+                  {(isLoading || isProcessingLogin) ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Signing In...
+                    </>
+                  ) : loginClicked ? (
+                    "Signed In"
+                  ) : (
+                    "Sign in with Microsoft"
+                  )}
                 </Button>
               </div>
             </div>
