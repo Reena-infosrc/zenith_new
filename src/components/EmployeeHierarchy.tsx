@@ -136,6 +136,27 @@ export function EmployeeHierarchy({ employees }: EmployeeHierarchyProps) {
         </Button>
       </div>
 
+      {/* Organization Overview */}
+      <Card className="w-full">
+        <div className="bg-muted px-6 py-4 font-medium">
+          <h3 className="text-lg font-semibold">Organization Overview</h3>
+          <p className="text-sm text-muted-foreground">Employee distribution across hierarchy levels</p>
+        </div>
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {sortedLevels.map((level) => (
+              <div key={level} className="text-center">
+                <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getLevelColor(level)}`}>
+                  Level {level}
+                </div>
+                <p className="text-2xl font-bold mt-2">{employeesByLevel[level].length}</p>
+                <p className="text-xs text-muted-foreground">{getLevelName(level)}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {sortedLevels.map((level) => (
         <Card key={level} className="w-full overflow-hidden">
           <div className="bg-muted px-6 py-4 font-medium flex items-center justify-between">
@@ -167,23 +188,6 @@ export function EmployeeHierarchy({ employees }: EmployeeHierarchyProps) {
           </CardContent>
         </Card>
       ))}
-
-      {/* Summary */}
-      <Card className="mt-8">
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {sortedLevels.map((level) => (
-              <div key={level} className="text-center">
-                <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getLevelColor(level)}`}>
-                  Level {level}
-                </div>
-                <p className="text-2xl font-bold mt-2">{employeesByLevel[level].length}</p>
-                <p className="text-xs text-muted-foreground">{getLevelName(level)}</p>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
