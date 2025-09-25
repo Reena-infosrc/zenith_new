@@ -1,0 +1,93 @@
+service: ${env:SERVICE_NAME, 'ig-zenith-hr-pulse'}
+
+provider:
+  name: aws
+  runtime: python3.11
+  region: us-east-1
+  stage: ${env:STAGE, 'dev'}
+  architecture: x86_64
+  memorySize: 512
+  timeout: 900
+  deploymentMethod: direct
+  deploymentBucket:
+    name: ig-zenith-hr-pulse-serverless-infrastructure-${env:STAGE, 'dev'}
+    serverSideEncryption: AES256
+  apiGateway:
+    binaryMediaTypes:
+      - "*/*"
+  logs:
+    lambda: true
+    retentionInDays: 14
+    retainLogGroup: true
+
+custom:
+  dotenv:
+    path: .env.${env:STAGE, 'dev'}
+    exclude:
+      - AWS_REGION
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+  pythonRequirements:
+    layer: false
+    usePipenv: false
+    useStaticCache: false
+    useDownloadCache: false
+    dockerizePip: true
+  deploymentBucket:
+    versioning: true
+
+functions:
+  zenith-hr-pulse-api:
+    name: ${env:SERVICE_NAME, 'ig-zenith-hr-pulse'}-${env:STAGE, 'dev'}
+    handler: app.main.lambda_handler
+    runtime: python3.11
+    memorySize: 512
+    timeout: 100
+    architecture: x86_64
+    package:
+      include:
+        - app/**
+    events:
+      - http:
+          path: /
+          method: any
+          cors: true
+      - http:
+          path: /{proxy+}
+          method: any
+          cors: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - logs:CreateLogGroup
+          - logs:CreateLogStream
+          - logs:PutLogEvents
+          - dynamodb:Query
+          - dynamodb:Scan
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
+          - dynamodb:DeleteItem
+          - dynamodb:DescribeTable
+          - s3:PutObject
+          - s3:GetObject
+          - secretsmanager:GetSecretValue
+          - ses:SendEmail
+          - textract:AnalyzeDocument
+          - textract:GetDocumentTextDetection
+          - bedrock:InvokeModel
+        Resource: "*"
+
+package:
+  patterns:
+    - "!node_modules/**"
+    - "!venv/**"
+    - "!__pycache__/**"
+    - "app/**"
+
+plugins:
+  - serverless-deployment-bucket
+  - serverless-python-requirements
+  - serverless-iam-roles-per-function
+  - serverless-dotenv-plugin
+  - serverless-offline

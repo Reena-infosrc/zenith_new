@@ -37,7 +37,7 @@ export function useEmployeeSearch() {
     setIsSearching(true);
     
     try {
-      const response = await fetch('http://localhost:8000/api/employees/');
+      const response = await fetch('https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/employees/');
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);

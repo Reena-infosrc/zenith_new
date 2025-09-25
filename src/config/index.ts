@@ -5,5 +5,5 @@ export * from './employees';
 export const appConfig = {
   companyName: "Zenith HR Pulse",
   defaultTheme: "light",
-  apiBaseUrl: "http://localhost:8000/api",
+  apiBaseUrl: "https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api",
 }; 

@@ -9,15 +9,18 @@ from .database import initialize_dynamodb
 from .services.s3_service import initialize_s3
 from .services.bedrock_service import initialize_bedrock
 
+from mangum import Mangum
+
 load_dotenv()
 
 app = FastAPI(title="ZenithHR API")
 
 # Configure CORS
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8080").split(",")
+# cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8080").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    # allow_origins=cors_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,3 +70,5 @@ async def health_check():
             "bedrock": "initialized"
         }
     }
+
+lambda_handler = Mangum(app)

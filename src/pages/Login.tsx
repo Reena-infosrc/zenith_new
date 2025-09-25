@@ -72,7 +72,7 @@ export default function Login() {
     // Exchange MSAL token for backend token
     try {
       
-      const backendRes = await fetch("http://localhost:8000/api/auth/msal-token", {
+      const backendRes = await fetch("https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/auth/msal-token", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -124,7 +124,7 @@ export default function Login() {
       // Create parallel API calls
       const apiCalls = [
         // Feature Flags API
-        fetch('http://localhost:8000/api/feature-flags/', { headers })
+        fetch('https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/feature-flags/', { headers })
           .then(async response => {
             if (response.ok) {
               const data = await response.json();
@@ -141,7 +141,7 @@ export default function Login() {
           }),
 
         // Employees API
-        fetch('http://localhost:8000/api/employees', { headers })
+        fetch('https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/employees', { headers })
           .then(async response => {
             if (response.ok) {
               const data = await response.json();
@@ -207,7 +207,7 @@ export default function Login() {
           }),
 
         // Dashboard API
-        fetch('http://localhost:8000/api/employees-dashboard/', { headers })
+        fetch('https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/employees-dashboard/', { headers })
           .then(async response => {
             if (response.ok) {
               const data = await response.json();

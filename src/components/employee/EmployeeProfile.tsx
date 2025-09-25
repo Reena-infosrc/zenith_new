@@ -156,7 +156,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         formData.append('file', photo);
         formData.append('name', employee.name);
         
-        const response = await authenticatedFetch(`http://localhost:8000/api/employees/upload-photo/${employee.id}`, {
+        const response = await authenticatedFetch(`https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/employees/upload-photo/${employee.id}`, {
           method: 'POST',
           body: formData,
         });

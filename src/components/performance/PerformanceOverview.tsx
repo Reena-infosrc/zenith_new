@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 
 const EMPLOYEE_ID = "1"; // Replace with actual employeeId from auth/session
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/";
 
 export function PerformanceOverview() {
   const [showOverdueCheckIn, setShowOverdueCheckIn] = useState(true);
