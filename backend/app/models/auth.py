@@ -3,8 +3,29 @@ from typing import Optional, Dict
 from passlib.context import CryptContext
 import bcrypt
 
-# Update the CryptContext configuration
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__ident="2b")
+# Update the CryptContext configuration with more robust settings
+pwd_context = CryptContext(
+    schemes=["bcrypt"], 
+    deprecated="auto", 
+    bcrypt__ident="2b",
+    bcrypt__rounds=12
+)
+
+def hash_password_safe(password: str) -> str:
+    """
+    Safely hash password with proper length handling for bcrypt.
+    Bcrypt has a 72-byte limit, so we truncate if necessary.
+    """
+    # Ensure we're working with a string
+    password_str = str(password)
+    
+    # Convert to bytes and truncate to 72 bytes if necessary
+    password_bytes = password_str.encode('utf-8')
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+        password_str = password_bytes.decode('utf-8', errors='ignore')
+    
+    return pwd_context.hash(password_str)
 
 class Token(BaseModel):
     access_token: str
@@ -42,14 +63,14 @@ class User(UserBase):
             }
         }
 
-# Update mock users with the correct credentials
+# Update mock users with the correct credentials and safe password hashing
 MOCK_USERS: Dict[str, dict] = {
     "admin@example.com": {
         "id": "1",
         "username": "admin",
         "email": "admin@example.com",
         "full_name": "Admin User",
-        "hashed_password": pwd_context.hash("admin123"),
+        "hashed_password": hash_password_safe("admin123"),
         "is_active": True,
         "is_admin": True
     },
@@ -58,7 +79,7 @@ MOCK_USERS: Dict[str, dict] = {
         "username": "user",
         "email": "user@example.com",
         "full_name": "Regular User",
-        "hashed_password": pwd_context.hash("user123"),
+        "hashed_password": hash_password_safe("user123"),
         "is_active": True,
         "is_admin": False
     }
