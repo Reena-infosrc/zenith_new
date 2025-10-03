@@ -124,7 +124,7 @@ export function useEmployees() {
           console.log("useEmployees - No token available");
         }
         
-        const response = await fetch(`${API_BASE_URL}/employees`, { headers });
+        const response = await fetch(`${API_BASE_URL}/employees?limit=10000`, { headers });
         
         console.log('API response:', {
           status: response.status,
@@ -154,7 +154,7 @@ export function useEmployees() {
               location: "New York",
               dateOfBirth: "1995-05-15",
               dateOfJoining: "2023-01-15",
-              gender: "Male"
+              gender: "MALE"
             },
             { 
               id: "2", 
@@ -173,7 +173,7 @@ export function useEmployees() {
               location: "San Francisco",
               dateOfBirth: "1992-08-22",
               dateOfJoining: "2023-02-20",
-              gender: "Female"
+              gender: "FEMALE"
             },
             { 
               id: "3", 
@@ -192,7 +192,7 @@ export function useEmployees() {
               location: "Seattle",
               dateOfBirth: "1988-12-03",
               dateOfJoining: "2022-11-10",
-              gender: "Male"
+              gender: "MALE"
             },
             { 
               id: "4", 
@@ -211,7 +211,7 @@ export function useEmployees() {
               location: "Chicago",
               dateOfBirth: "1996-03-15",
               dateOfJoining: "2023-03-05",
-              gender: "Female"
+              gender: "FEMALE"
             },
             { 
               id: "5", 
@@ -230,7 +230,7 @@ export function useEmployees() {
               location: "Miami",
               dateOfBirth: "1990-07-08",
               dateOfJoining: "2023-04-12",
-              gender: "Male"
+              gender: "MALE"
             }
           ];
           globalEmployees = mockEmployees;
@@ -331,7 +331,7 @@ export function useEmployees() {
             location: "New York",
             dateOfBirth: "1995-05-15",
             dateOfJoining: "2023-01-15",
-            gender: "Male"
+            gender: "MALE"
           },
           { 
             id: "2", 
@@ -350,7 +350,7 @@ export function useEmployees() {
             location: "San Francisco",
             dateOfBirth: "1992-08-22",
             dateOfJoining: "2023-02-20",
-            gender: "Female"
+            gender: "FEMALE"
           },
           { 
             id: "3", 
@@ -369,7 +369,7 @@ export function useEmployees() {
             location: "Seattle",
             dateOfBirth: "1988-12-03",
             dateOfJoining: "2022-11-10",
-            gender: "Male"
+            gender: "MALE"
           },
           { 
             id: "4", 
@@ -388,7 +388,7 @@ export function useEmployees() {
             location: "Chicago",
             dateOfBirth: "1996-03-15",
             dateOfJoining: "2023-03-05",
-            gender: "Female"
+            gender: "FEMALE"
           },
           { 
             id: "5", 
@@ -407,7 +407,7 @@ export function useEmployees() {
             location: "Miami",
             dateOfBirth: "1990-07-08",
             dateOfJoining: "2023-04-12",
-            gender: "Male"
+            gender: "MALE"
           }
         ];
         globalEmployees = mockEmployees;
@@ -804,6 +804,12 @@ export function useEmployees() {
     };
   }, [employees.length, globalLoading, globalError]);
 
+  // Clear cache and force refresh
+  const clearCache = () => {
+    apiCache.clear();
+    console.log('🗑️ Cache cleared, forcing fresh data fetch');
+  };
+
   return {
     employees,
     isLoading,
@@ -813,6 +819,7 @@ export function useEmployees() {
     createEmployee,
     updateEmployee,
     deleteEmployee,
-    importEmployeesFromCsv
+    importEmployeesFromCsv,
+    clearCache
   };
 }

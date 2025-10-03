@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award, Save } from "lucide-react";
+import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award, Save, Clock } from "lucide-react";
 import { useEmployees } from '@/hooks/use-employees';
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
@@ -110,7 +110,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const validLocations = locations.filter(loc => loc && loc.trim() !== '');
   
   // Gender options
-  const genderOptions = ['Male', 'Female', 'Other', 'Prefer not to say'];
+  const genderOptions = ['MALE', 'FEMALE'];
 
   // Sync profileData with employee prop when it changes
   useEffect(() => {
@@ -141,6 +141,44 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       const file = e.target.files[0];
       setPhoto(file);
       console.log("Photo file selected:", file.name, file.size, "bytes");
+    }
+  };
+
+  const calculateExperience = (dateOfJoining?: string) => {
+    if (!dateOfJoining) return 'N/A';
+    
+    try {
+      const joiningDate = new Date(dateOfJoining);
+      const currentDate = new Date();
+      
+      // Calculate the difference in years
+      let years = currentDate.getFullYear() - joiningDate.getFullYear();
+      let months = currentDate.getMonth() - joiningDate.getMonth();
+      
+      // Adjust if the current month is before the joining month
+      if (months < 0) {
+        years--;
+        months += 12;
+      }
+      
+      // Calculate days for more precise calculation
+      const daysDiff = currentDate.getDate() - joiningDate.getDate();
+      if (daysDiff < 0) {
+        months--;
+      }
+      
+      // Format the experience
+      if (years === 0 && months === 0) {
+        return 'Less than 1 month';
+      } else if (years === 0) {
+        return `${months} month${months > 1 ? 's' : ''}`;
+      } else if (months === 0) {
+        return `${years} year${years > 1 ? 's' : ''}`;
+      } else {
+        return `${years} year${years > 1 ? 's' : ''} ${months} month${months > 1 ? 's' : ''}`;
+      }
+    } catch {
+      return 'N/A';
     }
   };
 
@@ -556,6 +594,19 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     className={!isEditing ? "bg-muted" : ""}
                   />
                 </div>
+
+                {/* Experience At Info Services - Only show in view mode */}
+                {!isEditing && profileData.dateOfJoining && (
+                  <div className="space-y-2">
+                    <Label htmlFor="experience">Experience At Info Services</Label>
+                    <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">
+                        {calculateExperience(profileData.dateOfJoining)}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

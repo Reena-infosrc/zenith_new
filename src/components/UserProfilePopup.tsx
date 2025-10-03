@@ -1,4 +1,4 @@
-import { Mail, Phone, MapPin, Calendar, Building, Users, Award } from 'lucide-react';
+import { Mail, Phone, MapPin, Calendar, Building, Users, Award, Clock } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -49,6 +49,44 @@ export function UserProfilePopup({ isOpen, onClose, employee }: UserProfilePopup
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
+  };
+
+  const calculateExperience = (dateOfJoining?: string) => {
+    if (!dateOfJoining) return 'N/A';
+    
+    try {
+      const joiningDate = new Date(dateOfJoining);
+      const currentDate = new Date();
+      
+      // Calculate the difference in years
+      let years = currentDate.getFullYear() - joiningDate.getFullYear();
+      let months = currentDate.getMonth() - joiningDate.getMonth();
+      
+      // Adjust if the current month is before the joining month
+      if (months < 0) {
+        years--;
+        months += 12;
+      }
+      
+      // Calculate days for more precise calculation
+      const daysDiff = currentDate.getDate() - joiningDate.getDate();
+      if (daysDiff < 0) {
+        months--;
+      }
+      
+      // Format the experience
+      if (years === 0 && months === 0) {
+        return 'Less than 1 month';
+      } else if (years === 0) {
+        return `${months} month${months > 1 ? 's' : ''}`;
+      } else if (months === 0) {
+        return `${years} year${years > 1 ? 's' : ''}`;
+      } else {
+        return `${years} year${years > 1 ? 's' : ''} ${months} month${months > 1 ? 's' : ''}`;
+      }
+    } catch {
+      return 'N/A';
+    }
   };
 
   return (
@@ -190,6 +228,17 @@ export function UserProfilePopup({ isOpen, onClose, employee }: UserProfilePopup
                     <p className="text-sm font-medium">Date of Joining</p>
                     <p className="text-sm text-muted-foreground">
                       {formatDate(employee.dateOfJoining)}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {employee.dateOfJoining && (
+                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Experience At Info Services</p>
+                    <p className="text-sm text-muted-foreground">
+                      {calculateExperience(employee.dateOfJoining)}
                     </p>
                   </div>
                 </div>

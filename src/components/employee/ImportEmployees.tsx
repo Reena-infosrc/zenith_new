@@ -71,8 +71,8 @@ export function ImportEmployees({ isOpen, onClose }: ImportEmployeesProps) {
   const downloadTemplate = () => {
     const csvContent = [
       "EmployeeID,FirstName,LastName,EmploymentCategory,Gender,EmployeeStatus,Account,Department,IsLeader,Location,Mobile,Dob,Doj,Email,Position,ProfilePic,Expertise,ExperienceYears",
-      "E0001,Ajay,Patel,FTE,Male,Billable,Ford,Info Services Delivery,No,India,9884271939,1969-12-01,2025-07-02,Ravikumar.Sivaprakasam@infoservices.com,Manager,https://example.com/profile.jpg,Project Management,5",
-      "E0002,Jane,Smith,FTE,Female,Billable,Microsoft,Engineering,Yes,USA,5551234567,1990-05-15,2024-01-15,jane.smith@microsoft.com,Senior Developer,https://example.com/jane.jpg,Frontend Development,3"
+      "E0001,Ajay,Patel,FTE,MALE,Billable,Ford,Info Services Delivery,No,India,9884271939,1969-12-01,2025-07-02,Ravikumar.Sivaprakasam@infoservices.com,Manager,https://example.com/profile.jpg,Project Management,5",
+      "E0002,Jane,Smith,FTE,FEMALE,Billable,Microsoft,Engineering,Yes,USA,5551234567,1990-05-15,2024-01-15,jane.smith@microsoft.com,Senior Developer,https://example.com/jane.jpg,Frontend Development,3"
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -159,7 +159,7 @@ export function ImportEmployees({ isOpen, onClose }: ImportEmployeesProps) {
                   <div><strong>Position:</strong> Job title/position</div>
                   <div><strong>Department:</strong> Department name</div>
                   <div><strong>EmploymentCategory:</strong> FTE, Contractor, etc.</div>
-                  <div><strong>Gender:</strong> Male, Female, Other</div>
+                  <div><strong>Gender:</strong> MALE, FEMALE, Prefer not to say</div>
                   <div><strong>EmployeeStatus:</strong> Billable, Non-billable, etc.</div>
                   <div><strong>Account:</strong> Client account name</div>
                   <div><strong>IsLeader:</strong> Yes/No</div>

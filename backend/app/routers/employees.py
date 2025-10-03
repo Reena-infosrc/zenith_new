@@ -4,7 +4,13 @@ from ..models.employee import EmployeeCreate, EmployeeUpdate, EmployeeInDB
 from ..database_dynamodb import get_employees_table, parse_dynamodb_item, format_dynamodb_item
 from ..security import get_current_active_user
 from ..services.image_upload import ImageUploadService
+from ..feature_flags import FeatureFlags
 import time
+import datetime
+import csv
+import io
+import uuid
+import pandas as pd
 
 router = APIRouter(
     prefix="/api/employees",
@@ -16,7 +22,7 @@ router = APIRouter(
 @router.get("/", response_model=List[EmployeeInDB])
 async def get_employees(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=100),
+    limit: int = Query(1000, ge=1),
     department: Optional[str] = None,
     location: Optional[str] = None,
     employee_status: Optional[str] = None,
@@ -35,11 +41,29 @@ async def get_employees(
         table = await get_employees_table()
         print(f"DEBUG: Table obtained: {table}")
 
-        # Simple scan to get all employees
-        print(f"DEBUG: Performing scan...")
-        resp = await table.scan(Limit=1000)  # Get up to 1000 employees
-        items = resp.get("Items", [])
-        print(f"DEBUG: Scan returned {len(items)} items")
+        # Scan all employees with pagination
+        print(f"DEBUG: Performing scan with pagination...")
+        all_items = []
+        last_evaluated_key = None
+        
+        while True:
+            scan_kwargs = {}
+            if last_evaluated_key:
+                scan_kwargs['ExclusiveStartKey'] = last_evaluated_key
+            
+            resp = await table.scan(**scan_kwargs)
+            items = resp.get("Items", [])
+            all_items.extend(items)
+            
+            print(f"DEBUG: Scan batch returned {len(items)} items, total so far: {len(all_items)}")
+            
+            # Check if there are more items to scan
+            last_evaluated_key = resp.get('LastEvaluatedKey')
+            if not last_evaluated_key:
+                break
+        
+        print(f"DEBUG: Total items scanned: {len(all_items)}")
+        items = all_items
 
         # Parse and normalize items
         print(f"DEBUG: Parsing {len(items)} items")
@@ -262,3 +286,156 @@ async def upload_employee_photo(
     except Exception as e:
         print(f"Error uploading photo: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to upload photo: {str(e)}")
+
+@router.post("/import-csv")
+async def import_employees_csv(
+    file: UploadFile = File(...),
+    overwrite: bool = Query(False),
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Import employees from CSV/Excel file with new structure"""
+    # Check if bulk upload feature is enabled
+    bulk_upload_enabled = FeatureFlags.is_enabled("bulk_upload")
+    print(f"DEBUG: bulk_upload feature flag: {bulk_upload_enabled}")
+    print(f"DEBUG: All feature flags: {FeatureFlags.all_features()}")
+    
+    if not bulk_upload_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bulk upload feature is not enabled"
+        )
+    
+    try:
+        contents = await file.read()
+        
+        # Check file extension and parse accordingly
+        if file.filename.endswith('.csv'):
+            buffer = io.StringIO(contents.decode())
+            csv_reader = csv.DictReader(buffer)
+            rows = list(csv_reader)
+        elif file.filename.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(io.BytesIO(contents))
+            rows = df.to_dict('records')
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="File must be CSV or Excel format"
+            )
+        
+        # Expected CSV columns
+        expected_columns = [
+            "EmployeeID", "FirstName", "LastName", "EmploymentCategory", 
+            "Gender", "EmployeeStatus", "Account", "Department", 
+            "IsLeader", "Location", "Mobile", "Dob", "Doj", 
+            "Email", "Position", "ProfilePic", "Expertise"
+        ]
+        
+        # Check for missing required columns
+        if not rows:
+            raise HTTPException(status_code=400, detail="File is empty")
+        
+        available_columns = list(rows[0].keys())
+        missing_columns = [col for col in expected_columns if col not in available_columns]
+        
+        if missing_columns:
+            error_message = f"Missing required columns: {', '.join(missing_columns)}. "
+            error_message += f"Expected columns: {', '.join(expected_columns)}. "
+            error_message += f"Found columns: {', '.join(available_columns)}"
+            raise HTTPException(status_code=400, detail=error_message)
+        
+        employees_to_insert = []
+        row_count = 0
+        error_rows = []
+        
+        # Process each row
+        for row in rows:
+            row_count += 1
+            
+            try:
+                # Validate required fields
+                required_fields = ["FirstName", "LastName", "Position", "Department", "Email"]
+                missing_fields = [field for field in required_fields if not row.get(field)]
+                
+                if missing_fields:
+                    error_rows.append(f"Row {row_count}: Missing required fields: {', '.join(missing_fields)}")
+                    continue
+                
+                # Parse dates
+                dob = None
+                doj = None
+                
+                if row.get("Dob"):
+                    try:
+                        dob = datetime.datetime.strptime(row["Dob"], "%Y-%m-%d").date()
+                    except ValueError:
+                        error_rows.append(f"Row {row_count}: Invalid date format for Dob (expected YYYY-MM-DD)")
+                        continue
+                
+                if row.get("Doj"):
+                    try:
+                        doj = datetime.datetime.strptime(row["Doj"], "%Y-%m-%d").date()
+                    except ValueError:
+                        error_rows.append(f"Row {row_count}: Invalid date format for Doj (expected YYYY-MM-DD)")
+                        continue
+                
+                # Create employee record
+                now = datetime.datetime.now().date()
+                employee = {
+                    "id": str(uuid.uuid4()),
+                    "employee_id": row.get("EmployeeID", ""),
+                    "first_name": row.get("FirstName", ""),
+                    "last_name": row.get("LastName", ""),
+                    "name": f"{row['FirstName']} {row['LastName']}".strip(),
+                    "email": row.get("Email", ""),
+                    "position": row.get("Position", ""),
+                    "department": row.get("Department", ""),
+                    "phone": row.get("Mobile", ""),
+                    "mobile": row.get("Mobile", ""),
+                    "employment_category": row.get("EmploymentCategory", ""),
+                    "gender": row.get("Gender", ""),
+                    "employee_status": row.get("EmployeeStatus", ""),
+                    "account": row.get("Account", ""),
+                    "is_leader": row.get("IsLeader", ""),
+                    "location": row.get("Location", ""),
+                    "date_of_birth": dob.isoformat() if dob else None,
+                    "date_of_joining": doj.isoformat() if doj else None,
+                    "photo_url": row.get("ProfilePic", ""),  # Map ProfilePic to photo_url
+                    "expertise": row.get("Expertise", ""),
+                    "created_at": now.isoformat(),
+                    "updated_at": now.isoformat()
+                }
+                
+                employees_to_insert.append(employee)
+            
+            except Exception as e:
+                error_rows.append(f"Row {row_count}: Error processing row - {str(e)}")
+                continue
+        
+        # Insert employees into DynamoDB
+        inserted_count = 0
+        if employees_to_insert:
+            table = await get_employees_table()
+            for employee in employees_to_insert:
+                try:
+                    formatted_item = format_dynamodb_item(employee)
+                    await table.put_item(Item=formatted_item)
+                    inserted_count += 1
+                except Exception as e:
+                    error_rows.append(f"Error inserting employee {employee.get('name', 'Unknown')}: {str(e)}")
+        
+        # Return summary
+        return {
+            "success": True,
+            "total_rows": row_count,
+            "inserted": inserted_count,
+            "errors": error_rows,
+            "message": f"Successfully imported {inserted_count} out of {row_count} employees"
+        }
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Import failed: {str(e)}"
+        )
