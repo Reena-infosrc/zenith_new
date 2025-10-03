@@ -4,9 +4,13 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+import logging
 
 from .models import TokenData, MOCK_USERS
 from .config import config
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 # Security configuration
 SECRET_KEY = config.get("security.secret_key", "your-secret-key-for-development")
@@ -26,8 +30,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
-    """Generate password hash."""
-    return pwd_context.hash(password)
+    """Generate password hash with proper length handling for bcrypt."""
+    # Ensure we're working with a string
+    password_str = str(password)
+    
+    # Convert to bytes and truncate to 72 bytes if necessary
+    password_bytes = password_str.encode('utf-8')
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+        password_str = password_bytes.decode('utf-8', errors='ignore')
+    
+    return pwd_context.hash(password_str)
 
 def get_user(username: str) -> Optional[dict]:
     """Get user from database."""
