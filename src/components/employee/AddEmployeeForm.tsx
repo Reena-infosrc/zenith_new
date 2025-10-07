@@ -55,6 +55,8 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
   
   // Get available managers for dropdown
   const managers = employees.filter(emp => emp.id);
+  // Unique expertise values for dropdown
+  const expertiseOptions = Array.from(new Set((employees || []).map(e => e.expertise).filter(Boolean))) as string[];
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -366,13 +368,19 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
               
               <div className="space-y-2 col-span-2">
                 <Label htmlFor="expertise">Expertise</Label>
-                <Input 
-                  id="expertise" 
-                  name="expertise"
+                <Select
                   value={formData.expertise}
-                  onChange={handleChange}
-                  placeholder="Enter area of expertise (e.g., Frontend Development, Data Science)"
-                />
+                  onValueChange={(value) => handleSelectChange('expertise', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select expertise" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {expertiseOptions.map((exp) => (
+                      <SelectItem key={exp} value={exp}>{exp}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               
               <div className="space-y-2">
