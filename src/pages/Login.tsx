@@ -390,10 +390,19 @@ export default function Login() {
               autoPlay
               muted
               loop
+              playsInline
+              preload="auto"
               className="w-full h-full object-cover absolute inset-0"
               style={{ display: loginClicked ? 'none' : 'block' }}
+              onError={() => {
+                console.error('Intro video failed to load');
+              }}
             >
-              <source src="/src/video/Start.mp4" type="video/mp4" />
+              {/* Public assets live under /public, accessible at /video/... */}
+              <source src="/video/Start.mp4" type="video/mp4" />
+              {/* Fallback variants for case/filename differences */}
+              <source src="/video/Start Old.mp4" type="video/mp4" />
+              <source src="/public/video/Start.mp4" type="video/mp4" />
               Your browser does not support the video tag.
             </video>
             
@@ -401,10 +410,19 @@ export default function Login() {
             <video 
               ref={loginVideoRef}
               muted
+              playsInline
+              preload="auto"
               className="w-full h-full object-cover absolute inset-0"
               style={{ display: 'none' }}
+              onError={() => {
+                console.error('After login video failed to load');
+              }}
             >
-              <source src="/src/video/after login.mp4" type="video/mp4" />
+              {/* Use unified public path with multiple filename casing fallbacks */}
+              <source src="/video/After_login.mp4" type="video/mp4" />
+              <source src="/video/After_Login.mp4" type="video/mp4" />
+              <source src="/video/after_login.mp4" type="video/mp4" />
+              <source src="/public/video/After_login.mp4" type="video/mp4" />
               Your browser does not support the video tag.
             </video>
           </div>

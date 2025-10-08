@@ -2,8 +2,8 @@ import { FeatureFlagStatus } from '@/hooks/use-feature-flags';
 
 // Define the module order for navigation priority
 export const MODULE_NAVIGATION_ORDER = [
-  { name: 'Home', route: '/home', featureFlag: 'home_module' },
   { name: 'Directory', route: '/directory', featureFlag: 'directory_module' },
+  { name: 'Home', route: '/home', featureFlag: 'home_module' },
   { name: 'Leave', route: '/leave', featureFlag: 'leave_module' },
   { name: 'Recruitment', route: '/recruitment', featureFlag: 'recruitment_module' },
   { name: 'Performance', route: '/performance', featureFlag: 'performance_module' },
@@ -18,7 +18,7 @@ export const MODULE_NAVIGATION_ORDER = [
 /**
  * Get the first available module route based on feature flags
  * @param featureFlagStatus - Map of feature flag statuses
- * @returns The route of the first enabled module, or '/home' as fallback
+ * @returns The route of the first enabled module, or '/directory' as fallback
  */
 export function getFirstAvailableModuleRoute(featureFlagStatus: Record<string, FeatureFlagStatus>): string {
   // Find the first module that is enabled (not disabled or hidden)
@@ -29,8 +29,8 @@ export function getFirstAvailableModuleRoute(featureFlagStatus: Record<string, F
     }
   }
   
-  // Fallback to home if no modules are enabled
-  return '/home';
+  // Fallback to directory if no modules are enabled
+  return '/directory';
 }
 
 /**

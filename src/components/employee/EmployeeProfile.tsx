@@ -709,13 +709,23 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
               {isEditing ? (
                 <div className="space-y-2">
                   <Label htmlFor="expertise">Expertise</Label>
-                  <Input 
-                    id="expertise" 
-                    name="expertise"
-                    value={profileData.expertise || ''} 
-                    onChange={handleChange}
-                    placeholder="Enter area of expertise (e.g., Frontend Development, Data Science)"
-                  />
+                  {/* Expertise dropdown populated from existing employees' expertise values */}
+                  <Select
+                    value={profileData.expertise || ''}
+                    onValueChange={(value) => setProfileData(prev => ({ ...prev, expertise: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select expertise" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* Unique expertise values across employees */}
+                      {[...new Set((employees || []).map(e => e.expertise).filter(Boolean))].map((exp) => (
+                        <SelectItem key={String(exp)} value={String(exp)}>
+                          {String(exp)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
