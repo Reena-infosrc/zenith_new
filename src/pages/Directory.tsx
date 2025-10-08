@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ type ViewMode = "grid" | "list" | "hierarchy";
 type HierarchyViewMode = "levels" | "flowchart" | "tree";
 
 export default function Directory() {
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeModule, setActiveModule] = useState<string>("Directory");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -47,6 +49,7 @@ export default function Directory() {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   
@@ -58,8 +61,12 @@ export default function Directory() {
     error,
     createEmployee,
     updateEmployee,
-    importEmployeesFromCsv 
+    importEmployeesFromCsv,
+    fetchEmployees
   } = useEmployees();
+  
+  // Show loading state when navigating or when data is loading
+  const showLoading = isLoading || isNavigating;
   
   // Available departments, locations, and accounts for filters - dynamically generated from employee data
   const departments = [...new Set(employees.map(emp => emp.department).filter(Boolean))].sort();
@@ -75,6 +82,19 @@ export default function Directory() {
   };
   
   const clearFilters = () => setActiveFilters([]);
+  
+  // Handle navigation to dashboard with loading state
+  const handleNavigateToDashboard = () => {
+    setIsNavigating(true);
+    navigate('/dashboard');
+  };
+  
+  // Reset navigation state when component mounts or data loads
+  useEffect(() => {
+    if (!isLoading && employees.length > 0) {
+      setIsNavigating(false);
+    }
+  }, [isLoading, employees.length]);
   
   // Filter employees based on active filters
   const filteredEmployees = employees.filter(employee => {
@@ -234,9 +254,9 @@ export default function Directory() {
                   <Plus className="h-4 w-4" />
                   Add Employee
                 </Button>
-                <Button variant="outline" className="gap-2" onClick={() => window.location.href = '/dashboard'}>
+                <Button variant="outline" className="gap-2" onClick={handleNavigateToDashboard} disabled={isNavigating}>
                   <BarChart2 className="h-4 w-4" />
-                  Dashboard
+                  {isNavigating ? "Loading..." : "Dashboard"}
                 </Button>
                 <Button variant="outline" className="gap-2" onClick={() => setShowImport(true)}>
                   <Upload className="h-4 w-4" />
@@ -270,10 +290,15 @@ export default function Directory() {
             
             {/* Employee Directory */}
             <div className="mb-8">
-              {isLoading ? (
-                <div className="flex justify-center items-center py-12">
-                  <div className="animate-spin h-8 w-8 border-4 border-primary rounded-full border-t-transparent"></div>
-                  <span className="ml-3 text-muted-foreground">Loading employees...</span>
+              {showLoading ? (
+                <div className="flex flex-col justify-center items-center py-12">
+                  <div className="animate-spin h-12 w-12 border-4 border-primary rounded-full border-t-transparent mb-4"></div>
+                  <div className="text-lg font-medium text-muted-foreground mb-2">
+                    {isNavigating ? "Navigating to Dashboard..." : "Loading employees..."}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Please wait while we fetch the latest data
+                  </div>
                 </div>
               ) : error ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
