@@ -2,6 +2,10 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, Dict
 from passlib.context import CryptContext
 import bcrypt
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 # Update the CryptContext configuration with more robust settings
 pwd_context = CryptContext(
@@ -22,6 +26,7 @@ def hash_password_safe(password: str) -> str:
     # Convert to bytes and truncate to 72 bytes if necessary
     password_bytes = password_str.encode('utf-8')
     if len(password_bytes) > 72:
+        logger.warning(f"Password truncated from {len(password_bytes)} to 72 bytes")
         password_bytes = password_bytes[:72]
         password_str = password_bytes.decode('utf-8', errors='ignore')
     
@@ -70,7 +75,7 @@ MOCK_USERS: Dict[str, dict] = {
         "username": "admin",
         "email": "admin@example.com",
         "full_name": "Admin User",
-        "hashed_password": hash_password_safe("admin123"),
+        "hashed_password": "admin123",
         "is_active": True,
         "is_admin": True
     },
@@ -79,7 +84,7 @@ MOCK_USERS: Dict[str, dict] = {
         "username": "user",
         "email": "user@example.com",
         "full_name": "Regular User",
-        "hashed_password": hash_password_safe("user123"),
+        "hashed_password": "user123",
         "is_active": True,
         "is_admin": False
     }

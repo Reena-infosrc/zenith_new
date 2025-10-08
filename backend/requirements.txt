@@ -28,6 +28,9 @@
 
 fastapi>=0.100.0
 mangum>=0.3.6
+# numpy==1.26.4
+# pandas>=2.1.4
+gunicorn==21.2.0
 uvicorn>=0.15.0
 pydantic>=2.4.2
 pydantic[email]
@@ -41,6 +44,11 @@ aiofiles>=23.2.1
 jinja2>=3.1.2
 python-magic>=0.4.27
 requests>=2.31.0
+numpy==1.26.4
+pandas>=2.1.4
+python-dateutil
+pytz
+six
 
 # AWS SDK Dependencies
 boto3>=1.34.0

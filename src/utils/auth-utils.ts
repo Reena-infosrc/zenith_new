@@ -2,7 +2,7 @@
  * Authentication utilities for handling JWT tokens and automatic refresh
  */
 
-const API_BASE_URL = 'https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/';
+const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com/';
 
 export interface TokenResponse {
   access_token: string;

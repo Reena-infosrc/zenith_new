@@ -94,7 +94,7 @@ export default function Dashboard() {
         return;
       }
       
-      const response = await fetch('https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/employees-dashboard/');
+      const response = await fetch('https://zenith-hr-api.apps.infoservices.com/api/employees-dashboard/');
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

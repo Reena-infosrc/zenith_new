@@ -37,7 +37,7 @@ export function useEmployeeSearch() {
     setIsSearching(true);
     
     try {
-      const response = await fetch('https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/employees/');
+      const response = await fetch('https://zenith-hr-api.apps.infoservices.com/api/employees/');
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);

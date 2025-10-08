@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  zenith-hr-pulse-api:
+    # image: 339713066436.dkr.ecr.us-east-1.amazonaws.com/serverless-ig-zenith-hr-pulse-dev:latest
+    image: zenith-hr-pulse-image:latest
+    container_name: zenith-hr-pulse-api
+    ports:
+      - "5000:5000"
+    environment:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      JWT_SECRET: YourSuperSecureJWTKeyHere123!
+      ROOT_PATH: /dev
+    command: >
+      gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app -b 0.0.0.0:5000 --timeout 120
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped

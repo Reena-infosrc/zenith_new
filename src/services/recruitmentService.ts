@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 
-const API_BASE_URL = 'https://a3x3k8svll.execute-api.us-east-1.amazonaws.com/dev/api/recruitment';
+const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com/api/recruitment';
 
 export interface JobRequisitionData {
   jobTitle: string;
