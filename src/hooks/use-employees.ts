@@ -52,17 +52,22 @@ export function useEmployees() {
   });
 
   // Fetch all employees
-  const fetchEmployees = async () => {
+  const fetchEmployees = async (sortBy?: string, sortOrder?: string) => {
     console.log('fetchEmployees called:', {
       globalLoading,
       globalEmployeesLength: globalEmployees.length,
-      hasPromise: !!globalFetchPromise
+      hasPromise: !!globalFetchPromise,
+      sortBy,
+      sortOrder
     });
 
+    // Create cache key that includes sorting parameters
+    const cacheKey = sortBy ? `${CACHE_KEYS.EMPLOYEES}-${sortBy}-${sortOrder}` : CACHE_KEYS.EMPLOYEES;
+    
     // Check cache first
-    const cachedData = apiCache.get(CACHE_KEYS.EMPLOYEES);
+    const cachedData = apiCache.get(cacheKey);
     if (cachedData) {
-      console.log('✅ Using cached employees data:', cachedData.length, 'employees');
+      console.log('✅ Using cached employees data:', cachedData.length, 'employees', 'with sort:', sortBy, sortOrder);
       console.log('🔍 Cached data sample:', cachedData[0] ? {
         id: cachedData[0].id,
         employeeId: cachedData[0].employeeId,
@@ -78,7 +83,7 @@ export function useEmployees() {
       setError(null);
       return;
     } else {
-      console.log('❌ No cached employees data found');
+      console.log('❌ No cached employees data found for key:', cacheKey);
     }
 
     // If already loading, return the existing promise
@@ -124,7 +129,17 @@ export function useEmployees() {
           console.log("useEmployees - No token available");
         }
         
-        const response = await fetch(`${API_BASE_URL}/employees?limit=10000`, { headers });
+        // Build query parameters
+        const params = new URLSearchParams();
+        params.append('limit', '10000');
+        if (sortBy) {
+          params.append('sort_by', sortBy);
+        }
+        if (sortOrder) {
+          params.append('sort_order', sortOrder);
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, { headers });
         
         console.log('API response:', {
           status: response.status,
@@ -302,6 +317,10 @@ export function useEmployees() {
       console.log('Updating global state with', transformedData.length, 'employees');
       globalEmployees = transformedData;
       globalError = null;
+      
+      // Cache the data with the appropriate key
+      apiCache.set(cacheKey, transformedData);
+      console.log('✅ Cached employees data with key:', cacheKey);
       
       // Dispatch event to notify other components
       window.dispatchEvent(new CustomEvent('employeesUpdated'));

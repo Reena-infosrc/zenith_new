@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, status
+from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, status, Form
 from typing import List, Optional
 from ..models.employee import EmployeeCreate, EmployeeUpdate, EmployeeInDB
 from ..database_dynamodb import get_employees_table, parse_dynamodb_item, format_dynamodb_item
@@ -31,7 +31,9 @@ async def get_employees(
     position: Optional[str] = None,
     gender: Optional[str] = None,
     account: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    sort_by: Optional[str] = Query(None, description="Sort by field: name, date_of_joining"),
+    sort_order: Optional[str] = Query("asc", description="Sort order: asc, desc")
 ):
     """Get all employees with optional filtering from DynamoDB"""
     try:
@@ -100,8 +102,36 @@ async def get_employees(
                 )
             ]
 
+        # Apply sorting
+        if sort_by:
+            reverse_order = sort_order and sort_order.lower() == "desc"
+            
+            if sort_by == "name":
+                parsed.sort(key=lambda x: x.get("name", "").lower(), reverse=reverse_order)
+            elif sort_by == "date_of_joining":
+                def get_date_key(emp):
+                    date_str = emp.get("date_of_joining", "")
+                    if not date_str:
+                        return "9999-12-31"  # Put employees without date at the end
+                    try:
+                        # Handle both date string and datetime object
+                        if isinstance(date_str, str):
+                            return date_str
+                        else:
+                            return date_str.isoformat() if hasattr(date_str, 'isoformat') else str(date_str)
+                    except:
+                        return "9999-12-31"
+                
+                parsed.sort(key=get_date_key, reverse=reverse_order)
+
         # Apply pagination via slicing
-        sliced = parsed[skip: skip + limit]
+        try:
+            start_idx = int(skip) if isinstance(skip, (int, str)) else 0
+            end_idx = start_idx + (int(limit) if isinstance(limit, (int, str)) else 1000)
+        except (ValueError, TypeError):
+            start_idx = 0
+            end_idx = 1000
+        sliced = parsed[start_idx: end_idx]
         
         print(f"DEBUG: Returning {len(sliced)} employees")
         return sliced
@@ -129,31 +159,126 @@ async def get_employee(employee_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to fetch employee: {str(e)}")
 
 @router.post("/", response_model=EmployeeInDB, status_code=201)
-async def create_employee(employee_data: EmployeeCreate):
-    """Create a new employee"""
+async def create_employee(
+    employeeId: Optional[str] = Form(None),
+    firstName: Optional[str] = Form(None),
+    lastName: Optional[str] = Form(None),
+    name: str = Form(...),
+    position: str = Form(...),
+    department: str = Form(...),
+    email: Optional[str] = Form(None),
+    phone: Optional[str] = Form(None),
+    mobile: Optional[str] = Form(None),
+    employmentCategory: Optional[str] = Form(None),
+    gender: Optional[str] = Form(None),
+    employeeStatus: Optional[str] = Form(None),
+    account: Optional[str] = Form(None),
+    isLeader: Optional[str] = Form(None),
+    location: Optional[str] = Form(None),
+    dateOfBirth: Optional[str] = Form(None),
+    dateOfJoining: Optional[str] = Form(None),
+    bio: Optional[str] = Form(None),
+    startDate: Optional[str] = Form(None),
+    skills: Optional[str] = Form(None),
+    expertise: Optional[str] = Form(None),
+    experienceYears: Optional[int] = Form(None),
+    reporting_to: Optional[str] = Form(None)
+):
+    """Create a new employee from form data"""
     try:
         table = await get_employees_table()
         
         # Generate a unique ID
-        import uuid
         employee_id = str(uuid.uuid4())
         
-        # Format data for DynamoDB
-        employee_dict = employee_data.dict()
-        employee_dict["id"] = employee_id
-        employee_dict["created_at"] = time.strftime("%Y-%m-%d")
-        employee_dict["updated_at"] = time.strftime("%Y-%m-%d")
+        # Parse date fields
+        parsed_date_of_birth = None
+        parsed_date_of_joining = None
+        parsed_start_date = None
+        
+        if dateOfBirth:
+            try:
+                parsed_date_of_birth = datetime.datetime.strptime(dateOfBirth, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        
+        if dateOfJoining:
+            try:
+                parsed_date_of_joining = datetime.datetime.strptime(dateOfJoining, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        
+        if startDate:
+            try:
+                parsed_start_date = datetime.datetime.strptime(startDate, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        
+        # Parse skills if provided
+        parsed_skills = []
+        if skills:
+            try:
+                parsed_skills = [skill.strip() for skill in skills.split(',') if skill.strip()]
+            except:
+                pass
+        
+        # Convert experienceYears to int if provided
+        parsed_experience_years = None
+        if experienceYears is not None:
+            try:
+                parsed_experience_years = int(experienceYears)
+            except (ValueError, TypeError):
+                pass
+        
+        # Create employee data dictionary
+        employee_data = {
+            "id": employee_id,
+            "employee_id": employeeId,
+            "first_name": firstName,
+            "last_name": lastName,
+            "name": name,
+            "position": position,
+            "department": department,
+            "email": email,
+            "phone": phone,
+            "mobile": mobile,
+            "employment_category": employmentCategory,
+            "gender": gender,
+            "employee_status": employeeStatus,
+            "account": account,
+            "is_leader": isLeader,
+            "location": location,
+            "date_of_birth": parsed_date_of_birth.isoformat() if parsed_date_of_birth else None,
+            "date_of_joining": parsed_date_of_joining.isoformat() if parsed_date_of_joining else None,
+            "bio": bio,
+            "start_date": parsed_start_date.isoformat() if parsed_start_date else None,
+            "photo_url": "",
+            "manager_id": None,
+            "reporting_to": reporting_to,
+            "skills": parsed_skills,
+            "expertise": expertise,
+            "experience_years": parsed_experience_years,
+            "performance_communication": 0.0,
+            "performance_leadership": 0.0,
+            "performance_client_feedback": 0.0,
+            "overall_rating": 0.0,
+            "strengths": [],
+            "tech_stack": [],
+            "created_at": time.strftime("%Y-%m-%d"),
+            "updated_at": time.strftime("%Y-%m-%d")
+        }
         
         # Convert to DynamoDB format
-        dynamodb_item = format_dynamodb_item(employee_dict)
+        dynamodb_item = format_dynamodb_item(employee_data)
         
         # Insert into DynamoDB
         await table.put_item(Item=dynamodb_item)
         
         # Return the created employee
-        return EmployeeInDB(**employee_dict)
+        return EmployeeInDB(**employee_data)
         
     except Exception as e:
+        print(f"ERROR: Failed to create employee: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create employee: {str(e)}")
 
 @router.put("/{employee_id}", response_model=EmployeeInDB)

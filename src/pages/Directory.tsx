@@ -11,7 +11,8 @@ import {
   X, 
   Upload, 
   Plus,
-  BarChart2
+  BarChart2,
+  ArrowUpDown
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmployeeCard, EmployeeCardProps } from "@/components/EmployeeCard";
@@ -47,6 +48,8 @@ export default function Directory() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [hierarchyViewMode, setHierarchyViewMode] = useState<HierarchyViewMode>("levels");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<string>("");
+  const [sortOrder, setSortOrder] = useState<string>("asc");
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -62,7 +65,8 @@ export default function Directory() {
     createEmployee,
     updateEmployee,
     importEmployeesFromCsv,
-    fetchEmployees
+    fetchEmployees,
+    clearCache
   } = useEmployees();
   
   // Show loading state when navigating or when data is loading
@@ -83,6 +87,22 @@ export default function Directory() {
   
   const clearFilters = () => setActiveFilters([]);
   
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
+      // Toggle order if same field
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      // Set new field with ascending order
+      setSortBy(field);
+      setSortOrder("asc");
+    }
+  };
+  
+  const clearSort = () => {
+    setSortBy("");
+    setSortOrder("asc");
+  };
+  
   // Handle navigation to dashboard with loading state
   const handleNavigateToDashboard = () => {
     setIsNavigating(true);
@@ -95,6 +115,15 @@ export default function Directory() {
       setIsNavigating(false);
     }
   }, [isLoading, employees.length]);
+  
+  // Refetch employees when sorting changes
+  useEffect(() => {
+    if (sortBy) {
+      console.log('🔄 Sorting changed, refetching employees:', { sortBy, sortOrder });
+      // No need to clear cache - the hook will use the correct cache key
+      fetchEmployees(sortBy, sortOrder);
+    }
+  }, [sortBy, sortOrder, fetchEmployees]);
   
   // Filter employees based on active filters
   const filteredEmployees = employees.filter(employee => {
@@ -220,6 +249,58 @@ export default function Directory() {
                       </>
                     )}
                     
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="gap-2">
+                      <ArrowUpDown className="h-4 w-4" />
+                      Sort
+                      {sortBy && (
+                        <span className="text-xs bg-primary text-primary-foreground px-1 rounded">
+                          {sortBy === "name" ? "Name" : "Date"} {sortOrder === "asc" ? "↑" : "↓"}
+                        </span>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground">
+                      Sort by
+                    </div>
+                    <DropdownMenuItem 
+                      onClick={() => handleSort("name")}
+                      className="pl-4"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span>Name</span>
+                        {sortBy === "name" && (
+                          <span className="text-xs">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => handleSort("date_of_joining")}
+                      className="pl-4"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span>Date of Joining</span>
+                        {sortBy === "date_of_joining" && (
+                          <span className="text-xs">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </div>
+                    </DropdownMenuItem>
+                    {sortBy && (
+                      <>
+                        <div className="border-t my-1"></div>
+                        <DropdownMenuItem 
+                          onClick={clearSort}
+                          className="pl-4 text-muted-foreground"
+                        >
+                          Clear Sort
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
                 
