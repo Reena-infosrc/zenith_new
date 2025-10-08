@@ -116,15 +116,6 @@ export default function Directory() {
     }
   }, [isLoading, employees.length]);
   
-  // Refetch employees when sorting changes
-  useEffect(() => {
-    if (sortBy) {
-      console.log('🔄 Sorting changed, refetching employees:', { sortBy, sortOrder });
-      // No need to clear cache - the hook will use the correct cache key
-      fetchEmployees(sortBy, sortOrder);
-    }
-  }, [sortBy, sortOrder, fetchEmployees]);
-  
   // Filter employees based on active filters
   const filteredEmployees = employees.filter(employee => {
     // Department filters
@@ -146,6 +137,33 @@ export default function Directory() {
     }
     
     return true;
+  });
+  
+  // Sort filtered employees
+  const sortedAndFilteredEmployees = [...filteredEmployees].sort((a, b) => {
+    if (!sortBy) return 0;
+    
+    let aValue: string | number;
+    let bValue: string | number;
+    
+    switch (sortBy) {
+      case "name":
+        aValue = a.name?.toLowerCase() || "";
+        bValue = b.name?.toLowerCase() || "";
+        break;
+      case "date_of_joining":
+        aValue = new Date(a.dateOfJoining || "").getTime();
+        bValue = new Date(b.dateOfJoining || "").getTime();
+        break;
+      default:
+        return 0;
+    }
+    
+    if (sortOrder === "asc") {
+      return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+    } else {
+      return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+    }
   });
 
   
@@ -198,54 +216,60 @@ export default function Directory() {
                       Filters
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
                     {/* Department Section */}
-                    <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground">
+                    <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground sticky top-0 bg-background border-b">
                       Department
                     </div>
-                    {departments.map(dept => (
-                      <DropdownMenuItem 
-                        key={dept} 
-                        onClick={() => toggleFilter(`Department: ${dept}`)}
-                        className="pl-4"
-                      >
-                        {dept}
-                      </DropdownMenuItem>
-                    ))}
+                    <div className="max-h-32 overflow-y-auto">
+                      {departments.map(dept => (
+                        <DropdownMenuItem 
+                          key={dept} 
+                          onClick={() => toggleFilter(`Department: ${dept}`)}
+                          className="pl-4"
+                        >
+                          {dept}
+                        </DropdownMenuItem>
+                      ))}
+                    </div>
                     
                     {/* Location Section */}
                     {locations.length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1">
+                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b">
                           Location
                         </div>
-                        {locations.map(location => (
-                          <DropdownMenuItem 
-                            key={location} 
-                            onClick={() => toggleFilter(`Location: ${location}`)}
-                            className="pl-4"
-                          >
-                            {location}
-                          </DropdownMenuItem>
-                        ))}
+                        <div className="max-h-32 overflow-y-auto">
+                          {locations.map(location => (
+                            <DropdownMenuItem 
+                              key={location} 
+                              onClick={() => toggleFilter(`Location: ${location}`)}
+                              className="pl-4"
+                            >
+                              {location}
+                            </DropdownMenuItem>
+                          ))}
+                        </div>
                       </>
                     )}
                     
                     {/* Account Section */}
                     {accounts.length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1">
+                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b">
                           Account
                         </div>
-                        {accounts.map(account => (
-                          <DropdownMenuItem 
-                            key={account} 
-                            onClick={() => toggleFilter(`Account: ${account}`)}
-                            className="pl-4"
-                          >
-                            {account}
-                          </DropdownMenuItem>
-                        ))}
+                        <div className="max-h-32 overflow-y-auto">
+                          {accounts.map(account => (
+                            <DropdownMenuItem 
+                              key={account} 
+                              onClick={() => toggleFilter(`Account: ${account}`)}
+                              className="pl-4"
+                            >
+                              {account}
+                            </DropdownMenuItem>
+                          ))}
+                        </div>
                       </>
                     )}
                     
@@ -389,7 +413,7 @@ export default function Directory() {
                     Retry
                   </Button>
                 </div>
-              ) : filteredEmployees.length === 0 ? (
+              ) : sortedAndFilteredEmployees.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div className="text-muted-foreground text-lg font-semibold mb-2">No Employees Found</div>
                   <div className="text-muted-foreground mb-4">
@@ -409,7 +433,7 @@ export default function Directory() {
                 <>
                   {viewMode === "grid" && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                      {filteredEmployees.map((employee) => {
+                      {sortedAndFilteredEmployees.map((employee) => {
                         return (
                           <EmployeeCard
                             key={employee.id}
@@ -421,7 +445,7 @@ export default function Directory() {
                   )}
                   
                   {viewMode === "list" && (
-                    <EmployeeList employees={filteredEmployees as any} updateEmployee={updateEmployee as any} />
+                    <EmployeeList employees={sortedAndFilteredEmployees as any} updateEmployee={updateEmployee as any} />
                   )}
                   
                   {viewMode === "hierarchy" && (
@@ -459,13 +483,13 @@ export default function Directory() {
 
                       {/* Render appropriate hierarchy view */}
                       {hierarchyViewMode === "levels" && (
-                        <EmployeeHierarchy employees={filteredEmployees as any} />
+                        <EmployeeHierarchy employees={sortedAndFilteredEmployees as any} />
                       )}
                       {hierarchyViewMode === "flowchart" && (
-                        <EmployeeHierarchyFlowchart employees={filteredEmployees as any} />
+                        <EmployeeHierarchyFlowchart employees={sortedAndFilteredEmployees as any} />
                       )}
                       {hierarchyViewMode === "tree" && (
-                        <InteractiveOrgChart employees={filteredEmployees as any} />
+                        <InteractiveOrgChart employees={sortedAndFilteredEmployees as any} />
                       )}
                     </>
                   )}

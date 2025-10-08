@@ -32,7 +32,7 @@ async def get_employees_dashboard():
                 "by_employee_status": {},
                 "by_employment_category": {},
                 "by_is_leader": {},
-                "by_position": {},
+                "by_expertise": {},
                 "by_department": {},
                 "by_gender": {},
                 "employees": []
@@ -76,7 +76,7 @@ async def get_employees_dashboard():
         by_employee_status = {}
         by_employment_category = {}
         by_is_leader = {}
-        by_position = {}
+        by_expertise = {}
         by_department = {}
         by_gender = {}
         
@@ -101,9 +101,9 @@ async def get_employees_dashboard():
             is_leader = emp.get("is_leader", "No")
             by_is_leader[is_leader] = by_is_leader.get(is_leader, 0) + 1
             
-            # Position distribution
-            position = emp.get("position", "Unknown")
-            by_position[position] = by_position.get(position, 0) + 1
+            # Expertise distribution
+            expertise = emp.get("expertise", "Unknown")
+            by_expertise[expertise] = by_expertise.get(expertise, 0) + 1
             
             # Department distribution
             department = emp.get("department", "Unknown")
@@ -121,7 +121,7 @@ async def get_employees_dashboard():
             "by_employee_status": by_employee_status,
             "by_employment_category": by_employment_category,
             "by_is_leader": by_is_leader,
-            "by_position": by_position,
+            "by_expertise": by_expertise,
             "by_department": by_department,
             "by_gender": by_gender,
             "employees": employees  # Include full employee data for filtering
