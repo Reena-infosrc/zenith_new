@@ -42,10 +42,15 @@ interface EmployeeProfileProps {
     dateOfBirth?: string;
     dateOfJoining?: string;
     gender?: string;
-  };
+  } | null;
 }
 
 export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfileProps) {
+  // Early return if employee is null
+  if (!employee) {
+    return null;
+  }
+
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState(employee);
   const [photo, setPhoto] = useState<File | null>(null);

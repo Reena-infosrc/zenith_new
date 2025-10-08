@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useEmployeeSearch } from '@/hooks/use-employee-search';
-import { UserProfilePopup } from '@/components/UserProfilePopup';
+import { EmployeeProfile } from '@/components/employee/EmployeeProfile';
 
 interface SearchDropdownProps {
   className?: string;
@@ -154,15 +154,17 @@ export function SearchDropdown({ className }: SearchDropdownProps) {
         </div>
       )}
 
-      {/* User Profile Popup */}
-      <UserProfilePopup
-        isOpen={isProfileOpen}
-        onClose={() => {
-          setIsProfileOpen(false);
-          setSelectedEmployee(null);
-        }}
-        employee={selectedEmployee}
-      />
+      {/* Employee Profile Popup */}
+      {selectedEmployee && (
+        <EmployeeProfile
+          isOpen={isProfileOpen}
+          onClose={() => {
+            setIsProfileOpen(false);
+            setSelectedEmployee(null);
+          }}
+          employee={selectedEmployee}
+        />
+      )}
     </div>
   );
 }
