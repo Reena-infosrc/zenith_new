@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ interface Employee {
   date_of_birth: string;
   date_of_joining: string;
   photo_url: string;
+  expertise?: string;
   created_at: string;
 }
 
@@ -50,7 +52,7 @@ interface DashboardData {
   by_employee_status: { [key: string]: number };
   by_employment_category: { [key: string]: number };
   by_is_leader: { [key: string]: number };
-  by_position: { [key: string]: number };
+  by_expertise: { [key: string]: number };
   by_department: { [key: string]: number };
   by_gender: { [key: string]: number };
   employees: Employee[];
@@ -64,6 +66,7 @@ interface ChartDataPoint {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeModule, setActiveModule] = useState<string>("Dashboard");
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -465,7 +468,7 @@ export default function Dashboard() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={() => window.location.href = '/directory'}
+                onClick={() => navigate('/directory')}
                 className="gap-2"
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -496,7 +499,7 @@ export default function Dashboard() {
                 <SelectItem value="employee_status">Employee Status</SelectItem>
                 <SelectItem value="employment_category">Employment Category</SelectItem>
                 <SelectItem value="is_leader">Is Leader</SelectItem>
-                <SelectItem value="position">Position</SelectItem>
+                <SelectItem value="expertise">Expertise</SelectItem>
                 <SelectItem value="department">Department</SelectItem>
                 <SelectItem value="gender">Gender</SelectItem>
               </SelectContent>
