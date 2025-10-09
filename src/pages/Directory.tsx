@@ -11,7 +11,8 @@ import {
   X, 
   Upload, 
   Plus,
-  BarChart2
+  BarChart2,
+  ArrowUpDown
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmployeeCard, EmployeeCardProps } from "@/components/EmployeeCard";
@@ -47,6 +48,8 @@ export default function Directory() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [hierarchyViewMode, setHierarchyViewMode] = useState<HierarchyViewMode>("levels");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<string>("");
+  const [sortOrder, setSortOrder] = useState<string>("asc");
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -62,7 +65,8 @@ export default function Directory() {
     createEmployee,
     updateEmployee,
     importEmployeesFromCsv,
-    fetchEmployees
+    fetchEmployees,
+    clearCache
   } = useEmployees();
   
   // Show loading state when navigating or when data is loading
@@ -82,6 +86,22 @@ export default function Directory() {
   };
   
   const clearFilters = () => setActiveFilters([]);
+  
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
+      // Toggle order if same field
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      // Set new field with ascending order
+      setSortBy(field);
+      setSortOrder("asc");
+    }
+  };
+  
+  const clearSort = () => {
+    setSortBy("");
+    setSortOrder("asc");
+  };
   
   // Handle navigation to dashboard with loading state
   const handleNavigateToDashboard = () => {
@@ -117,6 +137,33 @@ export default function Directory() {
     }
     
     return true;
+  });
+  
+  // Sort filtered employees
+  const sortedAndFilteredEmployees = [...filteredEmployees].sort((a, b) => {
+    if (!sortBy) return 0;
+    
+    let aValue: string | number;
+    let bValue: string | number;
+    
+    switch (sortBy) {
+      case "name":
+        aValue = a.name?.toLowerCase() || "";
+        bValue = b.name?.toLowerCase() || "";
+        break;
+      case "date_of_joining":
+        aValue = new Date(a.dateOfJoining || "").getTime();
+        bValue = new Date(b.dateOfJoining || "").getTime();
+        break;
+      default:
+        return 0;
+    }
+    
+    if (sortOrder === "asc") {
+      return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+    } else {
+      return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+    }
   });
 
   
@@ -169,57 +216,115 @@ export default function Directory() {
                       Filters
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
                     {/* Department Section */}
-                    <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground">
+                    <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground sticky top-0 bg-background border-b">
                       Department
                     </div>
-                    {departments.map(dept => (
-                      <DropdownMenuItem 
-                        key={dept} 
-                        onClick={() => toggleFilter(`Department: ${dept}`)}
-                        className="pl-4"
-                      >
-                        {dept}
-                      </DropdownMenuItem>
-                    ))}
+                    <div className="max-h-32 overflow-y-auto">
+                      {departments.map(dept => (
+                        <DropdownMenuItem 
+                          key={dept} 
+                          onClick={() => toggleFilter(`Department: ${dept}`)}
+                          className="pl-4"
+                        >
+                          {dept}
+                        </DropdownMenuItem>
+                      ))}
+                    </div>
                     
                     {/* Location Section */}
                     {locations.length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1">
+                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b">
                           Location
                         </div>
-                        {locations.map(location => (
-                          <DropdownMenuItem 
-                            key={location} 
-                            onClick={() => toggleFilter(`Location: ${location}`)}
-                            className="pl-4"
-                          >
-                            {location}
-                          </DropdownMenuItem>
-                        ))}
+                        <div className="max-h-32 overflow-y-auto">
+                          {locations.map(location => (
+                            <DropdownMenuItem 
+                              key={location} 
+                              onClick={() => toggleFilter(`Location: ${location}`)}
+                              className="pl-4"
+                            >
+                              {location}
+                            </DropdownMenuItem>
+                          ))}
+                        </div>
                       </>
                     )}
                     
                     {/* Account Section */}
                     {accounts.length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1">
+                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b">
                           Account
                         </div>
-                        {accounts.map(account => (
-                          <DropdownMenuItem 
-                            key={account} 
-                            onClick={() => toggleFilter(`Account: ${account}`)}
-                            className="pl-4"
-                          >
-                            {account}
-                          </DropdownMenuItem>
-                        ))}
+                        <div className="max-h-32 overflow-y-auto">
+                          {accounts.map(account => (
+                            <DropdownMenuItem 
+                              key={account} 
+                              onClick={() => toggleFilter(`Account: ${account}`)}
+                              className="pl-4"
+                            >
+                              {account}
+                            </DropdownMenuItem>
+                          ))}
+                        </div>
                       </>
                     )}
                     
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="gap-2">
+                      <ArrowUpDown className="h-4 w-4" />
+                      Sort
+                      {sortBy && (
+                        <span className="text-xs bg-primary text-primary-foreground px-1 rounded">
+                          {sortBy === "name" ? "Name" : "Date"} {sortOrder === "asc" ? "↑" : "↓"}
+                        </span>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground">
+                      Sort by
+                    </div>
+                    <DropdownMenuItem 
+                      onClick={() => handleSort("name")}
+                      className="pl-4"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span>Name</span>
+                        {sortBy === "name" && (
+                          <span className="text-xs">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => handleSort("date_of_joining")}
+                      className="pl-4"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span>Date of Joining</span>
+                        {sortBy === "date_of_joining" && (
+                          <span className="text-xs">{sortOrder === "asc" ? "↑" : "↓"}</span>
+                        )}
+                      </div>
+                    </DropdownMenuItem>
+                    {sortBy && (
+                      <>
+                        <div className="border-t my-1"></div>
+                        <DropdownMenuItem 
+                          onClick={clearSort}
+                          className="pl-4 text-muted-foreground"
+                        >
+                          Clear Sort
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
                 
@@ -308,7 +413,7 @@ export default function Directory() {
                     Retry
                   </Button>
                 </div>
-              ) : filteredEmployees.length === 0 ? (
+              ) : sortedAndFilteredEmployees.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div className="text-muted-foreground text-lg font-semibold mb-2">No Employees Found</div>
                   <div className="text-muted-foreground mb-4">
@@ -328,7 +433,7 @@ export default function Directory() {
                 <>
                   {viewMode === "grid" && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                      {filteredEmployees.map((employee) => {
+                      {sortedAndFilteredEmployees.map((employee) => {
                         return (
                           <EmployeeCard
                             key={employee.id}
@@ -340,7 +445,7 @@ export default function Directory() {
                   )}
                   
                   {viewMode === "list" && (
-                    <EmployeeList employees={filteredEmployees as any} updateEmployee={updateEmployee as any} />
+                    <EmployeeList employees={sortedAndFilteredEmployees as any} updateEmployee={updateEmployee as any} />
                   )}
                   
                   {viewMode === "hierarchy" && (
@@ -378,13 +483,13 @@ export default function Directory() {
 
                       {/* Render appropriate hierarchy view */}
                       {hierarchyViewMode === "levels" && (
-                        <EmployeeHierarchy employees={filteredEmployees as any} />
+                        <EmployeeHierarchy employees={sortedAndFilteredEmployees as any} />
                       )}
                       {hierarchyViewMode === "flowchart" && (
-                        <EmployeeHierarchyFlowchart employees={filteredEmployees as any} />
+                        <EmployeeHierarchyFlowchart employees={sortedAndFilteredEmployees as any} />
                       )}
                       {hierarchyViewMode === "tree" && (
-                        <InteractiveOrgChart employees={filteredEmployees as any} />
+                        <InteractiveOrgChart employees={sortedAndFilteredEmployees as any} />
                       )}
                     </>
                   )}

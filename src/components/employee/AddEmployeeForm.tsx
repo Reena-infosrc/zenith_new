@@ -57,6 +57,10 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
   const managers = employees.filter(emp => emp.id);
   // Unique expertise values for dropdown
   const expertiseOptions = Array.from(new Set((employees || []).map(e => e.expertise).filter(Boolean))) as string[];
+  // Unique location values for dropdown
+  const locationOptions = Array.from(new Set((employees || []).map(e => e.location).filter(Boolean))) as string[];
+  // Gender options
+  const genderOptions = ['MALE', 'FEMALE'];
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -284,22 +288,36 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
               
               <div className="space-y-2">
                 <Label htmlFor="location">Location</Label>
-                <Input 
-                  id="location" 
-                  name="location"
+                <Select
                   value={formData.location}
-                  onChange={handleChange}
-                />
+                  onValueChange={(value) => handleSelectChange('location', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locationOptions.map((location) => (
+                      <SelectItem key={location} value={location}>{location}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               
               <div className="space-y-2">
                 <Label htmlFor="gender">Gender</Label>
-                <Input 
-                  id="gender" 
-                  name="gender"
+                <Select
                   value={formData.gender}
-                  onChange={handleChange}
-                />
+                  onValueChange={(value) => handleSelectChange('gender', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {genderOptions.map((gender) => (
+                      <SelectItem key={gender} value={gender}>{gender}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               
               <div className="space-y-2">

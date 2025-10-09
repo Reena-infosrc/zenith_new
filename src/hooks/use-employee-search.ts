@@ -3,6 +3,7 @@ import { Employee } from './use-employees';
 
 interface SearchResult {
   id: string;
+  employeeId?: string;
   name: string;
   email: string;
   position: string;
@@ -10,6 +11,13 @@ interface SearchResult {
   photoUrl?: string;
   phone?: string;
   mobile?: string;
+  bio?: string;
+  startDate?: string;
+  skills?: string[];
+  expertise?: string;
+  experienceYears?: number;
+  manager?: string;
+  reporting_to?: string;
   location?: string;
   dateOfBirth?: string;
   dateOfJoining?: string;
@@ -43,10 +51,38 @@ export function useEmployeeSearch() {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
       
-      const employees: Employee[] = await response.json();
+      const data: any[] = await response.json();
+      
+      // Transform the data the same way useEmployees does
+      const transformedData = data.map((emp: any) => ({
+        id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9),
+        employeeId: emp.employee_id || "",
+        name: emp.name || "Unknown",
+        position: emp.position || "Not specified",
+        department: emp.department || "Not specified",
+        photoUrl: emp.photo_url || "",
+        email: emp.email || "",
+        phone: emp.phone || "",
+        mobile: emp.mobile || "",
+        bio: emp.bio || "",
+        startDate: emp.start_date || "",
+        manager: emp.reporting_to || "",
+        reporting_to: emp.reporting_to || "",
+        skills: emp.skills || [],
+        expertise: emp.expertise || "",
+        experienceYears: emp.experience_years !== null ? emp.experience_years : undefined,
+        location: emp.location || "",
+        account: emp.account || "",
+        dateOfBirth: emp.date_of_birth || "",
+        dateOfJoining: emp.date_of_joining || "",
+        gender: emp.gender || "",
+        employeeStatus: emp.employee_status || "",
+        employmentCategory: emp.employment_category || "",
+        isLeader: emp.is_leader || ""
+      }));
       
       // Filter employees based on search term
-      const filtered = employees
+      const filtered = transformedData
         .filter(employee => {
           const searchLower = term.toLowerCase();
           return (
@@ -56,25 +92,7 @@ export function useEmployeeSearch() {
             employee.department.toLowerCase().includes(searchLower)
           );
         })
-        .slice(0, 10) // Limit to 10 results
-        .map(employee => ({
-          id: employee.id,
-          name: employee.name,
-          email: employee.email,
-          position: employee.position,
-          department: employee.department,
-          photoUrl: employee.photoUrl,
-          phone: employee.phone,
-          mobile: employee.mobile,
-          location: employee.location,
-          dateOfBirth: employee.dateOfBirth,
-          dateOfJoining: employee.dateOfJoining,
-          employeeStatus: employee.employeeStatus,
-          employmentCategory: employee.employmentCategory,
-          account: employee.account,
-          isLeader: employee.isLeader,
-          gender: employee.gender
-        }));
+        .slice(0, 10); // Limit to 10 results
       
       setSearchResults(filtered);
       setShowResults(true);
