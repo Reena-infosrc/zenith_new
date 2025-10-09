@@ -1,0 +1,121 @@
+name: Zenith HR Pulse CI/CD
+
+on:
+  push:
+    branches: ["zenith-deployment-changes"]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      # ---------- Configure AWS ----------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # ---------- Backend: Docker Build & Push ----------
+      - name: Log in to Amazon ECR
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ECR_ACCOUNT: ${{ secrets.ECR_ACCOUNT }}
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+            | docker login --username AWS --password-stdin $ECR_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Build & Push Backend Docker Image
+        env:
+          ECR_REPO: ${{ secrets.ECR_REPO }}
+        run: |
+          IMAGE_URI=$ECR_REPO:latest
+          IMAGE_TAG=$ECR_REPO:${GITHUB_SHA::7}
+
+          echo "Building Docker image..."
+          docker build --cache-from $IMAGE_URI -t $IMAGE_URI -t $IMAGE_TAG ./backend
+
+          echo "Pushing Docker image..."
+          docker push $IMAGE_URI
+          docker push $IMAGE_TAG
+
+      # ---------- CloudFormation Stack Deploy ----------
+      - name: Deploy CloudFormation Stack
+        if: github.ref == 'refs/heads/zenith-deployment-changes'
+        env:
+          STAGE: dev
+          JWT_SECRET: ${{ secrets.ZENITH_JWT_SECRET }}
+        run: |
+          STACK_NAME="ZenithHrPulse-$STAGE"
+          TEMPLATE_FILE="./serverless.yml"
+
+          echo "Deploying CloudFormation stack: $STACK_NAME using $TEMPLATE_FILE"
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file "$TEMPLATE_FILE" \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --parameter-overrides Stage=$STAGE JWTSecret=$JWT_SECRET
+
+      # ---------- ECS Service Update ----------
+      - name: Deploy Backend in ECS
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          CLUSTER_NAME: ${{ secrets.ECS_CLUSTER_NAME }}
+          SERVICE_NAME: ${{ secrets.ECS_SERVICE_NAME }}
+        run: |
+          echo "Updating ECS service: $SERVICE_NAME in cluster: $CLUSTER_NAME"
+          aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "$SERVICE_NAME" \
+            --force-new-deployment \
+            --region $AWS_REGION
+          
+          echo "Waiting for ECS service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME" \
+            --region $AWS_REGION
+
+      # ---------- Frontend Build & Deploy ----------
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ./frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: ./frontend
+        run: npm run lint --silent
+
+      - name: Build frontend
+        working-directory: ./frontend
+        env:
+          VITE_API_BASE: ${{ secrets.ZENITH_API_BASE }}
+        run: npm run build
+
+      - name: Sync frontend to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          echo "Syncing frontend build to S3 bucket: $S3_BUCKET"
+          aws s3 sync ./frontend/dist s3://$S3_BUCKET --delete --cache-control max-age=31536000,public --exclude index.html
+          aws s3 cp ./frontend/dist/index.html s3://$S3_BUCKET/index.html --cache-control max-age=0,no-cache,no-store,must-revalidate --content-type text/html
+
+      - name: Invalidate CloudFront
+        env:
+          CLOUDFRONT_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        if: env.CLOUDFRONT_ID != ''
+        run: |
+          echo "Invalidating CloudFront cache..."
+          aws cloudfront create-invalidation \
+            --distribution-id $CLOUDFRONT_ID \
+            --paths "/index.html"
