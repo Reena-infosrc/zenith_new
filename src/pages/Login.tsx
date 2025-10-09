@@ -451,7 +451,7 @@ export default function Login() {
                   ) : loginClicked ? (
                     "Signed In"
                   ) : (
-                    "Sign in with Microsoft"
+                    "Signn in with Microsoft"
                   )}
                 </Button>
               </div>
