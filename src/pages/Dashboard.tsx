@@ -22,9 +22,11 @@ import {
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart } from 'recharts';
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
+import { useToast } from "@/hooks/use-toast";
 
 interface Employee {
   id: string;
+  employeeId?: string;
   name: string;
   position: string;
   department: string;
@@ -79,6 +81,86 @@ export default function Dashboard() {
   const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
   
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+  const { toast } = useToast();
+
+  // CSV Export function for modal data
+  const exportModalDataToCSV = () => {
+    try {
+      if (filteredEmployees.length === 0) {
+        toast({
+          title: "No Data to Export",
+          description: "There are no employees to export.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Define CSV headers
+      const headers = [
+        "Name",
+        "Position", 
+        "Department",
+        "Account",
+        "Location",
+        "Employee Status",
+        "Is Leader",
+        "Employee ID",
+        "Email",
+        "Phone",
+        "Date of Joining"
+      ];
+      
+      // Convert employee data to CSV rows
+      const csvRows = [
+        headers.join(","), // Header row
+        ...filteredEmployees.map(employee => [
+          `"${employee.name || "N/A"}"`, // Wrap in quotes to handle commas
+          `"${employee.position || "N/A"}"`,
+          `"${employee.department || "N/A"}"`,
+          `"${employee.account || "N/A"}"`,
+          `"${employee.location || "N/A"}"`,
+          `"${employee.employee_status || "N/A"}"`,
+          `"${employee.is_leader || "N/A"}"`,
+          employee.employeeId || "N/A",
+          employee.email || "N/A",
+          employee.phone || "N/A",
+          employee.date_of_joining || "N/A"
+        ].join(","))
+      ];
+      
+      // Create CSV content
+      const csvContent = csvRows.join("\n");
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      
+      // Generate filename with timestamp and context
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+      const context = selectedDataPoint?.month || "employees";
+      const filename = `employees_${context.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.csv`;
+      link.setAttribute("download", filename);
+      
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Export Successful",
+        description: `${filteredEmployees.length} employees exported to CSV successfully.`,
+      });
+    } catch (error) {
+      console.error("CSV Export Error:", error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to export employees data. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Fetch dashboard data
   useEffect(() => {
@@ -104,6 +186,16 @@ export default function Dashboard() {
       }
       
       const data = await response.json();
+      
+      // Transform employee data to match frontend interface
+      if (data.employees) {
+        data.employees = data.employees.map((emp: any) => ({
+          ...emp,
+          employeeId: emp.employee_id || emp.employeeId || "",
+          id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9)
+        }));
+      }
+      
       setDashboardData(data);
       
       // Cache the data
@@ -211,6 +303,42 @@ export default function Dashboard() {
     }
 
     setChartData(monthly_headcount);
+  };
+
+  // Calculate monthly new joiners for the last 12 months
+  const getMonthlyNewJoinersData = () => {
+    if (!dashboardData) return [];
+
+    const now = new Date();
+    const monthlyData = [];
+    
+    // Generate data for the last 12 months
+    for (let i = 11; i >= 0; i--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+      const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
+      
+      const newJoiners = dashboardData.employees.filter(emp => {
+        const joinDateStr = emp.date_of_joining || emp.created_at;
+        if (!joinDateStr) return false;
+        
+        try {
+          const joinDate = new Date(joinDateStr);
+          return joinDate >= monthStart && joinDate <= monthEnd;
+        } catch {
+          return false;
+        }
+      });
+
+      monthlyData.push({
+        month: targetDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        monthShort: targetDate.toLocaleDateString('en-US', { month: 'short' }),
+        newJoiners: newJoiners.length,
+        employees: newJoiners
+      });
+    }
+
+    return monthlyData;
   };
 
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
@@ -352,8 +480,18 @@ export default function Dashboard() {
     if (data && data.activePayload && data.activePayload[0]) {
       const clickedData = data.activePayload[0].payload;
       
-      // Check if it's from the monthly trend chart or other charts
-      if (clickedData.month && selectedFilter === "all") {
+      // Check if it's from the new joiners chart
+      if (clickedData.monthShort && clickedData.newJoiners !== undefined) {
+        // New joiners chart - show employees who joined in that month
+        setSelectedDataPoint({
+          month: clickedData.month,
+          count: clickedData.newJoiners,
+          month_number: 0, // Not used for new joiners
+          employees: clickedData.employees || []
+        });
+        setFilteredEmployees(clickedData.employees || []);
+        setShowModal(true);
+      } else if (clickedData.month && selectedFilter === "all") {
         // Monthly trend chart - show all employees
         setSelectedDataPoint(clickedData as ChartDataPoint);
         setFilteredEmployees(clickedData.employees || []);
@@ -540,7 +678,23 @@ export default function Dashboard() {
                 <MapPin className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{Object.keys(dashboardData.by_location).length}</div>
+                <div className="text-2xl font-bold">
+                  {(() => {
+                    // Consolidate remote locations
+                    const locationKeys = Object.keys(dashboardData.by_location);
+                    const consolidatedLocations = new Set();
+                    
+                    locationKeys.forEach(location => {
+                      if (location.toLowerCase().startsWith('remote -')) {
+                        consolidatedLocations.add('Remote');
+                      } else {
+                        consolidatedLocations.add(location);
+                      }
+                    });
+                    
+                    return consolidatedLocations.size;
+                  })()}
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Different locations
                 </p>
@@ -560,6 +714,64 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </div>
+
+          {/* New Joiners Chart - Last 12 Months (Only for All Employees) */}
+          {selectedFilter === "all" && (
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  New Joiners - Last 12 Months
+                </CardTitle>
+                <CardDescription>
+                  Monthly breakdown of new employee joiners over the past year
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={getMonthlyNewJoinersData()} onClick={handleChartClick}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis 
+                        dataKey="monthShort" 
+                        tick={{ fontSize: 12 }}
+                        interval={0}
+                        angle={-45}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis />
+                      <Tooltip 
+                        content={({ active, payload, label }) => {
+                          if (active && payload && payload[0]) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
+                                <p className="font-medium">{`Month: ${data.month}`}</p>
+                                <p className="text-primary">{`New Joiners: ${payload[0].value}`}</p>
+                                {data.employees && data.employees.length > 0 && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Click to view employee details
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Bar 
+                        dataKey="newJoiners" 
+                        fill="#0ea5e9"
+                        radius={[4, 4, 0, 0]}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Main Chart - Monthly Headcount (Only for All Employees) */}
           {selectedFilter === "all" && (
@@ -817,10 +1029,21 @@ export default function Dashboard() {
           <Dialog open={showModal} onOpenChange={setShowModal}>
             <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Eye className="h-5 w-5" />
-                  Employee Details - {selectedDataPoint?.month} {new Date().getFullYear()}
-                </DialogTitle>
+                <div className="flex items-center justify-between">
+                  <DialogTitle className="flex items-center gap-2">
+                    <Eye className="h-5 w-5" />
+                    Employee Details - {selectedDataPoint?.month} {new Date().getFullYear()}
+                  </DialogTitle>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={exportModalDataToCSV}
+                    className="gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export CSV
+                  </Button>
+                </div>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="flex items-center justify-between">

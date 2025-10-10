@@ -12,7 +12,8 @@ import {
   Upload, 
   Plus,
   BarChart2,
-  ArrowUpDown
+  ArrowUpDown,
+  Download
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmployeeCard, EmployeeCardProps } from "@/components/EmployeeCard";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useEmployees, Employee as ApiEmployee } from '@/hooks/use-employees';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 import {
   Sidebar,
   SidebarContent as UISidebarContent,
@@ -55,6 +57,7 @@ export default function Directory() {
   const [isNavigating, setIsNavigating] = useState(false);
   
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+  const { toast } = useToast();
   
   const isAdmin = true; // For demo purposes, assume admin
   
@@ -112,6 +115,89 @@ export default function Directory() {
   const clearSort = () => {
     setSortBy("");
     setSortOrder("asc");
+  };
+  
+  // CSV Export function
+  const exportToCSV = () => {
+    try {
+      // Use the filtered and sorted employees data
+      const dataToExport = sortedAndFilteredEmployees;
+      
+      if (dataToExport.length === 0) {
+        toast({
+          title: "No Data to Export",
+          description: "There are no employees to export.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Define CSV headers
+      const headers = [
+        "Employee ID",
+        "Name", 
+        "Position",
+        "Department",
+        "Location",
+        "Email",
+        "Phone",
+        "Manager",
+        "Date of Joining"
+      ];
+      
+      // Convert employee data to CSV rows
+      const csvRows = [
+        headers.join(","), // Header row
+        ...dataToExport.map(employee => [
+          employee.employeeId || "N/A",
+          `"${employee.name || "N/A"}"`, // Wrap in quotes to handle commas in names
+          `"${employee.position || "N/A"}"`,
+          `"${employee.department || "N/A"}"`,
+          `"${employee.location || "N/A"}"`,
+          employee.email || "N/A",
+          employee.phone || "N/A",
+          `"${employee.reporting_to ? getEmployeeName(employee.reporting_to) : "N/A"}"`,
+          employee.dateOfJoining || "N/A"
+        ].join(","))
+      ];
+      
+      // Create CSV content
+      const csvContent = csvRows.join("\n");
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+      const filename = `employees_${timestamp}.csv`;
+      link.setAttribute("download", filename);
+      
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Export Successful",
+        description: `${dataToExport.length} employees exported to CSV successfully.`,
+      });
+    } catch (error) {
+      console.error("CSV Export Error:", error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to export employees data. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Helper function to get employee name by ID (for manager field)
+  const getEmployeeName = (employeeId: string) => {
+    const employee = employees.find(emp => emp.id === employeeId);
+    return employee ? employee.name : "Unknown";
   };
   
   // Handle navigation to dashboard with loading state
@@ -474,13 +560,32 @@ export default function Directory() {
                   )}
                   
                   {viewMode === "list" && (
-                    <EmployeeList 
-                      employees={sortedAndFilteredEmployees as any} 
-                      updateEmployee={updateEmployee as any}
-                      sortBy={sortBy}
-                      sortOrder={sortOrder}
-                      onSort={handleSort}
-                    />
+                    <div className="space-y-4">
+                      {/* List View Header with Download Button */}
+                      <div className="flex justify-between items-center">
+                        <div className="text-sm text-muted-foreground">
+                          Showing {sortedAndFilteredEmployees.length} of {employees.length} employees
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={exportToCSV}
+                          className="gap-2"
+                        >
+                          <Download className="h-4 w-4" />
+                          Export CSV
+                        </Button>
+                      </div>
+                      
+                      {/* Employee List Table */}
+                      <EmployeeList 
+                        employees={sortedAndFilteredEmployees as any} 
+                        updateEmployee={updateEmployee as any}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSort}
+                      />
+                    </div>
                   )}
                   
                   {viewMode === "hierarchy" && (
