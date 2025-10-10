@@ -74,7 +74,18 @@ export default function Directory() {
   
   // Available departments, locations, and accounts for filters - dynamically generated from employee data
   const departments = [...new Set(employees.map(emp => emp.department).filter(Boolean))].sort();
-  const locations = [...new Set(employees.map(emp => emp.location).filter(Boolean))].sort();
+  
+  // Process locations to consolidate remote locations
+  const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
+  const processedLocations = rawLocations.map(location => {
+    // Check if location starts with "Remote -" and consolidate to just "Remote"
+    if (location.toLowerCase().startsWith('remote -')) {
+      return 'Remote';
+    }
+    return location;
+  });
+  const locations = [...new Set(processedLocations)].sort();
+  
   const accounts = [...new Set(employees.map(emp => emp.account).filter(Boolean))].sort();
   
   const toggleFilter = (filter: string) => {
@@ -125,9 +136,23 @@ export default function Directory() {
     }
     
     // Location filters
-    if (activeFilters.some(filter => filter.startsWith("Location:")) && 
-        !activeFilters.includes(`Location: ${employee.location}`)) {
-      return false;
+    if (activeFilters.some(filter => filter.startsWith("Location:"))) {
+      const employeeLocation = employee.location;
+      const isRemoteEmployee = employeeLocation?.toLowerCase().startsWith('remote -');
+      const hasRemoteFilter = activeFilters.includes('Location: Remote');
+      
+      // If employee is remote and we have a Remote filter, include them
+      if (isRemoteEmployee && hasRemoteFilter) {
+        // Continue to next filter check
+      }
+      // If employee is remote but we don't have Remote filter, exclude them
+      else if (isRemoteEmployee && !hasRemoteFilter) {
+        return false;
+      }
+      // If employee is not remote, check exact location match
+      else if (!isRemoteEmployee && !activeFilters.includes(`Location: ${employeeLocation}`)) {
+        return false;
+      }
     }
     
     // Account filters
@@ -150,6 +175,10 @@ export default function Directory() {
       case "name":
         aValue = a.name?.toLowerCase() || "";
         bValue = b.name?.toLowerCase() || "";
+        break;
+      case "employeeId":
+        aValue = a.employeeId?.toLowerCase() || "";
+        bValue = b.employeeId?.toLowerCase() || "";
         break;
       case "date_of_joining":
         aValue = new Date(a.dateOfJoining || "").getTime();
@@ -445,7 +474,13 @@ export default function Directory() {
                   )}
                   
                   {viewMode === "list" && (
-                    <EmployeeList employees={sortedAndFilteredEmployees as any} updateEmployee={updateEmployee as any} />
+                    <EmployeeList 
+                      employees={sortedAndFilteredEmployees as any} 
+                      updateEmployee={updateEmployee as any}
+                      sortBy={sortBy}
+                      sortOrder={sortOrder}
+                      onSort={handleSort}
+                    />
                   )}
                   
                   {viewMode === "hierarchy" && (
