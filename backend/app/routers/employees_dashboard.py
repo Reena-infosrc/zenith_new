@@ -85,9 +85,17 @@ async def get_employees_dashboard():
             account = emp.get("account", "Unknown")
             by_account[account] = by_account.get(account, 0) + 1
             
-            # Location distribution
+            # Location distribution - consolidate remote locations
             location = emp.get("location", "Unknown")
-            by_location[location] = by_location.get(location, 0) + 1
+            normalized_location = location.lower().strip()
+            
+            # Consolidate remote locations
+            if normalized_location.startswith('remote -') or normalized_location == 'remote':
+                consolidated_location = 'Remote'
+            else:
+                consolidated_location = location
+            
+            by_location[consolidated_location] = by_location.get(consolidated_location, 0) + 1
             
             # Employee status distribution
             status = emp.get("employee_status", "Unknown")

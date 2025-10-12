@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
@@ -76,20 +76,31 @@ export default function Directory() {
   const showLoading = isLoading || isNavigating;
   
   // Available departments, locations, and accounts for filters - dynamically generated from employee data
-  const departments = [...new Set(employees.map(emp => emp.department).filter(Boolean))].sort();
+  const departments = useMemo(() => 
+    [...new Set(employees.map(emp => emp.department).filter(Boolean))].sort(),
+    [employees]
+  );
   
   // Process locations to consolidate remote locations
-  const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
-  const processedLocations = rawLocations.map(location => {
-    // Check if location starts with "Remote -" and consolidate to just "Remote"
-    if (location.toLowerCase().startsWith('remote -')) {
-      return 'Remote';
-    }
-    return location;
-  });
-  const locations = [...new Set(processedLocations)].sort();
+  const locations = useMemo(() => {
+    const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
+    
+    const processedLocations = rawLocations.map(location => {
+      const normalizedLocation = location?.trim().toLowerCase();
+      // Check if location starts with "remote -" or is exactly "remote" and consolidate to just "Remote"
+      if (normalizedLocation?.startsWith('remote -') || normalizedLocation === 'remote') {
+        return 'Remote';
+      }
+      return location;
+    });
+    
+    return [...new Set(processedLocations)].sort();
+  }, [employees]);
   
-  const accounts = [...new Set(employees.map(emp => emp.account).filter(Boolean))].sort();
+  const accounts = useMemo(() => 
+    [...new Set(employees.map(emp => emp.account).filter(Boolean))].sort(),
+    [employees]
+  );
   
   const toggleFilter = (filter: string) => {
     setActiveFilters(prev => 
@@ -224,7 +235,8 @@ export default function Directory() {
     // Location filters
     if (activeFilters.some(filter => filter.startsWith("Location:"))) {
       const employeeLocation = employee.location;
-      const isRemoteEmployee = employeeLocation?.toLowerCase().startsWith('remote -');
+      const normalizedLocation = employeeLocation?.trim().toLowerCase();
+      const isRemoteEmployee = normalizedLocation?.startsWith('remote -') || normalizedLocation === 'remote';
       const hasRemoteFilter = activeFilters.includes('Location: Remote');
       
       // If employee is remote and we have a Remote filter, include them

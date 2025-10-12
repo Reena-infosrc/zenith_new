@@ -679,21 +679,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {(() => {
-                    // Consolidate remote locations
-                    const locationKeys = Object.keys(dashboardData.by_location);
-                    const consolidatedLocations = new Set();
-                    
-                    locationKeys.forEach(location => {
-                      if (location.toLowerCase().startsWith('remote -')) {
-                        consolidatedLocations.add('Remote');
-                      } else {
-                        consolidatedLocations.add(location);
-                      }
-                    });
-                    
-                    return consolidatedLocations.size;
-                  })()}
+                  {Object.keys(dashboardData.by_location).length}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Different locations
