@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
@@ -12,7 +12,8 @@ import {
   Upload, 
   Plus,
   BarChart2,
-  ArrowUpDown
+  ArrowUpDown,
+  Download
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmployeeCard, EmployeeCardProps } from "@/components/EmployeeCard";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useEmployees, Employee as ApiEmployee } from '@/hooks/use-employees';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 import {
   Sidebar,
   SidebarContent as UISidebarContent,
@@ -55,6 +57,7 @@ export default function Directory() {
   const [isNavigating, setIsNavigating] = useState(false);
   
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+  const { toast } = useToast();
   
   const isAdmin = true; // For demo purposes, assume admin
   
@@ -73,9 +76,31 @@ export default function Directory() {
   const showLoading = isLoading || isNavigating;
   
   // Available departments, locations, and accounts for filters - dynamically generated from employee data
-  const departments = [...new Set(employees.map(emp => emp.department).filter(Boolean))].sort();
-  const locations = [...new Set(employees.map(emp => emp.location).filter(Boolean))].sort();
-  const accounts = [...new Set(employees.map(emp => emp.account).filter(Boolean))].sort();
+  const departments = useMemo(() => 
+    [...new Set(employees.map(emp => emp.department).filter(Boolean))].sort(),
+    [employees]
+  );
+  
+  // Process locations to consolidate remote locations
+  const locations = useMemo(() => {
+    const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
+    
+    const processedLocations = rawLocations.map(location => {
+      const normalizedLocation = location?.trim().toLowerCase();
+      // Check if location starts with "remote -" or is exactly "remote" and consolidate to just "Remote"
+      if (normalizedLocation?.startsWith('remote -') || normalizedLocation === 'remote') {
+        return 'Remote';
+      }
+      return location;
+    });
+    
+    return [...new Set(processedLocations)].sort();
+  }, [employees]);
+  
+  const accounts = useMemo(() => 
+    [...new Set(employees.map(emp => emp.account).filter(Boolean))].sort(),
+    [employees]
+  );
   
   const toggleFilter = (filter: string) => {
     setActiveFilters(prev => 
@@ -103,6 +128,89 @@ export default function Directory() {
     setSortOrder("asc");
   };
   
+  // CSV Export function
+  const exportToCSV = () => {
+    try {
+      // Use the filtered and sorted employees data
+      const dataToExport = sortedAndFilteredEmployees;
+      
+      if (dataToExport.length === 0) {
+        toast({
+          title: "No Data to Export",
+          description: "There are no employees to export.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Define CSV headers
+      const headers = [
+        "Employee ID",
+        "Name", 
+        "Position",
+        "Department",
+        "Location",
+        "Email",
+        "Phone",
+        "Manager",
+        "Date of Joining"
+      ];
+      
+      // Convert employee data to CSV rows
+      const csvRows = [
+        headers.join(","), // Header row
+        ...dataToExport.map(employee => [
+          employee.employeeId || "N/A",
+          `"${employee.name || "N/A"}"`, // Wrap in quotes to handle commas in names
+          `"${employee.position || "N/A"}"`,
+          `"${employee.department || "N/A"}"`,
+          `"${employee.location || "N/A"}"`,
+          employee.email || "N/A",
+          employee.phone || "N/A",
+          `"${employee.reporting_to ? getEmployeeName(employee.reporting_to) : "N/A"}"`,
+          employee.dateOfJoining || "N/A"
+        ].join(","))
+      ];
+      
+      // Create CSV content
+      const csvContent = csvRows.join("\n");
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+      const filename = `employees_${timestamp}.csv`;
+      link.setAttribute("download", filename);
+      
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Export Successful",
+        description: `${dataToExport.length} employees exported to CSV successfully.`,
+      });
+    } catch (error) {
+      console.error("CSV Export Error:", error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to export employees data. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Helper function to get employee name by ID (for manager field)
+  const getEmployeeName = (employeeId: string) => {
+    const employee = employees.find(emp => emp.id === employeeId);
+    return employee ? employee.name : "Unknown";
+  };
+  
   // Handle navigation to dashboard with loading state
   const handleNavigateToDashboard = () => {
     setIsNavigating(true);
@@ -115,6 +223,12 @@ export default function Directory() {
       setIsNavigating(false);
     }
   }, [isLoading, employees.length]);
+
+  // Clear cache on component mount to ensure fresh data
+  useEffect(() => {
+    clearCache();
+    fetchEmployees();
+  }, []); // Empty dependency array means this runs only once on mount
   
   // Filter employees based on active filters
   const filteredEmployees = employees.filter(employee => {
@@ -125,9 +239,24 @@ export default function Directory() {
     }
     
     // Location filters
-    if (activeFilters.some(filter => filter.startsWith("Location:")) && 
-        !activeFilters.includes(`Location: ${employee.location}`)) {
-      return false;
+    if (activeFilters.some(filter => filter.startsWith("Location:"))) {
+      const employeeLocation = employee.location;
+      const normalizedLocation = employeeLocation?.trim().toLowerCase();
+      const isRemoteEmployee = normalizedLocation?.startsWith('remote -') || normalizedLocation === 'remote';
+      const hasRemoteFilter = activeFilters.includes('Location: Remote');
+      
+      // If employee is remote and we have a Remote filter, include them
+      if (isRemoteEmployee && hasRemoteFilter) {
+        // Continue to next filter check
+      }
+      // If employee is remote but we don't have Remote filter, exclude them
+      else if (isRemoteEmployee && !hasRemoteFilter) {
+        return false;
+      }
+      // If employee is not remote, check exact location match
+      else if (!isRemoteEmployee && !activeFilters.includes(`Location: ${employeeLocation}`)) {
+        return false;
+      }
     }
     
     // Account filters
@@ -138,6 +267,9 @@ export default function Directory() {
     
     return true;
   });
+  
+  // Calculate active employees count (exclude inactive) - default to "active" if status not set
+  const activeEmployeesCount = employees.filter(emp => (emp.status || 'active') !== 'inactive').length;
   
   // Sort filtered employees
   const sortedAndFilteredEmployees = [...filteredEmployees].sort((a, b) => {
@@ -150,6 +282,10 @@ export default function Directory() {
       case "name":
         aValue = a.name?.toLowerCase() || "";
         bValue = b.name?.toLowerCase() || "";
+        break;
+      case "employeeId":
+        aValue = a.employeeId?.toLowerCase() || "";
+        bValue = b.employeeId?.toLowerCase() || "";
         break;
       case "date_of_joining":
         aValue = new Date(a.dateOfJoining || "").getTime();
@@ -445,7 +581,32 @@ export default function Directory() {
                   )}
                   
                   {viewMode === "list" && (
-                    <EmployeeList employees={sortedAndFilteredEmployees as any} updateEmployee={updateEmployee as any} />
+                    <div className="space-y-4">
+                      {/* List View Header with Download Button */}
+                      <div className="flex justify-between items-center">
+                        <div className="text-sm text-muted-foreground">
+                          Showing {sortedAndFilteredEmployees.length} of {activeEmployeesCount} active employees
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={exportToCSV}
+                          className="gap-2"
+                        >
+                          <Download className="h-4 w-4" />
+                          Export CSV
+                        </Button>
+                      </div>
+                      
+                      {/* Employee List Table */}
+                      <EmployeeList 
+                        employees={sortedAndFilteredEmployees as any} 
+                        updateEmployee={updateEmployee as any}
+                        sortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSort}
+                      />
+                    </div>
                   )}
                   
                   {viewMode === "hierarchy" && (

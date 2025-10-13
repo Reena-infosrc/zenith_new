@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Eye, Edit2 } from "lucide-react";
+import { Eye, Edit2, ChevronUp, ChevronDown } from "lucide-react";
 import { EmployeeProfile } from "./employee/EmployeeProfile";
 import { EmployeeSelect } from "@/components/ui/employee-select";
 import { 
@@ -27,14 +27,20 @@ type Employee = {
   manager?: string;
   reporting_to?: string;
   skills?: string[];
+  status?: string;
+  resignationDate?: string;
+  reasonForResignation?: string;
 }
 
 interface EmployeeListProps {
   employees: Employee[];
   updateEmployee?: (id: string, data: Partial<Employee>) => Promise<Employee | null>;
+  sortBy?: string;
+  sortOrder?: string;
+  onSort?: (field: string) => void;
 }
 
-export function EmployeeList({ employees, updateEmployee }: EmployeeListProps) {
+export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onSort }: EmployeeListProps) {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<string | null>(null);
 
@@ -65,7 +71,19 @@ export function EmployeeList({ employees, updateEmployee }: EmployeeListProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="">Employee ID</TableHead>
+              <TableHead 
+                className="cursor-pointer hover:bg-muted/50"
+                onClick={() => onSort?.("employeeId")}
+              >
+                <div className="flex items-center">
+                  Employee ID
+                  {sortBy === "employeeId" && (
+                    sortOrder === "asc" ? 
+                      <ChevronUp className="ml-1 h-4 w-4" /> : 
+                      <ChevronDown className="ml-1 h-4 w-4" />
+                  )}
+                </div>
+              </TableHead>
               <TableHead className="">Name</TableHead>
               <TableHead className="">Position</TableHead>
               <TableHead className="">Department</TableHead>
@@ -75,7 +93,10 @@ export function EmployeeList({ employees, updateEmployee }: EmployeeListProps) {
           </TableHeader>
           <TableBody>
             {employees.map((employee) => (
-              <TableRow key={employee.id}>
+              <TableRow 
+                key={employee.id}
+                className={(employee.status || 'active') === 'inactive' ? 'opacity-50 grayscale' : ''}
+              >
                 <TableCell className="font-medium">
                   {employee.employeeId || 'N/A'}
                 </TableCell>

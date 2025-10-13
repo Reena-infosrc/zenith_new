@@ -28,6 +28,11 @@ class EmployeeBase(BaseModel):
     date_of_birth: Optional[date] = None       # Dob
     date_of_joining: Optional[date] = None     # Doj
     
+    # Employee status management
+    status: Optional[str] = "active"            # active/inactive
+    resignation_date: Optional[date] = None    # Resignation_Date
+    reason_for_resignation: Optional[str] = None  # Reason_for_Resignation
+    
     # Legacy fields for backward compatibility
     bio: Optional[str] = None
     start_date: Optional[date] = None
@@ -68,6 +73,11 @@ class EmployeeUpdate(BaseModel):
     location: Optional[str] = None
     date_of_birth: Optional[date] = None
     date_of_joining: Optional[date] = None
+    
+    # Employee status management
+    status: Optional[str] = None
+    resignation_date: Optional[date] = None
+    reason_for_resignation: Optional[str] = None
     
     # Legacy fields
     bio: Optional[str] = None

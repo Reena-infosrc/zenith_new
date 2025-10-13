@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Upload, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEmployees } from '@/hooks/use-employees';
+import { ImageCrop } from "@/components/ui/ImageCrop";
 
 interface AddEmployeeFormProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ interface AddEmployeeFormProps {
 export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFormProps) {
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [showCropModal, setShowCropModal] = useState(false);
   const { toast } = useToast();
   
   const [formData, setFormData] = useState({
@@ -74,14 +76,74 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setPhoto(file);
-      setPhotoPreview(URL.createObjectURL(file));
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Invalid file type",
+          description: "Please select an image file.",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Validate file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Please select an image smaller than 5MB.",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Create preview URL and show crop modal
+      const previewUrl = URL.createObjectURL(file);
+      setPhotoPreview(previewUrl);
+      setShowCropModal(true);
     }
   };
 
   const clearPhoto = () => {
     setPhoto(null);
     setPhotoPreview(null);
+  };
+
+  const handleCropComplete = (croppedImageBlob: Blob) => {
+    // Convert blob to File
+    const croppedFile = new File([croppedImageBlob], 'cropped-image.jpg', {
+      type: 'image/jpeg',
+    });
+    
+    setPhoto(croppedFile);
+    setShowCropModal(false);
+    
+    // Clean up preview URL
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+      setPhotoPreview(null);
+    }
+    
+    toast({
+      title: "Image cropped successfully",
+      description: "Your profile picture has been cropped and is ready to upload.",
+    });
+  };
+
+  const handleCropCancel = () => {
+    setShowCropModal(false);
+    
+    // Clean up preview URL
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+      setPhotoPreview(null);
+    }
+    
+    // Reset file input
+    const fileInput = document.getElementById('photo-upload') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -435,6 +497,17 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
           </form>
         </div>
       </DialogContent>
+      
+      {/* Image Crop Modal */}
+      {showCropModal && photoPreview && (
+        <ImageCrop
+          src={photoPreview}
+          onCropComplete={handleCropComplete}
+          onCancel={handleCropCancel}
+          aspectRatio={1}
+          circularCrop={false}
+        />
+      )}
     </Dialog>
   );
 } 

@@ -12,11 +12,13 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award, Save, Clock } from "lucide-react";
 import { useEmployees } from '@/hooks/use-employees';
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
+import { ImageCrop } from "@/components/ui/ImageCrop";
 
 interface EmployeeProfileProps {
   isOpen: boolean;
@@ -42,6 +44,9 @@ interface EmployeeProfileProps {
     dateOfBirth?: string;
     dateOfJoining?: string;
     gender?: string;
+    status?: string;
+    resignationDate?: string;
+    reasonForResignation?: string;
   } | null;
 }
 
@@ -54,6 +59,9 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState(employee);
   const [photo, setPhoto] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [photoClearedByUser, setPhotoClearedByUser] = useState(false);
   const [managerName, setManagerName] = useState<string>('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [skillsInput, setSkillsInput] = useState<string>('');
@@ -67,17 +75,21 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     id: employee.id,
     employeeId: employee.employeeId,
     name: employee.name,
+    status: employee.status,
     dateOfBirth: employee.dateOfBirth,
     dateOfJoining: employee.dateOfJoining,
     experienceYears: employee.experienceYears,
     email: employee.email,
     phone: employee.phone
   });
+  console.log('📊 Current profileData status:', profileData.status);
+  console.log('🎯 Status display logic result:', (profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive');
   
   console.log('📊 ProfileData state:', {
     id: profileData.id,
     employeeId: profileData.employeeId,
     name: profileData.name,
+    status: profileData.status,
     dateOfBirth: profileData.dateOfBirth,
     dateOfJoining: profileData.dateOfJoining,
     experienceYears: profileData.experienceYears,
@@ -87,23 +99,42 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   // Update profileData when employee prop changes
   useEffect(() => {
-    setProfileData(employee);
+    console.log('🔄 useEffect [employee] - Updating profileData with employee:', {
+      id: employee.id,
+      name: employee.name,
+      status: employee.status
+    });
+    setProfileData(prev => ({
+      ...employee,
+      // Only update photoUrl if it hasn't been explicitly cleared by the user
+      photoUrl: photoClearedByUser ? '' : (employee.photoUrl || ""),
+      // Use the actual status from the API response, only default to 'active' if status is undefined/null
+      status: employee.status !== undefined ? employee.status : 'active'
+    }));
     // Initialize skills input with current skills
     setSkillsInput(employee.skills ? employee.skills.join(', ') : '');
-  }, [employee]);
+  }, [employee, photoClearedByUser]);
 
   // Update profileData when employees list changes (in case of updates from other components)
   useEffect(() => {
     const updatedEmployee = employees.find(emp => emp.id === employee.id);
     if (updatedEmployee) {
-      setProfileData({
-        ...updatedEmployee,
-        photoUrl: updatedEmployee.photoUrl || ""
+      console.log('🔄 useEffect [employees] - Found updated employee:', {
+        id: updatedEmployee.id,
+        name: updatedEmployee.name,
+        status: updatedEmployee.status
       });
+      setProfileData(prev => ({
+        ...updatedEmployee,
+        // Only update photoUrl if it hasn't been explicitly cleared by the user
+        photoUrl: photoClearedByUser ? '' : (updatedEmployee.photoUrl || ""),
+        // Use the actual status from the updated employee, only default to 'active' if status is undefined/null
+        status: updatedEmployee.status !== undefined ? updatedEmployee.status : 'active'
+      }));
       // Also update skills input
       setSkillsInput(updatedEmployee.skills ? updatedEmployee.skills.join(', ') : '');
     }
-  }, [employees, employee.id]);
+  }, [employees, employee.id, photoClearedByUser]);
 
   // Get unique departments, locations, and managers for dropdowns
   const departments = [...new Set(employees.map(emp => emp.department).filter(Boolean))];
@@ -119,8 +150,14 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   // Sync profileData with employee prop when it changes
   useEffect(() => {
-    setProfileData(employee);
-  }, [employee]);
+    setProfileData(prev => ({
+      ...employee,
+      // Only update photoUrl if it hasn't been explicitly cleared by the user
+      photoUrl: photoClearedByUser ? '' : (employee.photoUrl || ""),
+      // Preserve other user changes
+      status: prev.status !== undefined ? prev.status : (employee.status !== undefined ? employee.status : 'active')
+    }));
+  }, [employee, photoClearedByUser]);
 
   // Find manager name from reporting_to UUID
   useEffect(() => {
@@ -144,8 +181,72 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setPhoto(file);
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Invalid file type",
+          description: "Please select an image file.",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Validate file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Please select an image smaller than 5MB.",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Reset the photo cleared flag since user is selecting a new photo
+      setPhotoClearedByUser(false);
+      
+      // Create preview URL and show crop modal
+      const previewUrl = URL.createObjectURL(file);
+      setPhotoPreview(previewUrl);
+      setShowCropModal(true);
       console.log("Photo file selected:", file.name, file.size, "bytes");
+    }
+  };
+
+  const handleCropComplete = (croppedImageBlob: Blob) => {
+    // Convert blob to File
+    const croppedFile = new File([croppedImageBlob], 'cropped-image.jpg', {
+      type: 'image/jpeg',
+    });
+    
+    setPhoto(croppedFile);
+    setShowCropModal(false);
+    
+    // Clean up preview URL
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+      setPhotoPreview(null);
+    }
+    
+    toast({
+      title: "Image cropped successfully",
+      description: "Your profile picture has been cropped and is ready to upload.",
+    });
+  };
+
+  const handleCropCancel = () => {
+    setShowCropModal(false);
+    
+    // Clean up preview URL
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview);
+      setPhotoPreview(null);
+    }
+    
+    // Reset file input
+    const fileInput = document.getElementById('profile-picture') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
     }
   };
 
@@ -190,6 +291,19 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const handleSubmit = async () => {
     setIsUpdating(true);
     try {
+      // Validate inactive employee fields
+      if ((profileData.status !== undefined ? profileData.status : 'active') === 'inactive') {
+        if (!profileData.resignationDate || !profileData.reasonForResignation) {
+          toast({
+            title: "Missing required fields",
+            description: "Resignation date and reason are required for inactive employees.",
+            variant: "destructive"
+          });
+          setIsUpdating(false);
+          return;
+        }
+      }
+
       let photoUrl = profileData.photoUrl;
       
       // Upload photo if one is selected
@@ -218,6 +332,13 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       }
       
       // Update employee with all data including new photo URL
+      console.log("🔍 Profile data before update:", profileData);
+      console.log("🔍 Status fields being sent:", {
+        status: profileData.status !== undefined ? profileData.status : 'active',
+        resignationDate: profileData.resignationDate,
+        reasonForResignation: profileData.reasonForResignation
+      });
+      
       const updatedEmployee = await updateEmployee(employee.id, {
         email: profileData.email,
         phone: profileData.phone,
@@ -232,7 +353,10 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         location: profileData.location,
         gender: profileData.gender,
         dateOfBirth: profileData.dateOfBirth,
-        dateOfJoining: profileData.dateOfJoining
+        dateOfJoining: profileData.dateOfJoining,
+        status: profileData.status !== undefined ? profileData.status : 'active',
+        resignationDate: profileData.resignationDate,
+        reasonForResignation: profileData.reasonForResignation
       });
       
       if (updatedEmployee) {
@@ -277,7 +401,11 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   };
 
   const handleCancel = () => {
-    setProfileData(employee); // Reset to original data
+    setProfileData(prev => ({
+      ...employee,
+      // Only reset photoUrl if it hasn't been explicitly cleared by the user
+      photoUrl: photoClearedByUser ? '' : (employee.photoUrl || "")
+    })); // Reset to original data
     setSkillsInput(employee.skills ? employee.skills.join(', ') : ''); // Reset skills input
     setPhoto(null); // Clear selected photo
     setIsEditing(false);
@@ -285,7 +413,11 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
 
   return (
-    <Dialog open={isOpen} onOpenChange={() => {
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      // Don't close the dialog if crop modal is open
+      if (!open && showCropModal) {
+        return;
+      }
       setIsEditing(false);
       onClose();
     }}>
@@ -293,12 +425,19 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         {/* Fixed Header Section */}
         <DialogHeader className="flex-shrink-0 border-b pb-4">
           <DialogTitle className="flex items-center gap-3">
-            <Avatar className="h-12 w-12" key={profileData.photoUrl}>
-              <AvatarImage src={profileData.photoUrl} alt={profileData.name} />
-              <AvatarFallback className="text-lg">
-                {profileData.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            <div className="h-12 w-12 rounded-lg overflow-hidden bg-muted flex-shrink-0" key={profileData.photoUrl}>
+              {profileData.photoUrl ? (
+                <img 
+                  src={profileData.photoUrl} 
+                  alt={profileData.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-lg font-semibold text-muted-foreground">
+                  {profileData.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                </div>
+              )}
+            </div>
             <div className="flex-1">
               <h2 className="text-xl font-bold">{profileData.name}</h2>
               <p className="text-sm text-muted-foreground">{profileData.position}</p>
@@ -365,14 +504,94 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <Avatar className="h-20 w-20 flex-shrink-0" key={`profile-${profileData.photoUrl}`}>
-                    <AvatarImage src={profileData.photoUrl} alt={profileData.name} />
-                    <AvatarFallback className="text-lg">
-                      {profileData.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="space-y-3 flex-1 min-w-0 overflow-hidden">
+                <div className="flex flex-col md:flex-row items-start gap-6">
+                  {/* Photo Preview Section */}
+                  <div className="md:w-1/3">
+                    <div className="flex flex-col items-center">
+                      <div className="relative w-32 h-32 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 bg-gray-50">
+                        {photoPreview ? (
+                          <>
+                            <img 
+                              src={photoPreview} 
+                              alt="Profile preview" 
+                              className="w-full h-full object-cover"
+                            />
+                            <button 
+                              type="button"
+                              onClick={(e) => {
+                                // Prevent the label click from triggering
+                                e.stopPropagation();
+                                e.preventDefault();
+                                
+                                setPhotoPreview(null);
+                                setPhoto(null);
+                                const fileInput = document.getElementById('profile-picture') as HTMLInputElement;
+                                if (fileInput) fileInput.value = '';
+                              }}
+                              className="absolute top-2 right-2 p-1 bg-black/50 rounded-full hover:bg-black/70 transition-colors z-10"
+                            >
+                              <X className="h-4 w-4 text-white" />
+                            </button>
+                          </>
+                        ) : profileData.photoUrl ? (
+                          <>
+                            <img 
+                              src={profileData.photoUrl} 
+                              alt={profileData.name}
+                              className="w-full h-full object-cover"
+                            />
+                            <button 
+                              type="button"
+                              onClick={(e) => {
+                                // Prevent the label click from triggering
+                                e.stopPropagation();
+                                e.preventDefault();
+                                
+                                // Clear the existing profile photo
+                                setPhotoClearedByUser(true);
+                                setProfileData(prev => ({ ...prev, photoUrl: '' }));
+                                setPhotoPreview(null);
+                                setPhoto(null);
+                                const fileInput = document.getElementById('profile-picture') as HTMLInputElement;
+                                if (fileInput) fileInput.value = '';
+                                
+                                toast({
+                                  title: "Profile photo removed",
+                                  description: "The profile photo has been removed. You can upload a new one.",
+                                });
+                              }}
+                              className="absolute top-2 right-2 p-1 bg-black/50 rounded-full hover:bg-black/70 transition-colors z-10"
+                            >
+                              <X className="h-4 w-4 text-white" />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center w-full h-full">
+                            <Upload className="h-10 w-10 text-muted-foreground mb-2" />
+                            <p className="text-xs text-center text-muted-foreground">Upload photo</p>
+                          </div>
+                        )}
+                        
+                        <input 
+                          type="file" 
+                          id="profile-picture" 
+                          className="hidden" 
+                          accept="image/*"
+                          onChange={handlePhotoChange}
+                        />
+                        <label 
+                          htmlFor="profile-picture"
+                          className="absolute inset-0 cursor-pointer"
+                        ></label>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2 text-center">
+                        Recommended: Square image, 300x300px or larger
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Upload Info Section */}
+                  <div className="md:w-2/3 space-y-3">
                     <div className="space-y-2">
                       <Label htmlFor="profile-picture" className="text-sm font-medium">
                         Choose Profile Picture
@@ -391,9 +610,14 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                       Upload a new profile picture (JPG, PNG, GIF). Maximum file size: 5MB
                     </p>
                     {photo && (
-                      <p className="text-xs text-blue-600 font-medium">
-                        📷 Photo selected: {photo.name}
-                      </p>
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                        <p className="text-sm text-blue-700 font-medium flex items-center gap-2">
+                          📷 Photo selected: {photo.name}
+                        </p>
+                        <p className="text-xs text-blue-600 mt-1">
+                          Click "Save Changes" to upload the cropped image
+                        </p>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -612,6 +836,76 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     </div>
                   </div>
                 )}
+
+                {/* Employee Status */}
+                <div className="space-y-2">
+                  <Label htmlFor="status">Employee Status</Label>
+                  {isEditing ? (
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="status"
+                        checked={(profileData.status !== undefined ? profileData.status : 'active') === 'active'}
+                        onCheckedChange={(checked) => {
+                          setProfileData(prev => ({ 
+                            ...prev, 
+                            status: checked ? 'active' : 'inactive',
+                            // Clear resignation fields when switching to active
+                            resignationDate: checked ? '' : prev.resignationDate,
+                            reasonForResignation: checked ? '' : prev.reasonForResignation
+                          }));
+                        }}
+                      />
+                      <Label htmlFor="status" className="text-sm font-medium">
+                        {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}
+                      </Label>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                      <div className={`w-2 h-2 rounded-full ${(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                      <span className="text-sm font-medium">
+                        {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Resignation Date - Only show when inactive */}
+                {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="resignationDate">
+                      Resignation Date <span className="text-red-500">*</span>
+                    </Label>
+                    <Input 
+                      id="resignationDate"
+                      name="resignationDate"
+                      type="date"
+                      value={profileData.resignationDate || ''} 
+                      onChange={handleChange}
+                      disabled={!isEditing}
+                      className={!isEditing ? "bg-muted" : ""}
+                      required={(profileData.status !== undefined ? profileData.status : 'active') === 'inactive'}
+                    />
+                  </div>
+                )}
+
+                {/* Reason for Resignation - Only show when inactive */}
+                {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="reasonForResignation">
+                      Reason for Resignation <span className="text-red-500">*</span>
+                    </Label>
+                    <Textarea 
+                      id="reasonForResignation"
+                      name="reasonForResignation"
+                      value={profileData.reasonForResignation || ''} 
+                      onChange={handleChange}
+                      disabled={!isEditing}
+                      className={!isEditing ? "bg-muted" : ""}
+                      placeholder="Enter reason for resignation..."
+                      required={(profileData.status !== undefined ? profileData.status : 'active') === 'inactive'}
+                    />
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -773,6 +1067,17 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
           </div>
         </div>
       </DialogContent>
+      
+      {/* Image Crop Modal */}
+      {showCropModal && photoPreview && (
+        <ImageCrop
+          src={photoPreview}
+          onCropComplete={handleCropComplete}
+          onCancel={handleCropCancel}
+          aspectRatio={1}
+          circularCrop={false}
+        />
+      )}
     </Dialog>
   );
 }

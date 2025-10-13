@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Employee } from './use-employees';
+import { Employee, useEmployees } from './use-employees';
 
 interface SearchResult {
   id: string;
@@ -26,6 +26,9 @@ interface SearchResult {
   account?: string;
   isLeader?: string;
   gender?: string;
+  status?: string;
+  resignationDate?: string;
+  reasonForResignation?: string;
 }
 
 export function useEmployeeSearch() {
@@ -33,6 +36,9 @@ export function useEmployeeSearch() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
+
+  // Use the same data source as the directory
+  const { employees } = useEmployees();
 
   // Debounced search function
   const searchEmployees = useCallback(async (term: string) => {
@@ -45,40 +51,35 @@ export function useEmployeeSearch() {
     setIsSearching(true);
     
     try {
-      const response = await fetch('https://zenith-hr-api.apps.infoservices.com/api/employees/');
-      
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-      
-      const data: any[] = await response.json();
-      
-      // Transform the data the same way useEmployees does
-      const transformedData = data.map((emp: any) => ({
+      // Use the employees from useEmployees hook instead of making a separate API call
+      const transformedData = employees.map((emp: Employee) => ({
         id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9),
-        employeeId: emp.employee_id || "",
+        employeeId: emp.employeeId || "",
         name: emp.name || "Unknown",
         position: emp.position || "Not specified",
         department: emp.department || "Not specified",
-        photoUrl: emp.photo_url || "",
+        photoUrl: emp.photoUrl || "",
         email: emp.email || "",
         phone: emp.phone || "",
         mobile: emp.mobile || "",
         bio: emp.bio || "",
-        startDate: emp.start_date || "",
+        startDate: emp.startDate || "",
         manager: emp.reporting_to || "",
         reporting_to: emp.reporting_to || "",
         skills: emp.skills || [],
         expertise: emp.expertise || "",
-        experienceYears: emp.experience_years !== null ? emp.experience_years : undefined,
+        experienceYears: emp.experienceYears !== null ? emp.experienceYears : undefined,
         location: emp.location || "",
         account: emp.account || "",
-        dateOfBirth: emp.date_of_birth || "",
-        dateOfJoining: emp.date_of_joining || "",
+        dateOfBirth: emp.dateOfBirth || "",
+        dateOfJoining: emp.dateOfJoining || "",
         gender: emp.gender || "",
-        employeeStatus: emp.employee_status || "",
-        employmentCategory: emp.employment_category || "",
-        isLeader: emp.is_leader || ""
+        employeeStatus: emp.employeeStatus || "",
+        employmentCategory: emp.employmentCategory || "",
+        isLeader: emp.isLeader || "",
+        status: emp.status !== undefined ? emp.status : 'active',
+        resignationDate: emp.resignationDate || "",
+        reasonForResignation: emp.reasonForResignation || ""
       }));
       
       // Filter employees based on search term
@@ -102,7 +103,7 @@ export function useEmployeeSearch() {
     } finally {
       setIsSearching(false);
     }
-  }, []);
+  }, [employees]);
 
   // Debounce search
   useEffect(() => {

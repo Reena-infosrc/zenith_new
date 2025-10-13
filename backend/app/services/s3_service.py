@@ -59,19 +59,13 @@ class S3Service:
                     Key=s3_key,
                     Body=file_content,
                     ContentType=file.content_type or 'image/jpeg',
-                    # Use presigned URL approach for public access
+                    # Set cache control for public access
                     CacheControl='public, max-age=31536000'
                 )
             
-            # Generate a presigned URL for public access (valid for 1 year)
-            session = aioboto3.Session()
-            async with session.client('s3', region_name=self.region) as s3:
-                photo_url = await s3.generate_presigned_url(
-                    'get_object',
-                    Params={'Bucket': self.bucket_name, 'Key': s3_key},
-                    ExpiresIn=31536000  # 1 year
-                )
-                return photo_url
+            # Return simple public URL since bucket policy allows public read access
+            photo_url = f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
+            return photo_url
             
         except HTTPException as he:
             raise he
@@ -89,12 +83,18 @@ class S3Service:
     async def delete_photo(self, photo_url: str) -> bool:
         """Delete a photo from S3"""
         try:
-            # Extract S3 key from URL
+            # Extract S3 key from URL (works for both simple URLs and presigned URLs)
             if not photo_url.startswith(f"https://{self.bucket_name}.s3."):
                 return False
             
-            # Extract the key from the URL
-            s3_key = photo_url.split(f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/")[-1]
+            # Extract the key from the URL (remove query parameters if present)
+            base_url = f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/"
+            if base_url in photo_url:
+                s3_key = photo_url.split(base_url)[-1]
+                # Remove query parameters if present (for presigned URLs)
+                s3_key = s3_key.split('?')[0]
+            else:
+                return False
             
             session = aioboto3.Session()
             async with session.client('s3', region_name=self.region) as s3:
@@ -110,19 +110,12 @@ class S3Service:
             return False
     
     async def get_photo_url(self, s3_key: str) -> str:
-        """Get the presigned URL for an S3 object"""
+        """Get the public URL for an S3 object"""
         try:
-            session = aioboto3.Session()
-            async with session.client('s3', region_name=self.region) as s3:
-                photo_url = await s3.generate_presigned_url(
-                    'get_object',
-                    Params={'Bucket': self.bucket_name, 'Key': s3_key},
-                    ExpiresIn=31536000  # 1 year
-                )
-                return photo_url
+            # Return simple public URL since bucket policy allows public read access
+            return f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
         except Exception as e:
-            print(f"Error generating presigned URL: {e}")
-            # Fallback to direct URL
+            print(f"Error generating photo URL: {e}")
             return f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
     
     async def list_photos(self, prefix: Optional[str] = None) -> list:
