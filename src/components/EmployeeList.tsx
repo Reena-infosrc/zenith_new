@@ -27,6 +27,9 @@ type Employee = {
   manager?: string;
   reporting_to?: string;
   skills?: string[];
+  status?: string;
+  resignationDate?: string;
+  reasonForResignation?: string;
 }
 
 interface EmployeeListProps {
@@ -90,7 +93,10 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
           </TableHeader>
           <TableBody>
             {employees.map((employee) => (
-              <TableRow key={employee.id}>
+              <TableRow 
+                key={employee.id}
+                className={(employee.status || 'active') === 'inactive' ? 'opacity-50 grayscale' : ''}
+              >
                 <TableCell className="font-medium">
                   {employee.employeeId || 'N/A'}
                 </TableCell>

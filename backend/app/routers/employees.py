@@ -85,6 +85,10 @@ async def get_employees(
             # Set photo_url to empty string if not present
             if not doc.get("photo_url"):
                 doc["photo_url"] = ""
+            
+            # Set default status to "active" if not present (but don't override explicit "inactive")
+            if doc.get("status") is None or doc.get("status") == "":
+                doc["status"] = "active"
 
             parsed.append(doc)
         
@@ -151,6 +155,11 @@ async def get_employee(employee_id: str):
             raise HTTPException(status_code=404, detail="Employee not found")
     
         employee = parse_dynamodb_item(response["Item"])
+        
+        # Set default status to "active" if not present (but don't override explicit "inactive")
+        if employee.get("status") is None or employee.get("status") == "":
+            employee["status"] = "active"
+        
         return employee
         
     except HTTPException:
@@ -182,7 +191,10 @@ async def create_employee(
     skills: Optional[str] = Form(None),
     expertise: Optional[str] = Form(None),
     experienceYears: Optional[int] = Form(None),
-    reporting_to: Optional[str] = Form(None)
+    reporting_to: Optional[str] = Form(None),
+    status: Optional[str] = Form("active"),
+    resignationDate: Optional[str] = Form(None),
+    reasonForResignation: Optional[str] = Form(None)
 ):
     """Create a new employee from form data"""
     try:
@@ -195,6 +207,7 @@ async def create_employee(
         parsed_date_of_birth = None
         parsed_date_of_joining = None
         parsed_start_date = None
+        parsed_resignation_date = None
         
         if dateOfBirth:
             try:
@@ -211,6 +224,12 @@ async def create_employee(
         if startDate:
             try:
                 parsed_start_date = datetime.datetime.strptime(startDate, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        
+        if resignationDate:
+            try:
+                parsed_resignation_date = datetime.datetime.strptime(resignationDate, "%Y-%m-%d").date()
             except ValueError:
                 pass
         
@@ -258,6 +277,9 @@ async def create_employee(
             "skills": parsed_skills,
             "expertise": expertise,
             "experience_years": parsed_experience_years,
+            "status": status,
+            "resignation_date": parsed_resignation_date.isoformat() if parsed_resignation_date else None,
+            "reason_for_resignation": reasonForResignation,
             "performance_communication": 0.0,
             "performance_leadership": 0.0,
             "performance_client_feedback": 0.0,

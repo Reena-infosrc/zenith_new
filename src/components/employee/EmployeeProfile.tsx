@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award, Save, Clock } from "lucide-react";
 import { useEmployees } from '@/hooks/use-employees';
@@ -42,6 +43,9 @@ interface EmployeeProfileProps {
     dateOfBirth?: string;
     dateOfJoining?: string;
     gender?: string;
+    status?: string;
+    resignationDate?: string;
+    reasonForResignation?: string;
   } | null;
 }
 
@@ -67,17 +71,21 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     id: employee.id,
     employeeId: employee.employeeId,
     name: employee.name,
+    status: employee.status,
     dateOfBirth: employee.dateOfBirth,
     dateOfJoining: employee.dateOfJoining,
     experienceYears: employee.experienceYears,
     email: employee.email,
     phone: employee.phone
   });
+  console.log('📊 Current profileData status:', profileData.status);
+  console.log('🎯 Status display logic result:', (profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive');
   
   console.log('📊 ProfileData state:', {
     id: profileData.id,
     employeeId: profileData.employeeId,
     name: profileData.name,
+    status: profileData.status,
     dateOfBirth: profileData.dateOfBirth,
     dateOfJoining: profileData.dateOfJoining,
     experienceYears: profileData.experienceYears,
@@ -87,7 +95,16 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   // Update profileData when employee prop changes
   useEffect(() => {
-    setProfileData(employee);
+    console.log('🔄 useEffect [employee] - Updating profileData with employee:', {
+      id: employee.id,
+      name: employee.name,
+      status: employee.status
+    });
+    setProfileData({
+      ...employee,
+      // Use the actual status from the API response, only default to 'active' if status is undefined/null
+      status: employee.status !== undefined ? employee.status : 'active'
+    });
     // Initialize skills input with current skills
     setSkillsInput(employee.skills ? employee.skills.join(', ') : '');
   }, [employee]);
@@ -96,9 +113,16 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   useEffect(() => {
     const updatedEmployee = employees.find(emp => emp.id === employee.id);
     if (updatedEmployee) {
+      console.log('🔄 useEffect [employees] - Found updated employee:', {
+        id: updatedEmployee.id,
+        name: updatedEmployee.name,
+        status: updatedEmployee.status
+      });
       setProfileData({
         ...updatedEmployee,
-        photoUrl: updatedEmployee.photoUrl || ""
+        photoUrl: updatedEmployee.photoUrl || "",
+        // Use the actual status from the updated employee, only default to 'active' if status is undefined/null
+        status: updatedEmployee.status !== undefined ? updatedEmployee.status : 'active'
       });
       // Also update skills input
       setSkillsInput(updatedEmployee.skills ? updatedEmployee.skills.join(', ') : '');
@@ -190,6 +214,19 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const handleSubmit = async () => {
     setIsUpdating(true);
     try {
+      // Validate inactive employee fields
+      if ((profileData.status !== undefined ? profileData.status : 'active') === 'inactive') {
+        if (!profileData.resignationDate || !profileData.reasonForResignation) {
+          toast({
+            title: "Missing required fields",
+            description: "Resignation date and reason are required for inactive employees.",
+            variant: "destructive"
+          });
+          setIsUpdating(false);
+          return;
+        }
+      }
+
       let photoUrl = profileData.photoUrl;
       
       // Upload photo if one is selected
@@ -218,6 +255,13 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       }
       
       // Update employee with all data including new photo URL
+      console.log("🔍 Profile data before update:", profileData);
+      console.log("🔍 Status fields being sent:", {
+        status: profileData.status !== undefined ? profileData.status : 'active',
+        resignationDate: profileData.resignationDate,
+        reasonForResignation: profileData.reasonForResignation
+      });
+      
       const updatedEmployee = await updateEmployee(employee.id, {
         email: profileData.email,
         phone: profileData.phone,
@@ -232,7 +276,10 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         location: profileData.location,
         gender: profileData.gender,
         dateOfBirth: profileData.dateOfBirth,
-        dateOfJoining: profileData.dateOfJoining
+        dateOfJoining: profileData.dateOfJoining,
+        status: profileData.status !== undefined ? profileData.status : 'active',
+        resignationDate: profileData.resignationDate,
+        reasonForResignation: profileData.reasonForResignation
       });
       
       if (updatedEmployee) {
@@ -610,6 +657,76 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                         {calculateExperience(profileData.dateOfJoining)}
                       </span>
                     </div>
+                  </div>
+                )}
+
+                {/* Employee Status */}
+                <div className="space-y-2">
+                  <Label htmlFor="status">Employee Status</Label>
+                  {isEditing ? (
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="status"
+                        checked={(profileData.status !== undefined ? profileData.status : 'active') === 'active'}
+                        onCheckedChange={(checked) => {
+                          setProfileData(prev => ({ 
+                            ...prev, 
+                            status: checked ? 'active' : 'inactive',
+                            // Clear resignation fields when switching to active
+                            resignationDate: checked ? '' : prev.resignationDate,
+                            reasonForResignation: checked ? '' : prev.reasonForResignation
+                          }));
+                        }}
+                      />
+                      <Label htmlFor="status" className="text-sm font-medium">
+                        {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}
+                      </Label>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                      <div className={`w-2 h-2 rounded-full ${(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                      <span className="text-sm font-medium">
+                        {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Resignation Date - Only show when inactive */}
+                {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="resignationDate">
+                      Resignation Date <span className="text-red-500">*</span>
+                    </Label>
+                    <Input 
+                      id="resignationDate"
+                      name="resignationDate"
+                      type="date"
+                      value={profileData.resignationDate || ''} 
+                      onChange={handleChange}
+                      disabled={!isEditing}
+                      className={!isEditing ? "bg-muted" : ""}
+                      required={(profileData.status !== undefined ? profileData.status : 'active') === 'inactive'}
+                    />
+                  </div>
+                )}
+
+                {/* Reason for Resignation - Only show when inactive */}
+                {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="reasonForResignation">
+                      Reason for Resignation <span className="text-red-500">*</span>
+                    </Label>
+                    <Textarea 
+                      id="reasonForResignation"
+                      name="reasonForResignation"
+                      value={profileData.reasonForResignation || ''} 
+                      onChange={handleChange}
+                      disabled={!isEditing}
+                      className={!isEditing ? "bg-muted" : ""}
+                      placeholder="Enter reason for resignation..."
+                      required={(profileData.status !== undefined ? profileData.status : 'active') === 'inactive'}
+                    />
                   </div>
                 )}
               </div>

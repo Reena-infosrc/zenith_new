@@ -223,6 +223,12 @@ export default function Directory() {
       setIsNavigating(false);
     }
   }, [isLoading, employees.length]);
+
+  // Clear cache on component mount to ensure fresh data
+  useEffect(() => {
+    clearCache();
+    fetchEmployees();
+  }, []); // Empty dependency array means this runs only once on mount
   
   // Filter employees based on active filters
   const filteredEmployees = employees.filter(employee => {
@@ -261,6 +267,9 @@ export default function Directory() {
     
     return true;
   });
+  
+  // Calculate active employees count (exclude inactive) - default to "active" if status not set
+  const activeEmployeesCount = employees.filter(emp => (emp.status || 'active') !== 'inactive').length;
   
   // Sort filtered employees
   const sortedAndFilteredEmployees = [...filteredEmployees].sort((a, b) => {
@@ -576,7 +585,7 @@ export default function Directory() {
                       {/* List View Header with Download Button */}
                       <div className="flex justify-between items-center">
                         <div className="text-sm text-muted-foreground">
-                          Showing {sortedAndFilteredEmployees.length} of {employees.length} employees
+                          Showing {sortedAndFilteredEmployees.length} of {activeEmployeesCount} active employees
                         </div>
                         <Button 
                           variant="outline" 

@@ -31,6 +31,9 @@ export interface Employee {
   dateOfBirth?: string;
   dateOfJoining?: string;
   gender?: string;
+  status?: string;
+  resignationDate?: string;
+  reasonForResignation?: string;
 }
 
 // API base URL - could be moved to environment config
@@ -72,6 +75,7 @@ export function useEmployees() {
         id: cachedData[0].id,
         employeeId: cachedData[0].employeeId,
         name: cachedData[0].name,
+        status: cachedData[0].status,
         dateOfBirth: cachedData[0].dateOfBirth,
         dateOfJoining: cachedData[0].dateOfJoining,
         experienceYears: cachedData[0].experienceYears
@@ -300,7 +304,10 @@ export function useEmployees() {
             account: emp.account || "",
             dateOfBirth: emp.date_of_birth || "",
             dateOfJoining: emp.date_of_joining || "",
-            gender: emp.gender || ""
+            gender: emp.gender || "",
+            status: emp.status !== undefined ? emp.status : 'active',
+            resignationDate: emp.resignation_date || "",
+            reasonForResignation: emp.reason_for_resignation || ""
           };
         });
         
@@ -308,6 +315,7 @@ export function useEmployees() {
           id: transformedData[0].id,
           employeeId: transformedData[0].employeeId,
           name: transformedData[0].name,
+          status: transformedData[0].status,
           dateOfBirth: transformedData[0].dateOfBirth,
           dateOfJoining: transformedData[0].dateOfJoining,
           experienceYears: transformedData[0].experienceYears
@@ -557,7 +565,8 @@ export function useEmployees() {
         bio: data.bio,
         startDate: data.start_date,
         manager: data.manager_name,
-        skills: data.skills
+        skills: data.skills,
+        status: data.status !== undefined ? data.status : 'active'
       };
       
       // Update global state
@@ -587,6 +596,7 @@ export function useEmployees() {
       const formattedData = {
         ...employeeData,
         start_date: employeeData.startDate ? new Date(employeeData.startDate).toISOString().split('T')[0] : undefined,
+        resignation_date: employeeData.resignationDate ? new Date(employeeData.resignationDate).toISOString().split('T')[0] : undefined,
       };
 
       // Get authentication token
@@ -603,10 +613,7 @@ export function useEmployees() {
         console.log("Update Employee - No token available");
       }
 
-      const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
+      const requestBody = {
           name: formattedData.name,
           position: formattedData.position,
           department: formattedData.department,
@@ -627,8 +634,23 @@ export function useEmployees() {
           employment_category: formattedData.employmentCategory,
           employee_status: formattedData.employeeStatus,
           account: formattedData.account,
-          is_leader: formattedData.isLeader
-        }),
+          is_leader: formattedData.isLeader,
+          status: formattedData.status,
+          resignation_date: formattedData.resignation_date,
+          reason_for_resignation: formattedData.reasonForResignation
+      };
+      
+      console.log("🔍 Update Employee Request Body:", requestBody);
+      console.log("🔍 Status fields:", {
+        status: formattedData.status,
+        resignation_date: formattedData.resignation_date,
+        reason_for_resignation: formattedData.reasonForResignation
+      });
+
+      const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(requestBody),
       });
       
       if (!response.ok) {
@@ -658,7 +680,10 @@ export function useEmployees() {
         location: data.location || "",
         dateOfBirth: data.date_of_birth || "",
         dateOfJoining: data.date_of_joining || "",
-        gender: data.gender || ""
+        gender: data.gender || "",
+        status: data.status !== undefined ? data.status : 'active',
+        resignationDate: data.resignation_date || "",
+        reasonForResignation: data.reason_for_resignation || ""
       };
       
       // Update global state

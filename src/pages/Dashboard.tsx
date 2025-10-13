@@ -44,6 +44,7 @@ interface Employee {
   photo_url: string;
   expertise?: string;
   created_at: string;
+  status?: string;
 }
 
 interface DashboardData {
@@ -57,6 +58,7 @@ interface DashboardData {
   by_expertise: { [key: string]: number };
   by_department: { [key: string]: number };
   by_gender: { [key: string]: number };
+  by_status: { [key: string]: number };
   employees: Employee[];
 }
 
@@ -102,7 +104,8 @@ export default function Dashboard() {
         "Department",
         "Account",
         "Location",
-        "Employee Status",
+        "Work Type",
+        "Status",
         "Is Leader",
         "Employee ID",
         "Email",
@@ -120,6 +123,7 @@ export default function Dashboard() {
           `"${employee.account || "N/A"}"`,
           `"${employee.location || "N/A"}"`,
           `"${employee.employee_status || "N/A"}"`,
+          `"${employee.status || "active"}"`,
           `"${employee.is_leader || "N/A"}"`,
           employee.employeeId || "N/A",
           employee.email || "N/A",
@@ -535,12 +539,13 @@ export default function Dashboard() {
     const labels: { [key: string]: string } = {
       account: "Account",
       location: "Location", 
-      employee_status: "Employee Status",
+      employee_status: "Work Type",
       employment_category: "Employment Category",
       is_leader: "Is Leader",
       position: "Position",
       department: "Department",
-      gender: "Gender"
+      gender: "Gender",
+      status: "Status"
     };
     return labels[filter] || filter;
   };
@@ -634,12 +639,13 @@ export default function Dashboard() {
                 <SelectItem value="all">All Employees</SelectItem>
                 <SelectItem value="account">Account</SelectItem>
                 <SelectItem value="location">Location</SelectItem>
-                <SelectItem value="employee_status">Employee Status</SelectItem>
+                <SelectItem value="employee_status">Work Type</SelectItem>
                 <SelectItem value="employment_category">Employment Category</SelectItem>
                 <SelectItem value="is_leader">Is Leader</SelectItem>
                 <SelectItem value="expertise">Expertise</SelectItem>
                 <SelectItem value="department">Department</SelectItem>
                 <SelectItem value="gender">Gender</SelectItem>
+                <SelectItem value="status">Status</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -908,7 +914,7 @@ export default function Dashboard() {
 
           {/* Charts Grid - Only show when no filter is applied */}
           {selectedFilter === "all" && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             {/* Account Distribution */}
             <Card>
               <CardHeader>
@@ -1008,12 +1014,42 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* By Status */}
+            <Card>
+              <CardHeader>
+                <CardTitle>By Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={prepareChartData(dashboardData.by_status)}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {prepareChartData(dashboardData.by_status).map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
           </div>
           )}
 
           {/* Employee Modal */}
           <Dialog open={showModal} onOpenChange={setShowModal}>
-            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
                 <div className="flex items-center justify-between">
                   <DialogTitle className="flex items-center gap-2">
@@ -1050,6 +1086,7 @@ export default function Dashboard() {
                         <TableHead>Department</TableHead>
                         <TableHead>Account</TableHead>
                         <TableHead>Location</TableHead>
+                        <TableHead>Work Type</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Leader</TableHead>
                       </TableRow>
@@ -1065,6 +1102,11 @@ export default function Dashboard() {
                           <TableCell>
                             <Badge variant="outline">
                               {employee.employee_status || 'N/A'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={employee.status === 'active' ? 'default' : 'destructive'}>
+                              {employee.status || 'active'}
                             </Badge>
                           </TableCell>
                           <TableCell>

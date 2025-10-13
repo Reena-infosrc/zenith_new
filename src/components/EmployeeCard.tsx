@@ -23,6 +23,9 @@ export type EmployeeCardProps = {
   dateOfBirth?: string;
   dateOfJoining?: string;
   gender?: string;
+  status?: string;
+  resignationDate?: string;
+  reasonForResignation?: string;
   className?: string;
 }
 
@@ -49,7 +52,11 @@ export function EmployeeCard(props: EmployeeCardProps) {
 
   return (
     <>
-      <div className={cn("group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden", props.className)}>
+      <div className={cn(
+        "group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden",
+        (props.status || 'active') === 'inactive' && "opacity-50 grayscale",
+        props.className
+      )}>
         <div className="aspect-square overflow-hidden">
           {props.photoUrl ? (
             <img 
@@ -125,7 +132,10 @@ export function EmployeeCard(props: EmployeeCardProps) {
           location: props.location,
           dateOfBirth: props.dateOfBirth,
           dateOfJoining: props.dateOfJoining,
-          gender: props.gender
+          gender: props.gender,
+          status: props.status,
+          resignationDate: props.resignationDate,
+          reasonForResignation: props.reasonForResignation
         }}
       />
     </>

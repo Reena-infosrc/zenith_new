@@ -51,9 +51,14 @@ async def get_employees_dashboard():
             month_date = datetime.datetime(current_year, month, 1)
             end_date = datetime.datetime(current_year, month + 1, 1) if month < 12 else datetime.datetime(current_year + 1, 1, 1)
             
-            # Count employees who joined before or during this month
+            # Count active employees who joined before or during this month
             count = 0
             for emp in employees:
+                # Only count active employees - default to "active" if status field doesn't exist
+                emp_status = emp.get("status", "active")
+                if emp_status == "inactive":
+                    continue
+                    
                 join_date_str = emp.get("date_of_joining") or emp.get("created_at")
                 if join_date_str:
                     try:
@@ -79,8 +84,15 @@ async def get_employees_dashboard():
         by_expertise = {}
         by_department = {}
         by_gender = {}
+        by_status = {}
         
         for emp in employees:
+            # Skip inactive employees for distribution calculations
+            # Default to "active" if status field doesn't exist
+            emp_status = emp.get("status", "active")
+            if emp_status == "inactive":
+                continue
+                
             # Account distribution
             account = emp.get("account", "Unknown")
             by_account[account] = by_account.get(account, 0) + 1
@@ -120,9 +132,16 @@ async def get_employees_dashboard():
             # Gender distribution
             gender = emp.get("gender", "Unknown")
             by_gender[gender] = by_gender.get(gender, 0) + 1
+            
+            # Status distribution
+            status = emp.get("status", "active")
+            by_status[status] = by_status.get(status, 0) + 1
+        
+        # Count only active employees - default to "active" if status field doesn't exist
+        active_employees = [emp for emp in employees if emp.get("status", "active") != "inactive"]
         
         return {
-            "total_employees": len(employees),
+            "total_employees": len(active_employees),
             "monthly_headcount": monthly_headcount,
             "by_account": by_account,
             "by_location": by_location,
@@ -132,6 +151,7 @@ async def get_employees_dashboard():
             "by_expertise": by_expertise,
             "by_department": by_department,
             "by_gender": by_gender,
+            "by_status": by_status,
             "employees": employees  # Include full employee data for filtering
         }
         
