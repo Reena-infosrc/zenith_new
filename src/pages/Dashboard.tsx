@@ -200,6 +200,18 @@ export default function Dashboard() {
         }));
       }
       
+      // Debug: Log the received data structure
+      console.log('Dashboard data received:', {
+        total_employees: data.total_employees,
+        by_status: data.by_status,
+        by_account: data.by_account,
+        by_location: data.by_location,
+        by_employee_status: data.by_employee_status,
+        by_gender: data.by_gender,
+        hasEmployees: !!data.employees,
+        employeeCount: data.employees?.length || 0
+      });
+      
       setDashboardData(data);
       
       // Cache the data
@@ -550,7 +562,10 @@ export default function Dashboard() {
     return labels[filter] || filter;
   };
 
-  const prepareChartData = (data: { [key: string]: number }) => {
+  const prepareChartData = (data: { [key: string]: number } | null | undefined) => {
+    if (!data || typeof data !== 'object') {
+      return [];
+    }
     return Object.entries(data).map(([name, value]) => ({ name, value }));
   };
 
@@ -916,6 +931,7 @@ export default function Dashboard() {
           {selectedFilter === "all" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             {/* Account Distribution */}
+            {dashboardData.by_account && (
             <Card>
               <CardHeader>
                 <CardTitle>By Account</CardTitle>
@@ -934,8 +950,10 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
             {/* Location Distribution */}
+            {dashboardData.by_location && (
             <Card>
               <CardHeader>
                 <CardTitle>By Location</CardTitle>
@@ -954,8 +972,10 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
             {/* Employment Status */}
+            {dashboardData.by_employee_status && (
             <Card>
               <CardHeader>
                 <CardTitle>By Employment Status</CardTitle>
@@ -984,8 +1004,10 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
             {/* By Gender */}
+            {dashboardData.by_gender && (
             <Card>
               <CardHeader>
                 <CardTitle>By Gender</CardTitle>
@@ -1014,8 +1036,10 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
             {/* By Status */}
+            {dashboardData.by_status && (
             <Card>
               <CardHeader>
                 <CardTitle>By Status</CardTitle>
@@ -1044,6 +1068,7 @@ export default function Dashboard() {
                 </div>
               </CardContent>
             </Card>
+            )}
           </div>
           )}
 
