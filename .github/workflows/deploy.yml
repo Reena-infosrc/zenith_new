@@ -2,7 +2,7 @@ name: Zenith HR Pulse CI/CD
 
 on:
   push:
-    branches: ["zenith-deployment-changes"]
+    branches: ["main"]
 
 jobs:
   deploy:
