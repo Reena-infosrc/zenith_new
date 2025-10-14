@@ -21,7 +21,7 @@ export interface FeatureFlag {
 }
 
 // API base URL
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com/api';
 
 export function useFeatureFlags() {
   const [featureFlags, setFeatureFlags] = useState<FeatureFlag[]>([]);

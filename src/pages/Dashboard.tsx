@@ -183,7 +183,7 @@ export default function Dashboard() {
         return;
       }
       
-      const response = await fetch('http://localhost:8000/api/employees-dashboard/');
+      const response = await fetch('https://zenith-hr-api.apps.infoservices.com/api/employees-dashboard/');
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

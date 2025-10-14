@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 
 const EMPLOYEE_ID = "1"; // Replace with actual employeeId from auth/session
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://zenith-hr-api.apps.infoservices.com/api/";
 
 export function PerformanceOverview() {
   const [showOverdueCheckIn, setShowOverdueCheckIn] = useState(true);
@@ -49,7 +49,7 @@ export function PerformanceOverview() {
 
   useEffect(() => {
     async function fetchUser() {
-      const res = await axios.get(`${API_BASE}/api/auth/me`);
+      const res = await axios.get(`${API_BASE}api/auth/me`);
       setUser(res.data);
       if (res.data.role !== "admin") {
         setSelectedEmployeeId(res.data.employeeId);
@@ -64,8 +64,8 @@ export function PerformanceOverview() {
       try {
         setEmployeeLoading(true);
         const [goalsRes, empRes] = await Promise.all([
-          axios.get(`${API_BASE}/api/goals/employee/${selectedEmployeeId}`),
-          axios.get(`${API_BASE}/api/employees/${selectedEmployeeId}`),
+          axios.get(`${API_BASE}api/goals/employee/${selectedEmployeeId}`),
+          axios.get(`${API_BASE}api/employees/${selectedEmployeeId}`),
         ]);
         setGoals(Array.isArray(goalsRes.data) ? goalsRes.data : []);
         setEmployee(empRes.data);
@@ -86,7 +86,7 @@ export function PerformanceOverview() {
     }
     setSearchLoading(true);
     const fetchSuggestions = async () => {
-      const res = await axios.get(`${API_BASE}/api/employees?search=${searchInput}`);
+      const res = await axios.get(`${API_BASE}api/employees?search=${searchInput}`);
       setSearchSuggestions(res.data);
       setSearchLoading(false);
     };
@@ -158,12 +158,12 @@ export function PerformanceOverview() {
       };
       // File upload placeholder (not implemented)
       if (editGoal) {
-        await axios.put(`${API_BASE}/api/goals/${editGoal.id}`, payload);
+        await axios.put(`${API_BASE}api/goals/${editGoal.id}`, payload);
       } else {
-        await axios.post(`${API_BASE}/api/goals/`, payload);
+        await axios.post(`${API_BASE}api/goals/`, payload);
       }
       // Refresh goals
-      const goalsRes = await axios.get(`${API_BASE}/api/goals/employee/${selectedEmployeeId}`);
+      const goalsRes = await axios.get(`${API_BASE}api/goals/employee/${selectedEmployeeId}`);
       setGoals(Array.isArray(goalsRes.data) ? goalsRes.data : []);
       closeGoalModal();
     } catch (err: any) {
@@ -178,9 +178,9 @@ export function PerformanceOverview() {
     setGoalLoading(true);
     setGoalError("");
     try {
-      await axios.delete(`${API_BASE}/api/goals/${editGoal.id}`);
+      await axios.delete(`${API_BASE}api/goals/${editGoal.id}`);
       // Refresh goals
-      const goalsRes = await axios.get(`${API_BASE}/api/goals/employee/${selectedEmployeeId}`);
+      const goalsRes = await axios.get(`${API_BASE}api/goals/employee/${selectedEmployeeId}`);
       setGoals(Array.isArray(goalsRes.data) ? goalsRes.data : []);
       closeGoalModal();
     } catch (err) {
@@ -197,7 +197,7 @@ export function PerformanceOverview() {
       return;
     }
     const fetchEmployees = async () => {
-      const res = await axios.get(`${API_BASE}/api/employees?search=${employeeSearch}`);
+      const res = await axios.get(`${API_BASE}api/employees?search=${employeeSearch}`);
       setEmployeeResults(res.data);
     };
     fetchEmployees();

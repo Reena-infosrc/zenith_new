@@ -10,6 +10,8 @@ from backend.app.feature_flags import FeatureFlags
 from backend.database import init_db
 from backend.database.recruitment_db import recruitment_db
 
+from mangum import Mangum
+
 # Create FastAPI app
 app = FastAPI(
     title=config.get("app.name"),
@@ -59,6 +61,8 @@ async def startup_event():
 async def shutdown_event():
     """Close database connections on shutdown."""
     await recruitment_db.close_database_connection()
+
+lambda_handler = Mangum(app)
 
 if __name__ == "__main__":
     uvicorn.run(

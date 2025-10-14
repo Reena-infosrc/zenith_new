@@ -1,0 +1,36 @@
+# Ignore Python cache and venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+*.log
+*.db
+
+# Ignore local virtualenvs
+venv/
+.env/
+.env.*
+.venv/
+env/
+ENV/
+
+# Ignore node and build artifacts
+node_modules/
+dist/
+build/
+.cache/
+coverage/
+
+# Ignore Serverless build directories
+.serverless/
+.aws-sam/
+
+# Ignore IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Ignore layer sources (we’re using Docker now)
+layer/

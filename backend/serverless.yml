@@ -1,0 +1,272 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Zenith HR Pulse Infrastructure
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Deployment stage (dev or prod)
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC
+  JWTSecret:
+    Type: String
+    NoEcho: true
+    Default: YourSuperSecureJWTKeyHere123!
+    Description: JWT secret key for the backend
+
+Conditions:
+  IsProd: !Equals [!Ref Stage, prod]
+
+Resources:
+  # VPC
+  ZenithHrPulseVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !If [IsProd, ZenithHrPulseVPC, !Sub 'ZenithHrPulseVPC-${Stage}']
+
+  # Public Subnets
+  ZenithHrPulsePublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ZenithHrPulseVPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !If [IsProd, ZenithHrPulseSubnet1, !Sub 'ZenithHrPulseSubnet1-${Stage}']
+
+  ZenithHrPulsePublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ZenithHrPulseVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !If [IsProd, ZenithHrPulseSubnet2, !Sub 'ZenithHrPulseSubnet2-${Stage}']
+
+  # Internet Gateway
+  ZenithHrPulseInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  ZenithHrPulseVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ZenithHrPulseVPC
+      InternetGatewayId: !Ref ZenithHrPulseInternetGateway
+
+  # Route Table
+  ZenithHrPulsePublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ZenithHrPulseVPC
+
+  ZenithHrPulsePublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: ZenithHrPulseVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref ZenithHrPulsePublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref ZenithHrPulseInternetGateway
+
+  ZenithHrPulseSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ZenithHrPulsePublicSubnet1
+      RouteTableId: !Ref ZenithHrPulsePublicRouteTable
+
+  ZenithHrPulseSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ZenithHrPulsePublicSubnet2
+      RouteTableId: !Ref ZenithHrPulsePublicRouteTable
+
+  # Security Group
+  ZenithHrPulseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and backend communication
+      VpcId: !Ref ZenithHrPulseVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          CidrIp: !Ref VpcCidr
+
+  # ECS Cluster
+  ZenithHrPulseECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !If [IsProd, ZenithHrPulseCluster, !Sub 'ZenithHrPulseCluster-${Stage}']
+
+  # ECS Task Execution Role
+  ZenithHrPulseExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ECSPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - dynamodb:*
+                  - s3:*
+                  - bedrock:*
+                Resource: '*'
+
+  # CloudWatch Log Group
+  ZenithHrPulseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !If [IsProd, /ecs/zenith-hr-pulse, !Sub '/ecs/zenith-hr-pulse-${Stage}']
+      RetentionInDays: 7
+
+  # Application Load Balancer
+  ZenithHrPulseALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - !Ref ZenithHrPulsePublicSubnet1
+        - !Ref ZenithHrPulsePublicSubnet2
+      SecurityGroups:
+        - !Ref ZenithHrPulseSecurityGroup
+      Type: application
+
+  ZenithHrPulseTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref ZenithHrPulseVPC
+      Port: 5000
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+
+  # ALB Listener
+  ZenithHrPulseListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ZenithHrPulseALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ZenithHrPulseTargetGroup
+
+  # Fargate Task Definition
+  ZenithHrPulseTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !If [IsProd, zenith-hr-pulse-task, !Sub 'zenith-hr-pulse-task-${Stage}']
+      Cpu: '512'  # Aligned with Resume Evaluator
+      Memory: '1024'  # Aligned with Resume Evaluator
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt ZenithHrPulseExecutionRole.Arn
+      TaskRoleArn: !GetAtt ZenithHrPulseExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: zenith-hr-pulse-api
+          Image: 339713066436.dkr.ecr.us-east-1.amazonaws.com/serverless-ig-zenith-hr-pulse-dev:latest
+          PortMappings:
+            - ContainerPort: 5000
+          Command:
+            - "gunicorn"
+            - "-w"
+            - "4"
+            - "-k"
+            - "uvicorn.workers.UvicornWorker"
+            - "app.main:app"
+            - "-b"
+            - "0.0.0.0:5000"
+            - "--timeout"
+            - "120"
+          Environment:
+            - Name: AWS_REGION
+              Value: us-east-1
+            - Name: AWS_DEFAULT_REGION
+              Value: us-east-1
+            - Name: JWT_SECRET
+              Value: !Ref JWTSecret
+            - Name: ROOT_PATH
+              Value: !If [IsProd, /api, !Sub '/${Stage}']
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !If [IsProd, /ecs/zenith-hr-pulse, !Sub '/ecs/zenith-hr-pulse-${Stage}']
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: api
+
+  # ECS Service
+  ZenithHrPulseECSService:
+    Type: AWS::ECS::Service
+    DependsOn: [ZenithHrPulseECSCluster, ZenithHrPulseTargetGroup, ZenithHrPulseListener]
+    Properties:
+      ServiceName: !If [IsProd, ZenithHrPulseService, !Sub 'ZenithHrPulseService-${Stage}']
+      Cluster: !Ref ZenithHrPulseECSCluster
+      DesiredCount: 1
+      LaunchType: FARGATE
+      TaskDefinition: !Ref ZenithHrPulseTaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref ZenithHrPulsePublicSubnet1
+            - !Ref ZenithHrPulsePublicSubnet2
+          SecurityGroups:
+            - !Ref ZenithHrPulseSecurityGroup
+      LoadBalancers:
+        - ContainerName: zenith-hr-pulse-api
+          ContainerPort: 5000
+          TargetGroupArn: !Ref ZenithHrPulseTargetGroup
+
+Outputs:
+  ECSClusterName:
+    Value: !Ref ZenithHrPulseECSCluster
+    Description: Name of the ECS cluster
+  ServiceName:
+    Value: !Ref ZenithHrPulseECSService
+    Description: Name of the ECS service
+  ALBEndpoint:
+    Value: !GetAtt ZenithHrPulseALB.DNSName
+    Description: DNS name of the Application Load Balancer
+  Stage:
+    Value: !Ref Stage
+    Description: Deployment stage for this stack

@@ -2,7 +2,7 @@
  * Authentication utilities for handling JWT tokens and automatic refresh
  */
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com';
 
 export interface TokenResponse {
   access_token: string;

@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 
-const API_BASE_URL = 'http://localhost:8000/api/recruitment';
+const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com/api/recruitment';
 
 export interface JobRequisitionData {
   jobTitle: string;

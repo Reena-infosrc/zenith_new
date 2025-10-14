@@ -1,4 +1,8 @@
 from passlib.context import CryptContext
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
@@ -13,6 +17,7 @@ def hash_password_safe(password: str) -> str:
     # Convert to bytes and truncate to 72 bytes if necessary
     password_bytes = password_str.encode('utf-8')
     if len(password_bytes) > 72:
+        logger.warning(f"Password truncated from {len(password_bytes)} to 72 bytes")
         password_bytes = password_bytes[:72]
         password_str = password_bytes.decode('utf-8', errors='ignore')
     

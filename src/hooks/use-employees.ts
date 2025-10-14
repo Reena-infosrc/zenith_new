@@ -37,7 +37,7 @@ export interface Employee {
 }
 
 // API base URL - could be moved to environment config
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com/api';
 
 export function useEmployees() {
   const [employees, setEmployees] = useState<Employee[]>(globalEmployees);
