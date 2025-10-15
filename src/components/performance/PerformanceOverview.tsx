@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "@/config/api";
 import { 
   Target, 
   MessageSquare, 
@@ -22,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 
 const EMPLOYEE_ID = "1"; // Replace with actual employeeId from auth/session
-const API_BASE = "https://zenith-hr-api.apps.infoservices.com/api/";
+const API_BASE = `${API_BASE_URL}/`;
 
 export function PerformanceOverview() {
   const [showOverdueCheckIn, setShowOverdueCheckIn] = useState(true);

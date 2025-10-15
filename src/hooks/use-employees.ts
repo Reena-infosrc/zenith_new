@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useToast } from './use-toast';
 import { apiCache, CACHE_KEYS } from '@/utils/api-cache';
+import { API_BASE_URL } from '@/config/api';
 
 // Global state to prevent multiple simultaneous API calls
 let globalEmployees: Employee[] = [];
@@ -20,7 +21,8 @@ export interface Employee {
   phone?: string;
   mobile?: string;
   bio?: string;
-  startDate?: string;
+  projectStartDate?: string;
+  projectEndDate?: string;
   manager?: string;
   reporting_to?: string;
   skills?: string[];
@@ -31,14 +33,13 @@ export interface Employee {
   dateOfBirth?: string;
   dateOfJoining?: string;
   gender?: string;
-  employee_status?: string;
+  employmentCategory?: string;
+  employeeStatus?: string;
+  isLeader?: string;
   status?: string;
   resignationDate?: string;
   reasonForResignation?: string;
 }
-
-// API base URL - could be moved to environment config
-const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com/api';
 
 export function useEmployees() {
   const [employees, setEmployees] = useState<Employee[]>(globalEmployees);
@@ -174,7 +175,10 @@ export function useEmployees() {
               location: "New York",
               dateOfBirth: "1995-05-15",
               dateOfJoining: "2023-01-15",
-              gender: "MALE"
+              gender: "MALE",
+              employmentCategory: "FTE",
+              employeeStatus: "Active",
+              isLeader: "No"
             },
             { 
               id: "2", 
@@ -193,7 +197,10 @@ export function useEmployees() {
               location: "San Francisco",
               dateOfBirth: "1992-08-22",
               dateOfJoining: "2023-02-20",
-              gender: "FEMALE"
+              gender: "FEMALE",
+              employmentCategory: "FTE",
+              employeeStatus: "Active",
+              isLeader: "No"
             },
             { 
               id: "3", 
@@ -212,7 +219,10 @@ export function useEmployees() {
               location: "Seattle",
               dateOfBirth: "1988-12-03",
               dateOfJoining: "2022-11-10",
-              gender: "MALE"
+              gender: "MALE",
+              employmentCategory: "FTE",
+              employeeStatus: "Active",
+              isLeader: "Yes"
             },
             { 
               id: "4", 
@@ -231,7 +241,10 @@ export function useEmployees() {
               location: "Chicago",
               dateOfBirth: "1996-03-15",
               dateOfJoining: "2023-03-05",
-              gender: "FEMALE"
+              gender: "FEMALE",
+              employmentCategory: "FTE",
+              employeeStatus: "Active",
+              isLeader: "No"
             },
             { 
               id: "5", 
@@ -250,7 +263,10 @@ export function useEmployees() {
               location: "Miami",
               dateOfBirth: "1990-07-08",
               dateOfJoining: "2023-04-12",
-              gender: "MALE"
+              gender: "MALE",
+              employmentCategory: "FTE",
+              employeeStatus: "Active",
+              isLeader: "No"
             }
           ];
           globalEmployees = mockEmployees;
@@ -295,7 +311,8 @@ export function useEmployees() {
             phone: emp.phone || "",
             mobile: emp.mobile || "",
             bio: emp.bio || "",
-            startDate: emp.start_date || "",
+            projectStartDate: emp.project_start_date || "",
+            projectEndDate: emp.project_end_date || "",
             manager: emp.reporting_to || "", // Map manager to reporting_to field
             reporting_to: emp.reporting_to || null,
             skills: emp.skills || [],
@@ -306,7 +323,9 @@ export function useEmployees() {
             dateOfBirth: emp.date_of_birth || "",
             dateOfJoining: emp.date_of_joining || "",
             gender: emp.gender || "",
-            employee_status: emp.employee_status || "",
+            employmentCategory: emp.employment_category || "",
+            employeeStatus: emp.employee_status || "",
+            isLeader: emp.is_leader || "",
             status: emp.status !== undefined ? emp.status : 'active',
             resignationDate: emp.resignation_date || "",
             reasonForResignation: emp.reason_for_resignation || ""
@@ -565,7 +584,8 @@ export function useEmployees() {
         email: data.email,
         phone: data.phone,
         bio: data.bio,
-        startDate: data.start_date,
+        projectStartDate: data.project_start_date,
+        projectEndDate: data.project_end_date,
         manager: data.manager_name,
         skills: data.skills,
         status: data.status !== undefined ? data.status : 'active'
@@ -597,7 +617,8 @@ export function useEmployees() {
       // Format the date to ISO string format if it exists
       const formattedData = {
         ...employeeData,
-        start_date: employeeData.startDate ? new Date(employeeData.startDate).toISOString().split('T')[0] : undefined,
+        projectStartDate: employeeData.projectStartDate ? new Date(employeeData.projectStartDate).toISOString().split('T')[0] : undefined,
+        projectEndDate: employeeData.projectEndDate ? new Date(employeeData.projectEndDate).toISOString().split('T')[0] : undefined,
         resignation_date: employeeData.resignationDate ? new Date(employeeData.resignationDate).toISOString().split('T')[0] : undefined,
       };
 
@@ -623,7 +644,8 @@ export function useEmployees() {
           phone: formattedData.phone,
           mobile: formattedData.mobile,
           bio: formattedData.bio,
-          start_date: formattedData.start_date,
+          project_start_date: formattedData.projectStartDate,
+          project_end_date: formattedData.projectEndDate,
           photo_url: formattedData.photoUrl,
           reporting_to: formattedData.reporting_to,
           skills: formattedData.skills,
@@ -673,7 +695,8 @@ export function useEmployees() {
         phone: data.phone || "",
         mobile: data.mobile || "",
         bio: data.bio || "",
-        startDate: data.start_date || "",
+        projectStartDate: data.project_start_date || "",
+        projectEndDate: data.project_end_date || "",
         manager: data.reporting_to || "",
         reporting_to: data.reporting_to || "",
         skills: data.skills || [],

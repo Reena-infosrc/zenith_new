@@ -20,6 +20,7 @@ import { authenticatedFetch } from "@/utils/auth-utils";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { consolidateRemoteLocations, DEPARTMENT_OPTIONS, EMPLOYEE_STATUS_OPTIONS, CLIENT_OPTIONS, toCamelCase } from "@/lib/utils";
 import { ImageCrop } from "@/components/ui/ImageCrop";
+import { API_BASE_URL } from "@/config/api";
 
 interface EmployeeProfileProps {
   isOpen: boolean;
@@ -35,7 +36,8 @@ interface EmployeeProfileProps {
     phone?: string;
     mobile?: string;
     bio?: string;
-    startDate?: string;
+    projectStartDate?: string;
+    projectEndDate?: string;
     skills?: string[];
     expertise?: string;
     experienceYears?: number;
@@ -321,7 +323,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         formData.append('file', photo);
         formData.append('name', employee.name);
         
-        const response = await authenticatedFetch(`https://zenith-hr-api.apps.infoservices.com/api/employees/upload-photo/${employee.id}`, {
+        const response = await authenticatedFetch(`${API_BASE_URL}/employees/upload-photo/${employee.id}`, {
           method: 'POST',
           body: formData,
         });
@@ -355,6 +357,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         department: profileData.department,
         reporting_to: profileData.reporting_to,
         bio: profileData.bio,
+        projectStartDate: profileData.projectStartDate,
+        projectEndDate: profileData.projectEndDate,
         photoUrl: photoUrl,
         skills: profileData.skills,
         expertise: profileData.expertise,
@@ -887,6 +891,34 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     name="dateOfJoining"
                     type="date"
                     value={profileData.dateOfJoining || ''} 
+                    onChange={handleChange}
+                    disabled={!isEditing}
+                    className={!isEditing ? "bg-muted" : ""}
+                  />
+                </div>
+
+                {/* Project Start Date */}
+                <div className="space-y-2">
+                  <Label htmlFor="projectStartDate">Project Start Date</Label>
+                  <Input 
+                    id="projectStartDate"
+                    name="projectStartDate"
+                    type="date"
+                    value={profileData.projectStartDate || ''} 
+                    onChange={handleChange}
+                    disabled={!isEditing}
+                    className={!isEditing ? "bg-muted" : ""}
+                  />
+                </div>
+
+                {/* Project End Date */}
+                <div className="space-y-2">
+                  <Label htmlFor="projectEndDate">Project End Date</Label>
+                  <Input 
+                    id="projectEndDate"
+                    name="projectEndDate"
+                    type="date"
+                    value={profileData.projectEndDate || ''} 
                     onChange={handleChange}
                     disabled={!isEditing}
                     className={!isEditing ? "bg-muted" : ""}

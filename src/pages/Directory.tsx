@@ -24,6 +24,7 @@ import { EmployeeHierarchyFlowchart } from "@/components/EmployeeHierarchyFlowch
 import { InteractiveOrgChart } from "@/components/InteractiveOrgChart";
 import { AddEmployeeForm } from "@/components/employee/AddEmployeeForm";
 import { ImportEmployees } from "@/components/employee/ImportEmployees";
+import { exportEmployeesToCSV } from "@/utils/csvExport";
 import { useAuth } from "@/hooks/use-auth"; // Assuming you have this
 import { consolidateRemoteLocations, DEPARTMENT_OPTIONS } from "@/lib/utils";
 import {
@@ -118,7 +119,7 @@ export default function Directory() {
     setSortOrder("asc");
   };
   
-  // CSV Export function
+  // CSV Export function - Updated with comprehensive field coverage
   const exportToCSV = () => {
     try {
       // Use the filtered and sorted employees data
@@ -133,53 +134,18 @@ export default function Directory() {
         return;
       }
       
-      // Define CSV headers
-      const headers = [
-        "Employee ID",
-        "Name", 
-        "Position",
-        "Department",
-        "Location",
-        "Email",
-        "Phone",
-        "Manager",
-        "Date of Joining"
-      ];
-      
-      // Convert employee data to CSV rows
-      const csvRows = [
-        headers.join(","), // Header row
-        ...dataToExport.map(employee => [
-          employee.employeeId || "N/A",
-          `"${employee.name || "N/A"}"`, // Wrap in quotes to handle commas in names
-          `"${employee.position || "N/A"}"`,
-          `"${employee.department || "N/A"}"`,
-          `"${employee.location || "N/A"}"`,
-          employee.email || "N/A",
-          employee.phone || "N/A",
-          `"${employee.reporting_to ? getEmployeeName(employee.reporting_to) : "N/A"}"`,
-          employee.dateOfJoining || "N/A"
-        ].join(","))
-      ];
-      
-      // Create CSV content
-      const csvContent = csvRows.join("\n");
-      
-      // Create and download file
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
+      // Helper function to get employee name by ID (for manager field)
+      const getManagerName = (employeeId: string) => {
+        const employee = employees.find(emp => emp.id === employeeId);
+        return employee ? employee.name : "Unknown";
+      };
       
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
       const filename = `employees_${timestamp}.csv`;
-      link.setAttribute("download", filename);
       
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Use the comprehensive CSV export utility
+      exportEmployeesToCSV(dataToExport, filename, getManagerName);
       
       toast({
         title: "Export Successful",
@@ -193,12 +159,6 @@ export default function Directory() {
         variant: "destructive",
       });
     }
-  };
-  
-  // Helper function to get employee name by ID (for manager field)
-  const getEmployeeName = (employeeId: string) => {
-    const employee = employees.find(emp => emp.id === employeeId);
-    return employee ? employee.name : "Unknown";
   };
   
   // Handle navigation to dashboard with loading state

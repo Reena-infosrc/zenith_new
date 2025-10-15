@@ -49,7 +49,8 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
     dateOfBirth: '',
     dateOfJoining: '',
     bio: '',
-    startDate: '',
+    projectStartDate: '',
+    projectEndDate: '',
     manager: ''
   });
 
@@ -113,7 +114,8 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
       dateOfBirth: formData.dateOfBirth,
       dateOfJoining: formData.dateOfJoining,
       bio: formData.bio,
-      startDate: formData.startDate,
+      projectStartDate: formData.projectStartDate,
+      projectEndDate: formData.projectEndDate,
       photoUrl: photo || undefined
     });
     
@@ -138,7 +140,8 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
         dateOfBirth: '',
         dateOfJoining: '',
         bio: '',
-        startDate: '',
+        projectStartDate: '',
+        projectEndDate: '',
         manager: ''
       });
       setPhoto(null);

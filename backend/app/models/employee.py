@@ -35,7 +35,8 @@ class EmployeeBase(BaseModel):
     
     # Legacy fields for backward compatibility
     bio: Optional[str] = None
-    start_date: Optional[date] = None
+    project_start_date: Optional[date] = None  # Renamed from start_date
+    project_end_date: Optional[date] = None    # New field for project end date
     photo_url: Optional[str] = None
     manager_id: Optional[str] = None
     reporting_to: Optional[str] = None  # Employee ID of the person they report to
@@ -81,7 +82,8 @@ class EmployeeUpdate(BaseModel):
     
     # Legacy fields
     bio: Optional[str] = None
-    start_date: Optional[date] = None
+    project_start_date: Optional[date] = None  # Renamed from start_date
+    project_end_date: Optional[date] = None    # New field for project end date
     photo_url: Optional[str] = None
     manager_id: Optional[str] = None
     reporting_to: Optional[str] = None
@@ -116,7 +118,8 @@ class EmployeeInDB(EmployeeBase):
                 "department": "Engineering",
                 "phone": "+1 555-123-4567",
                 "bio": "Full-stack developer with 5 years of experience.",
-                "start_date": "2020-01-15",
+                "project_start_date": "2020-01-15",
+                "project_end_date": "2023-12-31",
                 "photo_url": "https://example.com/photos/john-doe.jpg",
                 "manager_id": "5f8d0d55b54764421b71cc2c",
                 "manager_name": "Jane Smith",

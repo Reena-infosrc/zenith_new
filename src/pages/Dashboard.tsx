@@ -24,6 +24,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { useToast } from "@/hooks/use-toast";
 import { consolidateRemoteLocations } from "@/lib/utils";
+import { exportEmployeesToCSV } from "@/utils/csvExport";
 
 interface Employee {
   id: string;
@@ -86,7 +87,7 @@ export default function Dashboard() {
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const { toast } = useToast();
 
-  // CSV Export function for modal data
+  // CSV Export function for modal data - Updated with comprehensive field coverage
   const exportModalDataToCSV = () => {
     try {
       if (filteredEmployees.length === 0) {
@@ -98,60 +99,20 @@ export default function Dashboard() {
         return;
       }
       
-      // Define CSV headers
-      const headers = [
-        "Name",
-        "Position", 
-        "Department",
-        "Account",
-        "Location",
-        "Work Type",
-        "Status",
-        "Is Leader",
-        "Employee ID",
-        "Email",
-        "Phone",
-        "Date of Joining"
-      ];
-      
-      // Convert employee data to CSV rows
-      const csvRows = [
-        headers.join(","), // Header row
-        ...filteredEmployees.map(employee => [
-          `"${employee.name || "N/A"}"`, // Wrap in quotes to handle commas
-          `"${employee.position || "N/A"}"`,
-          `"${employee.department || "N/A"}"`,
-          `"${employee.account || "N/A"}"`,
-          `"${employee.location || "N/A"}"`,
-          `"${employee.employee_status || "N/A"}"`,
-          `"${employee.status || "active"}"`,
-          `"${employee.is_leader || "N/A"}"`,
-          employee.employeeId || "N/A",
-          employee.email || "N/A",
-          employee.phone || "N/A",
-          employee.date_of_joining || "N/A"
-        ].join(","))
-      ];
-      
-      // Create CSV content
-      const csvContent = csvRows.join("\n");
-      
-      // Create and download file
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
+      // Helper function to get employee name by ID (for manager field)
+      const getManagerName = (employeeId: string) => {
+        // Search in all dashboard employees, not just filtered ones
+        const employee = dashboardData?.employees?.find(emp => emp.id === employeeId);
+        return employee ? employee.name : "Unknown";
+      };
       
       // Generate filename with timestamp and context
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
       const context = selectedDataPoint?.month || "employees";
       const filename = `employees_${context.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.csv`;
-      link.setAttribute("download", filename);
       
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Use the comprehensive CSV export utility
+      exportEmployeesToCSV(filteredEmployees, filename, getManagerName);
       
       toast({
         title: "Export Successful",

@@ -187,7 +187,8 @@ async def create_employee(
     dateOfBirth: Optional[str] = Form(None),
     dateOfJoining: Optional[str] = Form(None),
     bio: Optional[str] = Form(None),
-    startDate: Optional[str] = Form(None),
+    projectStartDate: Optional[str] = Form(None),  # Renamed from startDate
+    projectEndDate: Optional[str] = Form(None),    # New field for project end date
     skills: Optional[str] = Form(None),
     expertise: Optional[str] = Form(None),
     experienceYears: Optional[int] = Form(None),
@@ -206,7 +207,8 @@ async def create_employee(
         # Parse date fields
         parsed_date_of_birth = None
         parsed_date_of_joining = None
-        parsed_start_date = None
+        parsed_project_start_date = None
+        parsed_project_end_date = None
         parsed_resignation_date = None
         
         if dateOfBirth:
@@ -221,9 +223,15 @@ async def create_employee(
             except ValueError:
                 pass
         
-        if startDate:
+        if projectStartDate:
             try:
-                parsed_start_date = datetime.datetime.strptime(startDate, "%Y-%m-%d").date()
+                parsed_project_start_date = datetime.datetime.strptime(projectStartDate, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        
+        if projectEndDate:
+            try:
+                parsed_project_end_date = datetime.datetime.strptime(projectEndDate, "%Y-%m-%d").date()
             except ValueError:
                 pass
         
@@ -270,7 +278,8 @@ async def create_employee(
             "date_of_birth": parsed_date_of_birth.isoformat() if parsed_date_of_birth else None,
             "date_of_joining": parsed_date_of_joining.isoformat() if parsed_date_of_joining else None,
             "bio": bio,
-            "start_date": parsed_start_date.isoformat() if parsed_start_date else None,
+            "project_start_date": parsed_project_start_date.isoformat() if parsed_project_start_date else None,
+            "project_end_date": parsed_project_end_date.isoformat() if parsed_project_end_date else None,
             "photo_url": "",
             "manager_id": None,
             "reporting_to": reporting_to,

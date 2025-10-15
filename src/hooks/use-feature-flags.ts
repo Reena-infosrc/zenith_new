@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiCache, CACHE_KEYS } from '@/utils/api-cache';
+import { API_BASE_URL } from '@/config/api';
 
 // Feature flag status types
 export type FeatureFlagStatus = 'enabled' | 'disabled' | 'hidden';
@@ -19,9 +20,6 @@ export interface FeatureFlag {
   created_at: string;
   updated_at: string;
 }
-
-// API base URL
-const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com/api';
 
 export function useFeatureFlags() {
   const [featureFlags, setFeatureFlags] = useState<FeatureFlag[]>([]);

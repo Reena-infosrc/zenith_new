@@ -12,7 +12,8 @@ interface SearchResult {
   phone?: string;
   mobile?: string;
   bio?: string;
-  startDate?: string;
+  projectStartDate?: string;
+  projectEndDate?: string;
   skills?: string[];
   expertise?: string;
   experienceYears?: number;
@@ -63,7 +64,8 @@ export function useEmployeeSearch() {
         phone: emp.phone || "",
         mobile: emp.mobile || "",
         bio: emp.bio || "",
-        startDate: emp.startDate || "",
+        projectStartDate: emp.projectStartDate || "",
+        projectEndDate: emp.projectEndDate || "",
         manager: emp.reporting_to || "",
         reporting_to: emp.reporting_to || "",
         skills: emp.skills || [],

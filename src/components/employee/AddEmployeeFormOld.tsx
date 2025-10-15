@@ -44,7 +44,8 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
     dateOfBirth: '',
     dateOfJoining: '',
     bio: '',
-    startDate: '',
+    projectStartDate: '',
+    projectEndDate: '',
     manager: ''
   });
 
@@ -254,12 +255,23 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="startDate">Start Date</Label>
+                <Label htmlFor="projectStartDate">Project Start Date</Label>
                 <Input 
-                  id="startDate" 
-                  name="startDate"
+                  id="projectStartDate" 
+                  name="projectStartDate"
                   type="date"
-                  value={formData.startDate}
+                  value={formData.projectStartDate}
+                  onChange={handleChange}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="projectEndDate">Project End Date</Label>
+                <Input 
+                  id="projectEndDate" 
+                  name="projectEndDate"
+                  type="date"
+                  value={formData.projectEndDate}
                   onChange={handleChange}
                 />
               </div>
