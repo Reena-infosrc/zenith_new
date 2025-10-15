@@ -23,6 +23,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart } from 'recharts';
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { useToast } from "@/hooks/use-toast";
+import { consolidateRemoteLocations } from "@/lib/utils";
 
 interface Employee {
   id: string;
@@ -248,9 +249,13 @@ export default function Dashboard() {
     
     // If no filter selected or no categories, show total count
     if (selectedFilter === "all" || categories.size === 0) {
-      for (let month = 1; month <= 12; month++) {
-        const month_date = new Date(current_year, month - 1, 1);
-        const end_date = new Date(current_year, month, 1);
+      const now = new Date();
+      
+      // Generate data for the last 12 months
+      for (let i = 11; i >= 0; i--) {
+        const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+        const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
         
         let count = 0;
         for (const emp of dashboardData.employees) {
@@ -258,7 +263,7 @@ export default function Dashboard() {
           if (join_date_str) {
             try {
               const join_date = new Date(join_date_str);
-              if (join_date <= end_date) {
+              if (join_date <= monthEnd) {
                 count += 1;
               }
             } catch {
@@ -268,21 +273,24 @@ export default function Dashboard() {
         }
         
         monthly_headcount.push({
-          month: month_date.toLocaleDateString('en-US', { month: 'short' }),
+          month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
           count,
-          month_number: month,
+          month_number: targetDate.getMonth() + 1,
           employees: dashboardData.employees
         });
       }
     } else {
-      // Generate data for each category
-      for (let month = 1; month <= 12; month++) {
-        const month_date = new Date(current_year, month - 1, 1);
-        const end_date = new Date(current_year, month, 1);
+      // Generate data for each category - last 12 months
+      const now = new Date();
+      
+      for (let i = 11; i >= 0; i--) {
+        const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+        const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
         
         const monthData: any = {
-          month: month_date.toLocaleDateString('en-US', { month: 'short' }),
-          month_number: month,
+          month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
+          month_number: targetDate.getMonth() + 1,
           employees: []
         };
         
@@ -298,7 +306,7 @@ export default function Dashboard() {
               if (join_date_str) {
                 try {
                   const join_date = new Date(join_date_str);
-                  if (join_date <= end_date) {
+                  if (join_date <= monthEnd) {
                     count += 1;
                     categoryEmployees.push(emp);
                   }
@@ -369,7 +377,17 @@ export default function Dashboard() {
     dashboardData.employees.forEach(emp => {
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
-        categories.add(fieldValue);
+        // Consolidate remote locations when filter is location
+        if (selectedFilter === "location") {
+          const normalizedValue = fieldValue.toLowerCase().trim();
+          if (normalizedValue.startsWith('remote -') || normalizedValue === 'remote') {
+            categories.add('Remote');
+          } else {
+            categories.add(fieldValue);
+          }
+        } else {
+          categories.add(fieldValue);
+        }
       }
     });
 
@@ -398,21 +416,33 @@ export default function Dashboard() {
     dashboardData.employees.forEach(emp => {
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
-        categories.add(fieldValue);
+        // Consolidate remote locations when filter is location
+        if (selectedFilter === "location") {
+          const normalizedValue = fieldValue.toLowerCase().trim();
+          if (normalizedValue.startsWith('remote -') || normalizedValue === 'remote') {
+            categories.add('Remote');
+          } else {
+            categories.add(fieldValue);
+          }
+        } else {
+          categories.add(fieldValue);
+        }
       }
     });
 
     const monthlyData = [];
+    const now = new Date();
     
-    for (let month = 1; month <= 12; month++) {
-      const month_date = new Date(current_year, month - 1, 1);
-      const monthKey = month_date.toISOString().slice(0, 7); // YYYY-MM format
-      const monthName = month_date.toLocaleDateString('en-US', { month: 'short' });
+    // Generate data for the last 12 months
+    for (let i = 11; i >= 0; i--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = targetDate.toISOString().slice(0, 7); // YYYY-MM format
+      const monthName = targetDate.toLocaleDateString('en-US', { month: 'short' });
       
       const monthData: any = {
         month: monthKey,
         monthName: monthName,
-        month_number: month,
+        month_number: targetDate.getMonth() + 1,
         total: 0
       };
       
@@ -423,7 +453,17 @@ export default function Dashboard() {
         
         for (const emp of dashboardData.employees) {
           const fieldValue = emp[selectedFilter as keyof Employee];
-          if (fieldValue === category) {
+          
+          // Handle consolidated remote locations
+          let matchesCategory = false;
+          if (selectedFilter === "location" && category === "Remote") {
+            const normalizedValue = fieldValue?.toLowerCase().trim();
+            matchesCategory = normalizedValue?.startsWith('remote -') || normalizedValue === 'remote';
+          } else {
+            matchesCategory = fieldValue === category;
+          }
+          
+          if (matchesCategory) {
             const join_date_str = emp.date_of_joining || emp.created_at;
             if (join_date_str) {
               try {
@@ -485,7 +525,17 @@ export default function Dashboard() {
     filteredEmployees.forEach(emp => {
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
-        distribution[fieldValue] = (distribution[fieldValue] || 0) + 1;
+        // Consolidate remote locations when filter is location
+        if (selectedFilter === "location") {
+          const normalizedValue = fieldValue.toLowerCase().trim();
+          if (normalizedValue.startsWith('remote -') || normalizedValue === 'remote') {
+            distribution['Remote'] = (distribution['Remote'] || 0) + 1;
+          } else {
+            distribution[fieldValue] = (distribution[fieldValue] || 0) + 1;
+          }
+        } else {
+          distribution[fieldValue] = (distribution[fieldValue] || 0) + 1;
+        }
       }
     });
 
@@ -566,7 +616,22 @@ export default function Dashboard() {
     if (!data || typeof data !== 'object') {
       return [];
     }
-    return Object.entries(data).map(([name, value]) => ({ name, value }));
+    
+    // Consolidate remote locations for location charts
+    const consolidatedData: { [key: string]: number } = {};
+    
+    Object.entries(data).forEach(([name, value]) => {
+      const normalizedName = name.toLowerCase().trim();
+      
+      // Consolidate remote locations
+      if (normalizedName.startsWith('remote -') || normalizedName === 'remote') {
+        consolidatedData['Remote'] = (consolidatedData['Remote'] || 0) + value;
+      } else {
+        consolidatedData[name] = value;
+      }
+    });
+    
+    return Object.entries(consolidatedData).map(([name, value]) => ({ name, value }));
   };
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
@@ -1130,7 +1195,7 @@ export default function Dashboard() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={employee.status === 'active' ? 'default' : 'destructive'}>
+                            <Badge variant={employee.status === 'inactive' ? 'destructive' : 'default'}>
                               {employee.status || 'active'}
                             </Badge>
                           </TableCell>

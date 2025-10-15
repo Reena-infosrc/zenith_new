@@ -13,7 +13,8 @@ import {
   Plus,
   BarChart2,
   ArrowUpDown,
-  Download
+  Download,
+  User
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmployeeCard, EmployeeCardProps } from "@/components/EmployeeCard";
@@ -24,6 +25,7 @@ import { InteractiveOrgChart } from "@/components/InteractiveOrgChart";
 import { AddEmployeeForm } from "@/components/employee/AddEmployeeForm";
 import { ImportEmployees } from "@/components/employee/ImportEmployees";
 import { useAuth } from "@/hooks/use-auth"; // Assuming you have this
+import { consolidateRemoteLocations, DEPARTMENT_OPTIONS } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,32 +71,20 @@ export default function Directory() {
     updateEmployee,
     importEmployeesFromCsv,
     fetchEmployees,
-    clearCache
+    clearCache,
+    bulkUpdateEmployeeNames
   } = useEmployees();
   
   // Show loading state when navigating or when data is loading
   const showLoading = isLoading || isNavigating;
   
-  // Available departments, locations, and accounts for filters - dynamically generated from employee data
-  const departments = useMemo(() => 
-    [...new Set(employees.map(emp => emp.department).filter(Boolean))].sort(),
-    [employees]
-  );
+  // Available departments, locations, and accounts for filters - use predefined department options
+  const departments = DEPARTMENT_OPTIONS;
   
   // Process locations to consolidate remote locations
   const locations = useMemo(() => {
     const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
-    
-    const processedLocations = rawLocations.map(location => {
-      const normalizedLocation = location?.trim().toLowerCase();
-      // Check if location starts with "remote -" or is exactly "remote" and consolidate to just "Remote"
-      if (normalizedLocation?.startsWith('remote -') || normalizedLocation === 'remote') {
-        return 'Remote';
-      }
-      return location;
-    });
-    
-    return [...new Set(processedLocations)].sort();
+    return consolidateRemoteLocations(rawLocations);
   }, [employees]);
   
   const accounts = useMemo(() => 
@@ -502,6 +492,28 @@ export default function Directory() {
                 <Button variant="outline" className="gap-2" onClick={() => setShowImport(true)}>
                   <Upload className="h-4 w-4" />
                   Import
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="gap-2" 
+                  onClick={async () => {
+                    try {
+                      const result = await bulkUpdateEmployeeNames();
+                      toast({
+                        title: "Success",
+                        description: `Updated ${result.updated_count} employee names to camel case format`,
+                      });
+                    } catch (error) {
+                      toast({
+                        title: "Error",
+                        description: "Failed to update employee names",
+                        variant: "destructive"
+                      });
+                    }
+                  }}
+                >
+                  <User className="h-4 w-4" />
+                  Fix Names
                 </Button>
               </div>
             </div>

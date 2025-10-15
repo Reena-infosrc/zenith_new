@@ -31,6 +31,7 @@ export interface Employee {
   dateOfBirth?: string;
   dateOfJoining?: string;
   gender?: string;
+  employee_status?: string;
   status?: string;
   resignationDate?: string;
   reasonForResignation?: string;
@@ -305,6 +306,7 @@ export function useEmployees() {
             dateOfBirth: emp.date_of_birth || "",
             dateOfJoining: emp.date_of_joining || "",
             gender: emp.gender || "",
+            employee_status: emp.employee_status || "",
             status: emp.status !== undefined ? emp.status : 'active',
             resignationDate: emp.resignation_date || "",
             reasonForResignation: emp.reason_for_resignation || ""
@@ -854,6 +856,37 @@ export function useEmployees() {
     console.log('🗑️ Cache cleared, forcing fresh data fetch');
   };
 
+  // Bulk update employee names to camel case
+  const bulkUpdateEmployeeNames = async () => {
+    try {
+      console.log('🔄 Starting bulk update of employee names to camel case...');
+      
+      const response = await fetch(`${API_BASE_URL}/employees/bulk-update-names`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to update employee names');
+      }
+
+      const result = await response.json();
+      console.log('✅ Bulk update completed:', result);
+      
+      // Clear cache and refresh data
+      apiCache.clear();
+      await fetchEmployees();
+      
+      return result;
+    } catch (error) {
+      console.error('❌ Error updating employee names:', error);
+      throw error;
+    }
+  };
+
   return {
     employees,
     isLoading,
@@ -864,6 +897,7 @@ export function useEmployees() {
     updateEmployee,
     deleteEmployee,
     importEmployeesFromCsv,
-    clearCache
+    clearCache,
+    bulkUpdateEmployeeNames
   };
 }

@@ -346,6 +346,52 @@ async def update_employee(employee_id: str, employee_update: EmployeeUpdate):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to update employee: {str(e)}")
 
+@router.post("/bulk-update-names", status_code=200)
+async def bulk_update_employee_names():
+    """Update all existing employee names to camel case format"""
+    try:
+        table = await get_employees_table()
+        
+        # Get all employees
+        response = await table.scan()
+        employees = response.get('Items', [])
+        
+        updated_count = 0
+        
+        for employee_item in employees:
+            # Parse the employee data
+            employee_data = parse_dynamodb_item(employee_item)
+            
+            # Convert name to camel case
+            original_name = employee_data.get('name', '')
+            if original_name:
+                # Convert to camel case (Title Case)
+                camel_case_name = ' '.join(word.capitalize() for word in original_name.split())
+                
+                if camel_case_name != original_name:
+                    # Update the name
+                    employee_data['name'] = camel_case_name
+                    employee_data['updated_at'] = time.strftime("%Y-%m-%d")
+                    
+                    # Convert back to DynamoDB format and update
+                    dynamodb_item = format_dynamodb_item(employee_data)
+                    await table.put_item(Item=dynamodb_item)
+                    updated_count += 1
+                    
+                    print(f"Updated employee {employee_data.get('id', 'unknown')}: '{original_name}' -> '{camel_case_name}'")
+        
+        return {
+            "message": f"Successfully updated {updated_count} employee names to camel case format",
+            "updated_count": updated_count,
+            "total_employees": len(employees)
+        }
+        
+    except Exception as e:
+        print(f"Error in bulk_update_employee_names: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to update employee names: {str(e)}")
+
 @router.delete("/{employee_id}", status_code=204)
 async def delete_employee(employee_id: str):
     """Delete an employee"""

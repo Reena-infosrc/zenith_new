@@ -23,6 +23,8 @@ export type EmployeeCardProps = {
   dateOfBirth?: string;
   dateOfJoining?: string;
   gender?: string;
+  employee_status?: string;
+  account?: string;
   status?: string;
   resignationDate?: string;
   reasonForResignation?: string;
@@ -133,6 +135,8 @@ export function EmployeeCard(props: EmployeeCardProps) {
           dateOfBirth: props.dateOfBirth,
           dateOfJoining: props.dateOfJoining,
           gender: props.gender,
+          employee_status: props.employee_status,
+          account: props.account,
           status: props.status,
           resignationDate: props.resignationDate,
           reasonForResignation: props.reasonForResignation

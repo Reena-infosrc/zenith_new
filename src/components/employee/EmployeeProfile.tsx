@@ -18,6 +18,7 @@ import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award,
 import { useEmployees } from '@/hooks/use-employees';
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
+import { consolidateRemoteLocations, DEPARTMENT_OPTIONS, EMPLOYEE_STATUS_OPTIONS, CLIENT_OPTIONS, toCamelCase } from "@/lib/utils";
 import { ImageCrop } from "@/components/ui/ImageCrop";
 
 interface EmployeeProfileProps {
@@ -44,6 +45,8 @@ interface EmployeeProfileProps {
     dateOfBirth?: string;
     dateOfJoining?: string;
     gender?: string;
+    employee_status?: string;
+    account?: string;
     status?: string;
     resignationDate?: string;
     reasonForResignation?: string;
@@ -137,9 +140,14 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   }, [employees, employee.id, photoClearedByUser]);
 
   // Get unique departments, locations, and managers for dropdowns
-  const departments = [...new Set(employees.map(emp => emp.department).filter(Boolean))];
-  const locations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
+  const departments = DEPARTMENT_OPTIONS; // Use predefined department options
+  const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
+  const locations = consolidateRemoteLocations(rawLocations);
   const managers = employees.filter(emp => emp.id !== employee.id); // Exclude current employee
+  // Get unique employee status values for dropdown
+  const employeeStatusOptions = [...new Set(employees.map(emp => emp.employee_status).filter(Boolean))];
+  // Get unique client/account values for dropdown
+  const clientOptions = [...new Set(employees.map(emp => emp.account).filter(Boolean))];
   
   // Ensure arrays are not empty and have valid values
   const validDepartments = departments.filter(dept => dept && dept.trim() !== '');
@@ -340,6 +348,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       });
       
       const updatedEmployee = await updateEmployee(employee.id, {
+        name: toCamelCase(profileData.name),
         email: profileData.email,
         phone: profileData.phone,
         mobile: profileData.mobile,
@@ -352,6 +361,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         experienceYears: profileData.experienceYears,
         location: profileData.location,
         gender: profileData.gender,
+        employee_status: profileData.employee_status,
+        account: profileData.account,
         dateOfBirth: profileData.dateOfBirth,
         dateOfJoining: profileData.dateOfJoining,
         status: profileData.status !== undefined ? profileData.status : 'active',
@@ -732,6 +743,64 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                   ) : (
                     <Input 
                       value={profileData.department || 'Not provided'} 
+                      disabled
+                      className="bg-muted"
+                    />
+                  )}
+                </div>
+
+                {/* Employee Status */}
+                <div className="space-y-2">
+                  <Label htmlFor="employee_status">Employee Status</Label>
+                  {isEditing ? (
+                    <Select 
+                      value={profileData.employee_status || 'none'} 
+                      onValueChange={(value) => setProfileData(prev => ({ ...prev, employee_status: value === 'none' ? '' : value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select employee status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No Status</SelectItem>
+                        {employeeStatusOptions.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input 
+                      value={profileData.employee_status || 'Not provided'} 
+                      disabled
+                      className="bg-muted"
+                    />
+                  )}
+                </div>
+
+                {/* Client */}
+                <div className="space-y-2">
+                  <Label htmlFor="account">Client</Label>
+                  {isEditing ? (
+                    <Select 
+                      value={profileData.account || 'none'} 
+                      onValueChange={(value) => setProfileData(prev => ({ ...prev, account: value === 'none' ? '' : value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select client" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No Client</SelectItem>
+                        {clientOptions.map((client) => (
+                          <SelectItem key={client} value={client}>
+                            {client}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input 
+                      value={profileData.account || 'Not provided'} 
                       disabled
                       className="bg-muted"
                     />

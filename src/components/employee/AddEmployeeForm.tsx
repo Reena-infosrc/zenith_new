@@ -14,6 +14,7 @@ import { Upload, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEmployees } from '@/hooks/use-employees';
 import { ImageCrop } from "@/components/ui/ImageCrop";
+import { consolidateRemoteLocations, DEPARTMENT_OPTIONS, EMPLOYEE_STATUS_OPTIONS, CLIENT_OPTIONS, toCamelCase } from "@/lib/utils";
 
 interface AddEmployeeFormProps {
   isOpen: boolean;
@@ -59,8 +60,13 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
   const managers = employees.filter(emp => emp.id);
   // Unique expertise values for dropdown
   const expertiseOptions = Array.from(new Set((employees || []).map(e => e.expertise).filter(Boolean))) as string[];
-  // Unique location values for dropdown
-  const locationOptions = Array.from(new Set((employees || []).map(e => e.location).filter(Boolean))) as string[];
+  // Unique location values for dropdown - consolidate remote locations
+  const rawLocationOptions = Array.from(new Set((employees || []).map(e => e.location).filter(Boolean))) as string[];
+  const locationOptions = consolidateRemoteLocations(rawLocationOptions);
+  // Unique employee status values for dropdown
+  const employeeStatusOptions = Array.from(new Set((employees || []).map(e => e.employee_status).filter(Boolean))) as string[];
+  // Unique client/account values for dropdown
+  const clientOptions = Array.from(new Set((employees || []).map(e => e.account).filter(Boolean))) as string[];
   // Gender options
   const genderOptions = ['MALE', 'FEMALE'];
 
@@ -164,9 +170,9 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
     
     const newEmployee = await createEmployee({
       employeeId: formData.employeeId,
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      name: formData.firstName && formData.lastName ? `${formData.firstName} ${formData.lastName}` : formData.name,
+      firstName: toCamelCase(formData.firstName),
+      lastName: toCamelCase(formData.lastName),
+      name: formData.firstName && formData.lastName ? toCamelCase(`${formData.firstName} ${formData.lastName}`) : toCamelCase(formData.name),
       position: formData.position,
       department: formData.department,
       email: formData.email,
@@ -329,7 +335,7 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent>
-                    {departments.map(dept => (
+                    {DEPARTMENT_OPTIONS.map(dept => (
                       <SelectItem key={dept} value={dept}>
                         {dept}
                       </SelectItem>
@@ -360,6 +366,40 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
                   <SelectContent>
                     {locationOptions.map((location) => (
                       <SelectItem key={location} value={location}>{location}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="employeeStatus">Employee Status</Label>
+                <Select
+                  value={formData.employeeStatus}
+                  onValueChange={(value) => handleSelectChange('employeeStatus', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select employee status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employeeStatusOptions.map((status) => (
+                      <SelectItem key={status} value={status}>{status}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="account">Client</Label>
+                <Select
+                  value={formData.account}
+                  onValueChange={(value) => handleSelectChange('account', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientOptions.map((client) => (
+                      <SelectItem key={client} value={client}>{client}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
