@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ModeToggle } from "@/components/ModeToggle";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { useFeatureFlags } from "@/hooks/use-feature-flags";
+import { useFeatureFlags } from "@/contexts/FeatureFlagsContext";
 import { getFirstAvailableModuleRoute } from "@/utils/navigation";
 import { useMsal } from "@azure/msal-react";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";

@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Settings, Eye, EyeOff, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { useFeatureFlags, FeatureFlag, FeatureFlagStatus } from '@/hooks/use-feature-flags';
+import { useFeatureFlags, FeatureFlag, FeatureFlagStatus } from '@/contexts/FeatureFlagsContext';
 
 export function FeatureFlagManagement() {
   const { 

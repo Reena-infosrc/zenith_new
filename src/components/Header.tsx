@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNavigate } from "react-router-dom";
-import { useFeatureFlags } from "@/hooks/use-feature-flags";
+import { useFeatureFlags } from "@/contexts/FeatureFlagsContext";
 import { useMsal } from "@azure/msal-react";
 
 type HeaderProps = {

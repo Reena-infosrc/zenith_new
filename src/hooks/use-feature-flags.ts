@@ -27,13 +27,32 @@ export function useFeatureFlags() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Initialize from cache immediately if available
+  useEffect(() => {
+    const cachedData = apiCache.get(CACHE_KEYS.FEATURE_FLAGS);
+    if (cachedData) {
+      setFeatureFlags(cachedData);
+      
+      // Create status map for quick lookups
+      const statusMap: Record<string, FeatureFlagStatus> = {};
+      cachedData.forEach((flag: FeatureFlag) => {
+        statusMap[flag.name] = flag.status;
+      });
+      setFeatureFlagStatus(statusMap);
+      setIsLoading(false);
+    }
+  }, []);
+
   // Fetch all feature flags
   const fetchFeatureFlags = async () => {
-    setIsLoading(true);
+    // If we already have cached data, don't show loading state
+    const cachedData = apiCache.get(CACHE_KEYS.FEATURE_FLAGS);
+    if (!cachedData) {
+      setIsLoading(true);
+    }
     setError(null);
     
     // Check cache first
-    const cachedData = apiCache.get(CACHE_KEYS.FEATURE_FLAGS);
     if (cachedData) {
       setFeatureFlags(cachedData);
       

@@ -261,12 +261,9 @@ export default function Directory() {
       {/* Main Layout */}
       <div className="flex min-h-[calc(100vh-4rem)]">
         {/* Left Sidebar */}
-        <aside 
-          className={`fixed inset-y-0 left-0 z-20 w-64 bg-background border-r border-border transform transition-transform duration-300 ease-in-out pt-16 ${
-            sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } lg:translate-x-0 lg:static lg:z-0`}
-          style={{ paddingTop: '0px' }}
-        >
+        <aside className={`fixed inset-y-0 left-0 z-20 w-64 bg-background border-r border-border transform transition-transform duration-300 ease-in-out pt-16 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        } lg:translate-x-0 lg:static lg:z-0`}>
           <SidebarContent 
             activeModule={activeModule} 
             onModuleChange={setActiveModule} 
@@ -453,7 +450,8 @@ export default function Directory() {
                   <Upload className="h-4 w-4" />
                   Import
                 </Button>
-                <Button 
+                {/* Hidden Fix Names button - removed as requested */}
+                {/* <Button 
                   variant="outline" 
                   className="gap-2" 
                   onClick={async () => {
@@ -474,7 +472,7 @@ export default function Directory() {
                 >
                   <User className="h-4 w-4" />
                   Fix Names
-                </Button>
+                </Button> */}
               </div>
             </div>
             

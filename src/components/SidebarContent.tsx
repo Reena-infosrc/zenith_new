@@ -14,7 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
-import { useFeatureFlags } from "@/hooks/use-feature-flags";
+import { useFeatureFlags } from "@/contexts/FeatureFlagsContext";
+import { useMemo } from "react";
 
 type ModuleButtonProps = {
   icon: React.ReactNode;
@@ -68,7 +69,7 @@ type SidebarContentProps = {
 }
 
 export function SidebarContent({ activeModule, onModuleChange }: SidebarContentProps) {
-  const { isEnabled, isDisabled, isHidden } = useFeatureFlags();
+  const { isEnabled, isDisabled, isHidden, isLoading } = useFeatureFlags();
 
   const handleModuleClick = (moduleName: string) => {
     if (onModuleChange) {
@@ -76,7 +77,7 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
     }
   };
 
-  const modules = [
+  const modules = useMemo(() => [
     { name: 'Home', icon: <Layout size={20} />, to: '/home', featureFlag: 'home_module' },
     { name: 'Directory', icon: <Users size={20} />, to: '/directory', featureFlag: 'directory_module' },
     { name: 'Leave', icon: <Calendar size={20} />, to: '/leave', featureFlag: 'leave_module' },
@@ -88,13 +89,35 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
     { name: 'Compensation', icon: <DollarSign size={20} />, to: '/compensation', featureFlag: 'compensation_module' },
     { name: 'Learning', icon: <BookOpen size={20} />, featureFlag: 'learning_module' },
     { name: 'Helpdesk', icon: <HelpCircle size={20} />, featureFlag: 'helpdesk_module' },
-  ];
+  ], []);
 
   // Filter modules based on feature flags
-  const visibleModules = modules.filter(module => {
+  const visibleModules = useMemo(() => modules.filter(module => {
     if (!module.featureFlag) return true; // Always show modules without feature flags
     return !isHidden(module.featureFlag);
-  });
+  }), [modules, isHidden]);
+
+  // If still loading and no cached data, show skeleton or default state
+  if (isLoading) {
+    // Show all modules as disabled while loading to prevent layout shift
+    return (
+      <div className="py-4 h-full flex flex-col w-64">
+        <div className="flex-1 overflow-auto px-2">
+          {modules.map((module) => (
+            <ModuleButton 
+              key={module.name}
+              icon={module.icon}
+              label={module.name}
+              active={activeModule === module.name}
+              to={module.to}
+              onClick={() => handleModuleClick(module.name)}
+              disabled={true} // Show as disabled while loading
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="py-4 h-full flex flex-col w-64">
