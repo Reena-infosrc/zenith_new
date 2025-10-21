@@ -247,7 +247,7 @@ export const LeaveHistory = () => {
     }
     
     return (
-      <Badge variant={variant as any} className="capitalize">
+      <Badge variant={variant as "default" | "secondary" | "destructive" | "outline"} className="capitalize">
         {status}
       </Badge>
     );

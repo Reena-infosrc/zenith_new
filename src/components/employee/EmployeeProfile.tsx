@@ -168,7 +168,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       // Also update skills input
       setSkillsInput(updatedEmployee.skills ? updatedEmployee.skills.join(', ') : '');
     }
-  }, [employees, employee.id, photoClearedByUser]);
+  }, [employees, employee, photoClearedByUser]);
 
   // Get unique departments, locations, and managers for dropdowns
   const departments = DEPARTMENT_OPTIONS; // Use predefined department options

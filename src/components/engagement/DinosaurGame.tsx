@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { generateBeeLeaderboard } from "@/config/games";
 
@@ -260,7 +260,7 @@ export function BeeGame() {
   };
 
   // Draw the game
-  const drawGame = () => {
+  const drawGame = useCallback(() => {
     if (!canvasRef.current) return;
     
     const canvas = canvasRef.current;
@@ -331,7 +331,7 @@ export function BeeGame() {
     ctx.fillStyle = gameRef.current.nightMode ? "#ffffff" : "#000000";
     ctx.font = "bold 20px monospace";
     ctx.fillText(`Score: ${gameRef.current.currentScore}`, 20, 30);
-  };
+  }, [gameRef]);
 
   // Draw the bee
   const drawBee = (ctx: CanvasRenderingContext2D, isDead: boolean) => {
@@ -460,7 +460,7 @@ export function BeeGame() {
   };
 
   // Start game
-  const startGame = () => {
+  const startGame = useCallback(() => {
     // Reset game state
     setScore(0);
     gameRef.current.currentScore = 0;
@@ -480,7 +480,7 @@ export function BeeGame() {
     if (canvasRef.current) {
       canvasRef.current.focus();
     }
-  };
+  }, [setScore, setGameOver, setGameStarted, gameRef]);
 
   // Handle game over
   const handleGameOver = () => {

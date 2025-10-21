@@ -422,7 +422,7 @@ export function EmployeeHierarchyFlowchart({ employees }: EmployeeHierarchyFlowc
   }, [employees, updateNodeChildren, updateNodeLoading]);
 
   // Helper function to update node loading state
-  const updateNodeLoading = (nodeId: string, isLoading: boolean) => (node: HierarchyNode): HierarchyNode => {
+  const updateNodeLoading = useCallback((nodeId: string, isLoading: boolean) => (node: HierarchyNode): HierarchyNode => {
     if (node.employee.id === nodeId) {
       return { ...node, isLoading };
     }
@@ -430,10 +430,10 @@ export function EmployeeHierarchyFlowchart({ employees }: EmployeeHierarchyFlowc
       ...node,
       children: node.children.map(updateNodeLoading(nodeId, isLoading))
     };
-  };
+  }, []);
 
   // Helper function to update node children
-  const updateNodeChildren = (nodeId: string, children: HierarchyNode[], hasLoaded: boolean) => (node: HierarchyNode): HierarchyNode => {
+  const updateNodeChildren = useCallback((nodeId: string, children: HierarchyNode[], hasLoaded: boolean) => (node: HierarchyNode): HierarchyNode => {
     if (node.employee.id === nodeId) {
       return { ...node, children, hasLoaded };
     }
@@ -441,7 +441,7 @@ export function EmployeeHierarchyFlowchart({ employees }: EmployeeHierarchyFlowc
       ...node,
       children: node.children.map(updateNodeChildren(nodeId, children, hasLoaded))
     };
-  };
+  }, []);
 
   // Toggle node expansion
   const toggleNode = useCallback(async (nodeId: string) => {
@@ -459,7 +459,7 @@ export function EmployeeHierarchyFlowchart({ employees }: EmployeeHierarchyFlowc
   }, [hierarchy, loadChildren, findNodeById, toggleNodeExpansion]);
 
   // Helper function to toggle node expansion
-  const toggleNodeExpansion = (nodeId: string) => (node: HierarchyNode): HierarchyNode => {
+  const toggleNodeExpansion = useCallback((nodeId: string) => (node: HierarchyNode): HierarchyNode => {
     if (node.employee.id === nodeId) {
       return { ...node, isExpanded: !node.isExpanded };
     }
@@ -467,17 +467,17 @@ export function EmployeeHierarchyFlowchart({ employees }: EmployeeHierarchyFlowc
       ...node,
       children: node.children.map(toggleNodeExpansion(nodeId))
     };
-  };
+  }, []);
 
   // Find node by ID
-  const findNodeById = (nodes: HierarchyNode[], id: string): HierarchyNode | null => {
+  const findNodeById = useCallback((nodes: HierarchyNode[], id: string): HierarchyNode | null => {
     for (const node of nodes) {
       if (node.employee.id === id) return node;
       const found = findNodeById(node.children, id);
       if (found) return found;
     }
     return null;
-  };
+  }, []);
 
   // Handle keyboard navigation
   const handleKeyDown = useCallback((event: React.KeyboardEvent, nodeId: string) => {

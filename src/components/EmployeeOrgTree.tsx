@@ -276,7 +276,7 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
   }, [toggleNodeExpansion]);
 
   // Helper function to toggle node expansion
-  const toggleNodeExpansion = (nodeId: string) => (node: TreeNode): TreeNode => {
+  const toggleNodeExpansion = useCallback((nodeId: string) => (node: TreeNode): TreeNode => {
     if (node.employee.id === nodeId) {
       return { ...node, isExpanded: !node.isExpanded };
     }
@@ -284,7 +284,7 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
       ...node,
       children: node.children.map(toggleNodeExpansion(nodeId))
     };
-  };
+  }, []);
 
   // Handle employee click
   const handleEmployeeClick = (employee: Employee) => {

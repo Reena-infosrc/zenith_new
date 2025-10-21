@@ -22,29 +22,86 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 
+// Define interfaces for type safety
+interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  position: string;
+  department: string;
+  photoUrl?: string;
+}
+
+interface Goal {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  completion: number;
+  dueDate?: string;
+  status: string;
+  file?: string;
+}
+
+interface Feedback {
+  id: string;
+  description: string;
+  percent: number;
+  category: string;
+  employeeId: string;
+  createdAt: string;
+}
+
+interface GoalForm {
+  title: string;
+  description: string;
+  category: string;
+  file: File | null;
+  completion: number;
+}
+
+interface FeedbackForm {
+  description: string;
+  percent: string;
+  category: string;
+}
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+interface TechStack {
+  name: string;
+  logo_url: string;
+  percent: number;
+}
+
 const EMPLOYEE_ID = "1"; // Replace with actual employeeId from auth/session
 const API_BASE = `${API_BASE_URL}/`;
 
 export function PerformanceOverview() {
   const [showOverdueCheckIn, setShowOverdueCheckIn] = useState(true);
-  const [goals, setGoals] = useState([]);
-  const [employee, setEmployee] = useState<any>(null);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [goalModalOpen, setGoalModalOpen] = useState(false);
-  const [editGoal, setEditGoal] = useState<any>(null);
-  const [goalForm, setGoalForm] = useState<any>({ title: "", description: "", category: "communication", file: null, completion: 0 });
+  const [editGoal, setEditGoal] = useState<Goal | null>(null);
+  const [goalForm, setGoalForm] = useState<GoalForm>({ title: "", description: "", category: "communication", file: null, completion: 0 });
   const [goalLoading, setGoalLoading] = useState(false);
   const [goalError, setGoalError] = useState("");
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState("");
-  const [employeeResults, setEmployeeResults] = useState<any[]>([]);
-  const [selectedFeedbackEmp, setSelectedFeedbackEmp] = useState<any>(null);
-  const [feedbackForm, setFeedbackForm] = useState<any>({ description: "", percent: "", category: "communication" });
+  const [employeeResults, setEmployeeResults] = useState<Employee[]>([]);
+  const [selectedFeedbackEmp, setSelectedFeedbackEmp] = useState<Employee | null>(null);
+  const [feedbackForm, setFeedbackForm] = useState<FeedbackForm>({ description: "", percent: "", category: "communication" });
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [feedbackError, setFeedbackError] = useState("");
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
-  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [searchSuggestions, setSearchSuggestions] = useState<Employee[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [employeeLoading, setEmployeeLoading] = useState(false);
 
@@ -96,14 +153,14 @@ export function PerformanceOverview() {
 
   // Defensive: always use an array
   const safeGoals = Array.isArray(goals) ? goals : [];
-  const groupedGoals = safeGoals.reduce((acc: any, goal: any) => {
+  const groupedGoals = safeGoals.reduce((acc: Record<string, Goal[]>, goal: Goal) => {
     if (!acc[goal.category]) acc[goal.category] = [];
     acc[goal.category].push(goal);
     return acc;
   }, {});
 
   // Calculate averages
-  const avg = (arr: any[]) =>
+  const avg = (arr: Goal[]) =>
     arr.length ? arr.reduce((a, b) => a + (b.completion || 0), 0) / arr.length : 0;
   const perf_communication = avg(groupedGoals.communication || []);
   const perf_leadership = avg(groupedGoals.leadership || []);
@@ -117,7 +174,7 @@ export function PerformanceOverview() {
     setGoalForm({ title: "", description: "", category: "communication", file: null, completion: 0 });
     setGoalModalOpen(true);
   };
-  const openEditGoal = (goal: any) => {
+  const openEditGoal = (goal: Goal) => {
     setEditGoal(goal);
     setGoalForm({ title: goal.title, description: goal.description, category: goal.category, file: null, completion: goal.completion || 0 });
     setGoalModalOpen(true);
@@ -137,20 +194,20 @@ export function PerformanceOverview() {
   };
 
   // Goal form handlers
-  const handleGoalFormChange = (e: any) => {
-    const { name, value, files, type } = e.target;
+  const handleGoalFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value, files, type } = e.target as HTMLInputElement;
     if (type === "range") {
-      setGoalForm((prev: any) => ({ ...prev, [name]: Number(value) }));
+      setGoalForm((prev: GoalForm) => ({ ...prev, [name]: Number(value) }));
     } else {
-      setGoalForm((prev: any) => ({ ...prev, [name]: files ? files[0] : value }));
+      setGoalForm((prev: GoalForm) => ({ ...prev, [name]: files ? files[0] : value }));
     }
   };
-  const handleGoalSubmit = async (e: any) => {
+  const handleGoalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setGoalLoading(true);
     setGoalError("");
     try {
-      let payload = {
+      const payload = {
         employeeId: selectedEmployeeId,
         title: goalForm.title,
         description: goalForm.description,
@@ -167,7 +224,7 @@ export function PerformanceOverview() {
       const goalsRes = await axios.get(`${API_BASE}api/goals/employee/${selectedEmployeeId}`);
       setGoals(Array.isArray(goalsRes.data) ? goalsRes.data : []);
       closeGoalModal();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setGoalError("Failed to save goal");
     } finally {
       setGoalLoading(false);
@@ -205,18 +262,18 @@ export function PerformanceOverview() {
   }, [employeeSearch]);
 
   // Feedback form handlers
-  const handleFeedbackFormChange = (e: any) => {
+  const handleFeedbackFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFeedbackForm((prev: any) => ({ ...prev, [name]: value }));
+    setFeedbackForm((prev: FeedbackForm) => ({ ...prev, [name]: value }));
   };
-  const handleFeedbackSubmit = async (e: any) => {
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFeedbackLoading(true);
     setFeedbackError("");
     try {
       // Placeholder: send feedback request (implement backend as needed)
       closeFeedbackModal();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setFeedbackError("Failed to send feedback");
     } finally {
       setFeedbackLoading(false);
@@ -402,7 +459,7 @@ export function PerformanceOverview() {
           {searchInput.length >= 2 && (
             <div className="border rounded bg-white shadow max-h-48 overflow-y-auto absolute z-50 w-full mt-1">
               {searchLoading && <div className="p-2 text-gray-500">Loading...</div>}
-              {searchSuggestions.map((emp: any) => (
+              {searchSuggestions.map((emp: Employee) => (
                 <div
                   key={emp.id}
                   className={`p-2 hover:bg-gray-100 cursor-pointer ${selectedEmployeeId === emp.id ? "bg-teal-100 font-semibold" : ""}`}
@@ -509,11 +566,11 @@ export function PerformanceOverview() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Goals by category */}
-                {Object.entries(groupedGoals).map(([cat, goals]: any, idx) => (
+                {Object.entries(groupedGoals).map(([cat, goals]: [string, Goal[]], idx) => (
                   <div key={cat} className="p-4 rounded-xl bg-gradient-to-br from-teal-50 to-cyan-50 border border-teal-100">
                     <h4 className="font-semibold text-teal-900 mb-2 capitalize">{cat} Goals</h4>
               <div className="space-y-2">
-                      {goals.map((goal: any) => (
+                      {goals.map((goal: Goal) => (
                         <div key={goal.id} className="flex items-center justify-between">
                           <span className="text-sm text-teal-700">{goal.title}</span>
                           <div className="flex items-center space-x-2">
@@ -599,7 +656,7 @@ export function PerformanceOverview() {
               </div>
                   <h4 className="font-semibold text-amber-900 mb-1">Tech Stack</h4>
                   <div className="flex flex-wrap justify-center gap-2 mt-2">
-                    {techStack.map((tech: any) => (
+                    {techStack.map((tech: TechStack) => (
                       <div key={tech.name} className="flex flex-col items-center">
                         <img src={tech.logo_url} alt={tech.name} className="w-8 h-8 mb-1" />
                         <span className="text-xs font-medium">{tech.name}</span>
