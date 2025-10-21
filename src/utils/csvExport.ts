@@ -196,53 +196,53 @@ export function employeeToCSVRow(employee: Employee, getManagerName?: (managerId
         if (employee.reporting_to && getManagerName) {
           return escapeCSVField(getManagerName(employee.reporting_to));
         }
-        if (employee.manager_name) {
-          return escapeCSVField(employee.manager_name);
-        }
         if (employee.manager) {
           return escapeCSVField(employee.manager);
         }
         return "N/A";
         
       case "firstName": {
-        // Try both firstName and first_name
-        const firstName = employee.firstName || employee.first_name || value;
+        // Extract first name from the name field
+        const name = employee.name || value;
+        const firstName = name.split(' ')[0] || value;
         return escapeCSVField(firstName);
       }
         
       case "lastName": {
-        // Try both lastName and last_name
-        const lastName = employee.lastName || employee.last_name || value;
+        // Extract last name from the name field
+        const name = employee.name || value;
+        const nameParts = name.split(' ');
+        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : value;
         return escapeCSVField(lastName);
       }
         
       case "employeeId": {
-        // Try both employeeId and employee_id
-        const employeeId = employee.employeeId || employee.employee_id || value;
+        // Use employeeId property
+        const employeeId = employee.employeeId || value;
         return escapeCSVField(employeeId);
       }
         
       case "employmentCategory": {
-        // Try both employmentCategory and employment_category
-        const employmentCategory = employee.employmentCategory || employee.employment_category || value;
+        // Use employmentCategory property
+        const employmentCategory = employee.employmentCategory || value;
         return escapeCSVField(employmentCategory);
       }
         
       case "employeeStatus": {
-        // Try both employeeStatus and employee_status
-        const employeeStatus = employee.employeeStatus || employee.employee_status || value;
+        // Use employeeStatus property
+        const employeeStatus = employee.employeeStatus || value;
         return escapeCSVField(employeeStatus);
       }
         
       case "isLeader": {
-        // Try both isLeader and is_leader
-        const isLeader = employee.isLeader || employee.is_leader || value;
+        // Use isLeader property
+        const isLeader = employee.isLeader || value;
         return escapeCSVField(isLeader);
       }
         
       case "experienceYears": {
-        // Try both experienceYears and experience_years
-        const experienceYears = employee.experienceYears || employee.experience_years || value;
+        // Use experienceYears property
+        const experienceYears = employee.experienceYears || value;
         return escapeCSVField(experienceYears);
       }
         
@@ -256,7 +256,7 @@ export function employeeToCSVRow(employee: Employee, getManagerName?: (managerId
  * Export employees to CSV with comprehensive field coverage
  */
 export function exportEmployeesToCSV(
-  employees: any[], 
+  employees: Employee[], 
   filename: string = "employees_export.csv",
   getManagerName?: (managerId: string) => string
 ): void {

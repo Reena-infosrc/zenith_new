@@ -86,6 +86,9 @@ export function BeeGame() {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    
+    // Capture the ref value at the start of the effect
+    const currentGameRef = gameRef.current;
 
     // Set canvas size to fit container
     canvas.width = canvas.offsetWidth;
@@ -152,7 +155,6 @@ export function BeeGame() {
     
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      const currentGameRef = gameRef.current;
       if (currentGameRef?.animationFrame) {
         cancelAnimationFrame(currentGameRef.animationFrame);
       }
@@ -160,7 +162,7 @@ export function BeeGame() {
   }, [gameStarted, gameOver, drawGame, startGame]);
 
   // Game loop
-  const updateGame = () => {
+  const updateGame = useCallback(() => {
     if (!canvasRef.current) return;
     const canvas = canvasRef.current;
     
@@ -257,7 +259,7 @@ export function BeeGame() {
     
     // Continue the game loop
     gameRef.current.animationFrame = requestAnimationFrame(updateGame);
-  };
+  }, [drawGame]);
 
   // Draw the game
   const drawGame = useCallback(() => {
@@ -480,7 +482,7 @@ export function BeeGame() {
     if (canvasRef.current) {
       canvasRef.current.focus();
     }
-  }, [setScore, setGameOver, setGameStarted, gameRef]);
+  }, [setScore, setGameOver, setGameStarted, gameRef, updateGame]);
 
   // Handle game over
   const handleGameOver = () => {
