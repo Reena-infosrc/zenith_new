@@ -1,6 +1,8 @@
 // CSV Export Utility - Comprehensive field mapping
 // This utility ensures all Add Employee form fields are included in CSV exports
 
+import { Employee } from '@/hooks/use-employees';
+
 export interface EmployeeCSVRow {
   employeeId?: string;
   firstName?: string;
@@ -133,7 +135,7 @@ export function escapeCSVField(value: string | number | null | undefined): strin
 /**
  * Convert employee data to CSV row with flexible field mapping
  */
-export function employeeToCSVRow(employee: any, getManagerName?: (managerId: string) => string): string[] {
+export function employeeToCSVRow(employee: Employee, getManagerName?: (managerId: string) => string): string[] {
   return CSV_HEADERS.map(header => {
     const fieldKey = FIELD_MAPPING[header];
     let value = employee[fieldKey];
@@ -202,50 +204,47 @@ export function employeeToCSVRow(employee: any, getManagerName?: (managerId: str
         }
         return "N/A";
         
-      case "firstName":
+      case "firstName": {
         // Try both firstName and first_name
         const firstName = employee.firstName || employee.first_name || value;
         return escapeCSVField(firstName);
+      }
         
-      case "lastName":
+      case "lastName": {
         // Try both lastName and last_name
         const lastName = employee.lastName || employee.last_name || value;
         return escapeCSVField(lastName);
+      }
         
-      case "employeeId":
+      case "employeeId": {
         // Try both employeeId and employee_id
         const employeeId = employee.employeeId || employee.employee_id || value;
         return escapeCSVField(employeeId);
+      }
         
-      case "employmentCategory":
+      case "employmentCategory": {
         // Try both employmentCategory and employment_category
         const employmentCategory = employee.employmentCategory || employee.employment_category || value;
         return escapeCSVField(employmentCategory);
+      }
         
-      case "employeeStatus":
+      case "employeeStatus": {
         // Try both employeeStatus and employee_status
         const employeeStatus = employee.employeeStatus || employee.employee_status || value;
         return escapeCSVField(employeeStatus);
+      }
         
-      case "isLeader":
+      case "isLeader": {
         // Try both isLeader and is_leader
         const isLeader = employee.isLeader || employee.is_leader || value;
         return escapeCSVField(isLeader);
+      }
         
-      case "projectStartDate":
-        // Try both projectStartDate and project_start_date
-        const projectStartDate = employee.projectStartDate || employee.project_start_date || value;
-        return formatDateForCSV(projectStartDate);
-        
-      case "projectEndDate":
-        // Try both projectEndDate and project_end_date
-        const projectEndDate = employee.projectEndDate || employee.project_end_date || value;
-        return formatDateForCSV(projectEndDate);
-        
-      case "experienceYears":
+      case "experienceYears": {
         // Try both experienceYears and experience_years
         const experienceYears = employee.experienceYears || employee.experience_years || value;
         return escapeCSVField(experienceYears);
+      }
         
       default:
         return escapeCSVField(value);
