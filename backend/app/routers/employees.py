@@ -10,7 +10,12 @@ import datetime
 import csv
 import io
 import uuid
-import pandas as pd
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    print("Warning: pandas not available, Excel import will be disabled")
 
 router = APIRouter(
     prefix="/api/employees",
@@ -19,6 +24,16 @@ router = APIRouter(
 )
 
 # Define specific routes first to avoid conflicts with {employee_id} route
+@router.get("/health", tags=["employees"])
+async def employees_health_check():
+    """Health check endpoint for employees router"""
+    return {
+        "status": "healthy",
+        "router": "employees",
+        "version": "1.0.0",
+        "endpoints": ["/clients", "/employee-statuses", "/health"]
+    }
+
 @router.get("/clients", tags=["employees"])
 async def get_unique_clients():
     """Get all unique client/account values from employees"""
@@ -583,6 +598,11 @@ async def import_employees_csv(
             csv_reader = csv.DictReader(buffer)
             rows = list(csv_reader)
         elif file.filename.endswith(('.xlsx', '.xls')):
+            if not PANDAS_AVAILABLE:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Excel file support requires pandas. Please use CSV format instead."
+                )
             df = pd.read_excel(io.BytesIO(contents))
             rows = df.to_dict('records')
         else:

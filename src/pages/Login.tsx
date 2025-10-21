@@ -8,6 +8,7 @@ import { getFirstAvailableModuleRoute } from "@/utils/navigation";
 import { useMsal } from "@azure/msal-react";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { Loader2 } from "lucide-react";
+import { Employee } from "@/hooks/use-employees";
 
 export default function Login() {
   const [loginClicked, setLoginClicked] = useState(false);
@@ -169,7 +170,7 @@ export default function Login() {
               });
               
               // Transform the data the same way useEmployees does
-              const transformedData = data.map((emp: any) => ({
+              const transformedData = data.map((emp: Record<string, unknown>) => ({
                 id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9),
                 employeeId: emp.employee_id || "",
                 name: emp.name || "Unknown",
@@ -284,7 +285,7 @@ export default function Login() {
       // Prefer redirect to avoid popup/cookie issues
       await instance.loginRedirect({ scopes: ["User.Read"] });
       // Flow continues after redirect back
-    } catch (err: any) {
+    } catch (err: unknown) {
       clearTimeout(loadingTimeout);
       // Fallback to popup if redirect fails for some reason
       try {

@@ -19,6 +19,14 @@ export interface JobRequisitionData {
   notes: string;
 }
 
+export interface ApprovalData {
+  approved: boolean;
+  comments?: string;
+  reviewer: string;
+  reviewed_at: string;
+  attachments?: string[];
+}
+
 export interface WorkflowStep {
   id: string;
   title: string;
@@ -34,9 +42,9 @@ export interface JobRequisition {
   id: string;
   requisition_id: string;
   department_request: JobRequisitionData;
-  hr_review?: any;
-  budget_approval?: any;
-  final_approval?: any;
+  hr_review?: ApprovalData;
+  budget_approval?: ApprovalData;
+  final_approval?: ApprovalData;
   workflow_steps: WorkflowStep[];
   current_step: string;
   status: string;
@@ -152,7 +160,7 @@ class RecruitmentService {
     stepId: string, 
     action: 'approve' | 'decline' | 'request_info' | 'submit',
     comments?: string
-  ): Promise<any> {
+  ): Promise<{ success: boolean; message: string; updated_step: WorkflowStep }> {
     try {
       const response = await fetch(`${API_BASE_URL}/job-requisitions/${requisitionId}/workflow/${stepId}`, {
         method: 'POST',

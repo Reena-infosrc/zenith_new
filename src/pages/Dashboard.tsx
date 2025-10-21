@@ -503,7 +503,7 @@ export default function Dashboard() {
     return Object.entries(distribution).map(([name, value]) => ({ name, value }));
   };
 
-  const handleChartClick = (data: { activePayload?: Array<{ payload: any }> }) => {
+  const handleChartClick = (data: { activePayload?: Array<{ payload: Record<string, unknown> }> }) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const clickedData = data.activePayload[0].payload;
       

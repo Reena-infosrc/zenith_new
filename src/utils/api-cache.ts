@@ -1,6 +1,6 @@
 // Simple in-memory cache for API responses
-interface CacheEntry {
-  data: any;
+interface CacheEntry<T = unknown> {
+  data: T;
   timestamp: number;
   ttl: number; // Time to live in milliseconds
 }
@@ -9,7 +9,7 @@ class APICache {
   private cache = new Map<string, CacheEntry>();
   private readonly DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
 
-  set(key: string, data: any, ttl: number = this.DEFAULT_TTL): void {
+  set<T>(key: string, data: T, ttl: number = this.DEFAULT_TTL): void {
     this.cache.set(key, {
       data,
       timestamp: Date.now(),
@@ -17,7 +17,7 @@ class APICache {
     });
   }
 
-  get(key: string): any | null {
+  get<T>(key: string): T | null {
     const entry = this.cache.get(key);
     
     if (!entry) {
