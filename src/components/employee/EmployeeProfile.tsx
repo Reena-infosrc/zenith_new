@@ -58,13 +58,34 @@ interface EmployeeProfileProps {
 }
 
 export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfileProps) {
-  // Early return if employee is null
-  if (!employee) {
-    return null;
-  }
-
   const [isEditing, setIsEditing] = useState(false);
-  const [profileData, setProfileData] = useState(employee);
+  const [profileData, setProfileData] = useState(employee || {
+    id: '',
+    name: '',
+    position: '',
+    department: '',
+    photoUrl: '',
+    email: '',
+    phone: '',
+    mobile: '',
+    bio: '',
+    projectStartDate: '',
+    projectEndDate: '',
+    skills: [],
+    expertise: '',
+    experienceYears: 0,
+    manager: '',
+    reporting_to: '',
+    location: '',
+    dateOfBirth: '',
+    dateOfJoining: '',
+    gender: '',
+    employeeStatus: '',
+    account: '',
+    status: 'active',
+    resignationDate: '',
+    reasonForResignation: ''
+  });
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [showCropModal, setShowCropModal] = useState(false);
@@ -110,6 +131,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   // Update profileData when employee prop changes
   useEffect(() => {
+    if (!employee) return;
     console.log('🔄 useEffect [employee] - Updating profileData with employee:', {
       id: employee.id,
       name: employee.name,
@@ -128,6 +150,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   // Update profileData when employees list changes (in case of updates from other components)
   useEffect(() => {
+    if (!employee) return;
     const updatedEmployee = employees.find(emp => emp.id === employee.id);
     if (updatedEmployee) {
       console.log('🔄 useEffect [employees] - Found updated employee:', {
@@ -166,6 +189,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   // Sync profileData with employee prop when it changes
   useEffect(() => {
+    if (!employee) return;
     setProfileData(prev => ({
       ...employee,
       // Only update photoUrl if it hasn't been explicitly cleared by the user
@@ -177,17 +201,19 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   // Find manager name from reporting_to UUID
   useEffect(() => {
-    if (employee.reporting_to && employees.length > 0) {
-      const manager = employees.find(emp => emp.id === employee.reporting_to);
-      if (manager) {
-        setManagerName(manager.name);
-      } else {
-        setManagerName('Manager not found');
-      }
+    if (!employee?.reporting_to || employees.length === 0) return;
+    const manager = employees.find(emp => emp.id === employee.reporting_to);
+    if (manager) {
+      setManagerName(manager.name);
     } else {
-      setManagerName('No manager assigned');
+      setManagerName('Manager not found');
     }
-  }, [employee.reporting_to, employees]);
+  }, [employee?.reporting_to, employees]);
+
+  // Early return if employee is null
+  if (!employee) {
+    return null;
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;

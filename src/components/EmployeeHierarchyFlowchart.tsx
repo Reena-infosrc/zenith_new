@@ -419,7 +419,7 @@ export function EmployeeHierarchyFlowchart({ employees }: EmployeeHierarchyFlowc
         prev.map(updateNodeLoading(nodeId, false))
       );
     }
-  }, [employees]);
+  }, [employees, updateNodeChildren, updateNodeLoading]);
 
   // Helper function to update node loading state
   const updateNodeLoading = (nodeId: string, isLoading: boolean) => (node: HierarchyNode): HierarchyNode => {
@@ -456,7 +456,7 @@ export function EmployeeHierarchyFlowchart({ employees }: EmployeeHierarchyFlowc
     setHierarchy(prev => 
       prev.map(toggleNodeExpansion(nodeId))
     );
-  }, [hierarchy, loadChildren]);
+  }, [hierarchy, loadChildren, findNodeById, toggleNodeExpansion]);
 
   // Helper function to toggle node expansion
   const toggleNodeExpansion = (nodeId: string) => (node: HierarchyNode): HierarchyNode => {

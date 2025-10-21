@@ -273,7 +273,7 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
     setTree(prev => 
       prev.map(toggleNodeExpansion(nodeId))
     );
-  }, []);
+  }, [toggleNodeExpansion]);
 
   // Helper function to toggle node expansion
   const toggleNodeExpansion = (nodeId: string) => (node: TreeNode): TreeNode => {

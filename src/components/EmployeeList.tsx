@@ -62,6 +62,7 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
       });
       setEditingEmployee(null);
     } catch (error) {
+      console.error('Error updating employee:', error);
     }
   };
 

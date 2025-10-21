@@ -152,11 +152,12 @@ export function BeeGame() {
     
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      if (gameRef.current.animationFrame) {
-        cancelAnimationFrame(gameRef.current.animationFrame);
+      const currentGameRef = gameRef.current;
+      if (currentGameRef?.animationFrame) {
+        cancelAnimationFrame(currentGameRef.animationFrame);
       }
     };
-  }, [gameStarted, gameOver]);
+  }, [gameStarted, gameOver, drawGame, startGame]);
 
   // Game loop
   const updateGame = () => {
@@ -412,7 +413,7 @@ export function BeeGame() {
   };
 
   // Add a function to draw flowers instead of cacti
-  const drawFlower = (ctx: CanvasRenderingContext2D, obstacle: any) => {
+  const drawFlower = (ctx: CanvasRenderingContext2D, obstacle: { x: number; y: number; width: number; height: number; type: string }) => {
     const flowerColor = obstacle.type === 'small' ? "#FF44FF" : "#FF88FF"; // Pink flowers
     const centerColor = "#FFFF00"; // Yellow center
     

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useEmployeeSearch } from '@/hooks/use-employee-search';
 import { EmployeeProfile } from '@/components/employee/EmployeeProfile';
+import { Employee } from '@/hooks/use-employees';
 
 interface SearchDropdownProps {
   className?: string;
@@ -14,7 +15,7 @@ interface SearchDropdownProps {
 
 export function SearchDropdown({ className }: SearchDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -58,7 +59,7 @@ export function SearchDropdown({ className }: SearchDropdownProps) {
     handleSearchChange(e.target.value);
   };
 
-  const handleResultClick = (result: any) => {
+  const handleResultClick = (result: Employee) => {
     setSelectedEmployee(result);
     setIsProfileOpen(true);
     setIsOpen(false);

@@ -422,7 +422,7 @@ export function InteractiveOrgChart({ employees }: InteractiveOrgChartProps) {
     setTree(prev => 
       prev.map(toggleNodeExpansion(nodeId))
     );
-  }, []);
+  }, [toggleNodeExpansion]);
 
   // Helper function to toggle node expansion recursively
   const toggleNodeExpansion = (nodeId: string) => (node: TreeNode): TreeNode => {

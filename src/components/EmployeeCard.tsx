@@ -40,7 +40,7 @@ export function EmployeeCard(props: EmployeeCardProps) {
     id: props.id,
     name: props.name,
     employeeStatus: props.employeeStatus,
-    employee_status: (props as any).employee_status // Check if snake_case version exists
+    employee_status: (props as Record<string, unknown>).employee_status // Check if snake_case version exists
   });
   
   

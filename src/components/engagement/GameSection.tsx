@@ -58,6 +58,7 @@ export function GameSection() {
       try {
         setBeeLeaderboard(JSON.parse(savedScores));
       } catch (e) {
+        console.error('Error parsing saved scores:', e);
       }
     } else {
       localStorage.setItem('beeGameScores', JSON.stringify(beeLeaderboard));
@@ -69,6 +70,7 @@ export function GameSection() {
           const newScores = JSON.parse(e.newValue || '[]');
           setBeeLeaderboard(newScores);
         } catch (e) {
+          console.error('Error parsing storage change scores:', e);
         }
       }
     };
@@ -77,7 +79,7 @@ export function GameSection() {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, []);
+  }, [beeLeaderboard]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
