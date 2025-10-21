@@ -337,6 +337,7 @@ export function useEmployees() {
           employeeId: transformedData[0].employeeId,
           name: transformedData[0].name,
           status: transformedData[0].status,
+          employeeStatus: transformedData[0].employeeStatus,
           dateOfBirth: transformedData[0].dateOfBirth,
           dateOfJoining: transformedData[0].dateOfJoining,
           experienceYears: transformedData[0].experienceYears
@@ -594,6 +595,14 @@ export function useEmployees() {
       // Update global state
       globalEmployees = [...globalEmployees, newEmployee];
       setEmployees(globalEmployees);
+      
+      // Invalidate caches since a new employee might have new client or status
+      // This will trigger a refresh of the clients and employee statuses lists
+      if (typeof window !== 'undefined') {
+        // Dispatch custom events to notify caches to invalidate
+        window.dispatchEvent(new CustomEvent('invalidateClientsCache'));
+        window.dispatchEvent(new CustomEvent('invalidateEmployeeStatusesCache'));
+      }
       
       toast({
         title: 'Success',

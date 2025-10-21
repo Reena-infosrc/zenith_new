@@ -144,6 +144,72 @@ async def get_employees(
         print(f"Error fetching employees from DynamoDB: {e}")
         return []
 
+@router.get("/clients")
+async def get_unique_clients():
+    """Get all unique client/account values from employees"""
+    try:
+        table = await get_employees_table()
+        
+        # Scan all employees to get unique account values
+        response = await table.scan(
+            ProjectionExpression="account",
+            Limit=1000
+        )
+        
+        clients = set()
+        for item in response.get("Items", []):
+            parsed_item = parse_dynamodb_item(item)
+            account = parsed_item.get("account")
+            if account and account.strip():
+                clients.add(account.strip())
+        
+        # Convert to sorted list
+        unique_clients = sorted(list(clients))
+        
+        return {
+            "clients": unique_clients,
+            "count": len(unique_clients)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch clients: {str(e)}"
+        )
+
+@router.get("/employee-statuses")
+async def get_unique_employee_statuses():
+    """Get all unique employee_status values from employees"""
+    try:
+        table = await get_employees_table()
+        
+        # Scan all employees to get unique employee_status values
+        response = await table.scan(
+            ProjectionExpression="employee_status",
+            Limit=1000
+        )
+        
+        statuses = set()
+        for item in response.get("Items", []):
+            parsed_item = parse_dynamodb_item(item)
+            status = parsed_item.get("employee_status")
+            if status and status.strip():
+                statuses.add(status.strip())
+        
+        # Convert to sorted list
+        unique_statuses = sorted(list(statuses))
+        
+        return {
+            "employee_statuses": unique_statuses,
+            "count": len(unique_statuses)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch employee statuses: {str(e)}"
+        )
+
 @router.get("/{employee_id}", response_model=EmployeeInDB)
 async def get_employee(employee_id: str):
     """Get a specific employee by ID"""

@@ -13,6 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Upload, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEmployees } from '@/hooks/use-employees';
+import { useClients } from '@/hooks/use-clients';
+import { useEmployeeStatuses } from '@/hooks/use-employee-statuses';
 import { ImageCrop } from "@/components/ui/ImageCrop";
 import { consolidateRemoteLocations, DEPARTMENT_OPTIONS, EMPLOYEE_STATUS_OPTIONS, CLIENT_OPTIONS, toCamelCase } from "@/lib/utils";
 
@@ -56,6 +58,8 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
   });
 
   const { createEmployee, employees } = useEmployees();
+  const { clients: dynamicClients, isLoading: clientsLoading } = useClients();
+  const { employeeStatuses: dynamicEmployeeStatuses, isLoading: statusesLoading } = useEmployeeStatuses();
   
   // Get available managers for dropdown
   const managers = employees.filter(emp => emp.id);
@@ -64,10 +68,10 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
   // Unique location values for dropdown - consolidate remote locations
   const rawLocationOptions = Array.from(new Set((employees || []).map(e => e.location).filter(Boolean))) as string[];
   const locationOptions = consolidateRemoteLocations(rawLocationOptions);
-  // Unique employee status values for dropdown
-  const employeeStatusOptions = Array.from(new Set((employees || []).map(e => e.employee_status).filter(Boolean))) as string[];
-  // Unique client/account values for dropdown
-  const clientOptions = Array.from(new Set((employees || []).map(e => e.account).filter(Boolean))) as string[];
+  // Use dynamic employee status options from API, fallback to predefined options
+  const employeeStatusOptions = dynamicEmployeeStatuses.length > 0 ? dynamicEmployeeStatuses : EMPLOYEE_STATUS_OPTIONS;
+  // Use dynamic client/account options from API, fallback to predefined options
+  const clientOptions = dynamicClients.length > 0 ? dynamicClients : CLIENT_OPTIONS;
   // Gender options
   const genderOptions = ['MALE', 'FEMALE'];
 

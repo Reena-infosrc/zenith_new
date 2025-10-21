@@ -16,6 +16,8 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award, Save, Clock } from "lucide-react";
 import { useEmployees } from '@/hooks/use-employees';
+import { useClients } from '@/hooks/use-clients';
+import { useEmployeeStatuses } from '@/hooks/use-employee-statuses';
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { consolidateRemoteLocations, DEPARTMENT_OPTIONS, EMPLOYEE_STATUS_OPTIONS, CLIENT_OPTIONS, toCamelCase } from "@/lib/utils";
@@ -47,7 +49,7 @@ interface EmployeeProfileProps {
     dateOfBirth?: string;
     dateOfJoining?: string;
     gender?: string;
-    employee_status?: string;
+    employeeStatus?: string;
     account?: string;
     status?: string;
     resignationDate?: string;
@@ -73,6 +75,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const { toast } = useToast();
   const isAdmin = true; // For demo purposes, assume admin
   const { updateEmployee, employees, fetchEmployees } = useEmployees();
+  const { clients: dynamicClients, isLoading: clientsLoading } = useClients();
+  const { employeeStatuses: dynamicEmployeeStatuses, isLoading: statusesLoading } = useEmployeeStatuses();
   
   // Debug logging - COMPREHENSIVE
   console.log('🔍 EmployeeProfile DEBUGGING:');
@@ -81,6 +85,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     employeeId: employee.employeeId,
     name: employee.name,
     status: employee.status,
+    employeeStatus: employee.employeeStatus,
     dateOfBirth: employee.dateOfBirth,
     dateOfJoining: employee.dateOfJoining,
     experienceYears: employee.experienceYears,
@@ -95,6 +100,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     employeeId: profileData.employeeId,
     name: profileData.name,
     status: profileData.status,
+    employeeStatus: profileData.employeeStatus,
     dateOfBirth: profileData.dateOfBirth,
     dateOfJoining: profileData.dateOfJoining,
     experienceYears: profileData.experienceYears,
@@ -146,10 +152,10 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
   const locations = consolidateRemoteLocations(rawLocations);
   const managers = employees.filter(emp => emp.id !== employee.id); // Exclude current employee
-  // Get unique employee status values for dropdown
-  const employeeStatusOptions = [...new Set(employees.map(emp => emp.employee_status).filter(Boolean))];
-  // Get unique client/account values for dropdown
-  const clientOptions = [...new Set(employees.map(emp => emp.account).filter(Boolean))];
+  // Use dynamic employee status options from API, fallback to predefined options
+  const employeeStatusOptions = dynamicEmployeeStatuses.length > 0 ? dynamicEmployeeStatuses : EMPLOYEE_STATUS_OPTIONS;
+  // Use dynamic client/account options from API, fallback to predefined options
+  const clientOptions = dynamicClients.length > 0 ? dynamicClients : CLIENT_OPTIONS;
   
   // Ensure arrays are not empty and have valid values
   const validDepartments = departments.filter(dept => dept && dept.trim() !== '');
@@ -365,7 +371,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         experienceYears: profileData.experienceYears,
         location: profileData.location,
         gender: profileData.gender,
-        employee_status: profileData.employee_status,
+        employeeStatus: profileData.employeeStatus,
         account: profileData.account,
         dateOfBirth: profileData.dateOfBirth,
         dateOfJoining: profileData.dateOfJoining,
@@ -755,11 +761,11 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
                 {/* Employee Status */}
                 <div className="space-y-2">
-                  <Label htmlFor="employee_status">Employee Status</Label>
+                  <Label htmlFor="employeeStatus">Employee Status</Label>
                   {isEditing ? (
                     <Select 
-                      value={profileData.employee_status || 'none'} 
-                      onValueChange={(value) => setProfileData(prev => ({ ...prev, employee_status: value === 'none' ? '' : value }))}
+                      value={profileData.employeeStatus || 'none'} 
+                      onValueChange={(value) => setProfileData(prev => ({ ...prev, employeeStatus: value === 'none' ? '' : value }))}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select employee status" />
@@ -775,7 +781,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     </Select>
                   ) : (
                     <Input 
-                      value={profileData.employee_status || 'Not provided'} 
+                      value={profileData.employeeStatus || 'Not provided'} 
                       disabled
                       className="bg-muted"
                     />

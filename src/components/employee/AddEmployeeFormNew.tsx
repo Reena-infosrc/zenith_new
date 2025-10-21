@@ -18,6 +18,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Upload, X } from "lucide-react";
 import { useEmployees } from '@/hooks/use-employees';
+import { useClients } from '@/hooks/use-clients';
+import { useEmployeeStatuses } from '@/hooks/use-employee-statuses';
+import { EMPLOYEE_STATUS_OPTIONS, CLIENT_OPTIONS } from "@/lib/utils";
 
 interface AddEmployeeFormProps {
   isOpen: boolean;
@@ -55,6 +58,8 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
   });
 
   const { createEmployee } = useEmployees();
+  const { clients: dynamicClients, isLoading: clientsLoading } = useClients();
+  const { employeeStatuses: dynamicEmployeeStatuses, isLoading: statusesLoading } = useEmployeeStatuses();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -318,22 +323,32 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
                         <SelectValue placeholder="Select Status" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Billable">Billable</SelectItem>
-                        <SelectItem value="Non-billable">Non-billable</SelectItem>
-                        <SelectItem value="Bench">Bench</SelectItem>
+                        {(dynamicEmployeeStatuses.length > 0 ? dynamicEmployeeStatuses : EMPLOYEE_STATUS_OPTIONS).map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   
                   <div className="space-y-2">
                     <Label htmlFor="account">Account</Label>
-                    <Input 
-                      id="account" 
-                      name="account"
+                    <Select 
+                      onValueChange={(value) => handleSelectChange('account', value)}
                       value={formData.account}
-                      onChange={handleChange}
-                      placeholder="Client account name"
-                    />
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select client" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(dynamicClients.length > 0 ? dynamicClients : CLIENT_OPTIONS).map((client) => (
+                          <SelectItem key={client} value={client}>
+                            {client}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   
                   <div className="space-y-2">

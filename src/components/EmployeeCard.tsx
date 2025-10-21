@@ -23,7 +23,7 @@ export type EmployeeCardProps = {
   dateOfBirth?: string;
   dateOfJoining?: string;
   gender?: string;
-  employee_status?: string;
+  employeeStatus?: string;
   account?: string;
   status?: string;
   resignationDate?: string;
@@ -33,6 +33,15 @@ export type EmployeeCardProps = {
 
 export function EmployeeCard(props: EmployeeCardProps) {
   const [showProfile, setShowProfile] = useState(false);
+  
+  // Debug logging to see what data EmployeeCard receives
+  console.log('🔍 EmployeeCard DEBUGGING:');
+  console.log('📥 EmployeeCard received props:', {
+    id: props.id,
+    name: props.name,
+    employeeStatus: props.employeeStatus,
+    employee_status: (props as any).employee_status // Check if snake_case version exists
+  });
   
   
   // Generate avatar from name if no photo
@@ -125,7 +134,7 @@ export function EmployeeCard(props: EmployeeCardProps) {
           phone: props.phone,
           mobile: props.mobile,
           bio: props.bio,
-          startDate: props.startDate,
+          projectStartDate: props.startDate,
           manager: props.manager,
           reporting_to: props.reporting_to,
           skills: props.skills,
@@ -135,7 +144,7 @@ export function EmployeeCard(props: EmployeeCardProps) {
           dateOfBirth: props.dateOfBirth,
           dateOfJoining: props.dateOfJoining,
           gender: props.gender,
-          employee_status: props.employee_status,
+          employeeStatus: props.employeeStatus,
           account: props.account,
           status: props.status,
           resignationDate: props.resignationDate,
