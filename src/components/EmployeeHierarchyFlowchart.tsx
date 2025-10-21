@@ -13,16 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface Employee {
-  id: string;
-  name: string;
-  position: string;
-  department: string;
-  photoUrl?: string;
-  email?: string;
-  phone?: string;
-  reporting_to?: string;
-}
+import { Employee } from '@/hooks/use-employees';
 
 interface HierarchyNode {
   employee: Employee;

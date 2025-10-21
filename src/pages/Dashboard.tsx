@@ -155,7 +155,7 @@ export default function Dashboard() {
       
       // Transform employee data to match frontend interface
       if (data.employees) {
-        data.employees = data.employees.map((emp: any) => ({
+        data.employees = data.employees.map((emp: Employee) => ({
           ...emp,
           employeeId: emp.employee_id || emp.employeeId || "",
           id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9)
@@ -249,7 +249,7 @@ export default function Dashboard() {
         const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
         const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
         
-        const monthData: any = {
+        const monthData: { month: string; month_number: number; employees: Employee[] } = {
           month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
           month_number: targetDate.getMonth() + 1,
           employees: []
@@ -400,7 +400,7 @@ export default function Dashboard() {
       const monthKey = targetDate.toISOString().slice(0, 7); // YYYY-MM format
       const monthName = targetDate.toLocaleDateString('en-US', { month: 'short' });
       
-      const monthData: any = {
+      const monthData: { month: string; monthName: string; month_number: number; employees: Employee[] } = {
         month: monthKey,
         monthName: monthName,
         month_number: targetDate.getMonth() + 1,
@@ -503,7 +503,7 @@ export default function Dashboard() {
     return Object.entries(distribution).map(([name, value]) => ({ name, value }));
   };
 
-  const handleChartClick = (data: any) => {
+  const handleChartClick = (data: { activePayload?: Array<{ payload: any }> }) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const clickedData = data.activePayload[0].payload;
       

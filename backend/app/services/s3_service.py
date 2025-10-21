@@ -18,6 +18,8 @@ class S3Service:
         self.photos_prefix = os.getenv("S3_PHOTOS_PREFIX", "profile-photos/")
         self.allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
         self.max_file_size = 5 * 1024 * 1024  # 5MB
+        # Control whether to use presigned URLs or public URLs
+        self.use_presigned_urls = os.getenv("S3_USE_PRESIGNED_URLS", "false").lower() == "true"
     
     async def upload_photo(self, file: UploadFile, employee_id: str = None, location: str = None, department: str = None) -> str:
         """Upload a photo to S3 with partition-based organization and return its URL"""
@@ -109,13 +111,25 @@ class S3Service:
             print(f"Error deleting photo: {e}")
             return False
     
-    async def get_photo_url(self, s3_key: str) -> str:
-        """Get the public URL for an S3 object"""
+    async def get_photo_url(self, s3_key: str, use_presigned: bool = False) -> str:
+        """Get the URL for an S3 object - either public or presigned"""
         try:
-            # Return simple public URL since bucket policy allows public read access
-            return f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
+            if use_presigned:
+                # Generate presigned URL for private access
+                session = aioboto3.Session()
+                async with session.client('s3', region_name=self.region) as s3:
+                    presigned_url = await s3.generate_presigned_url(
+                        'get_object',
+                        Params={'Bucket': self.bucket_name, 'Key': s3_key},
+                        ExpiresIn=3600  # 1 hour expiration
+                    )
+                    return presigned_url
+            else:
+                # Return simple public URL since bucket policy allows public read access
+                return f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
         except Exception as e:
             print(f"Error generating photo URL: {e}")
+            # Fallback to public URL
             return f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
     
     async def list_photos(self, prefix: Optional[str] = None) -> list:
@@ -135,7 +149,7 @@ class S3Service:
                     for obj in response['Contents']:
                         photos.append({
                             'key': obj['Key'],
-                            'url': await self.get_photo_url(obj['Key']),
+                            'url': await self.get_photo_url(obj['Key'], self.use_presigned_urls),
                             'size': obj['Size'],
                             'last_modified': obj['LastModified']
                         })
@@ -172,7 +186,7 @@ class S3Service:
                     for obj in response['Contents']:
                         photos.append({
                             'key': obj['Key'],
-                            'url': await self.get_photo_url(obj['Key']),
+                            'url': await self.get_photo_url(obj['Key'], self.use_presigned_urls),
                             'size': obj['Size'],
                             'last_modified': obj['LastModified']
                         })
@@ -192,7 +206,7 @@ class S3Service:
             photos = await self.get_employee_photos(employee_id, location, department)
             if photos:
                 # Generate presigned URL for the photo
-                return await self.get_photo_url(photos[0]['key'])
+                return await self.get_photo_url(photos[0]['key'], self.use_presigned_urls)
             return None
         except Exception as e:
             print(f"Error getting employee photo URL: {e}")

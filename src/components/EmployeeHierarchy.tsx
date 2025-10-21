@@ -6,13 +6,7 @@ import { useEmployees } from '@/hooks/use-employees';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
 
-type Employee = {
-  id: string;
-  name: string;
-  position: string;
-  department: string;
-  photoUrl: string;
-}
+import { Employee } from '@/hooks/use-employees';
 
 interface EmployeeHierarchyProps {
   employees: Employee[];

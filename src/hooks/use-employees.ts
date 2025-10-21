@@ -291,7 +291,7 @@ export function useEmployees() {
       
         // Transform data to match our frontend model
         console.log('🔄 Transforming data for', data.length, 'employees');
-        const transformedData = data.map((emp: any) => {
+        const transformedData = data.map((emp: Record<string, unknown>) => {
           console.log('🔍 Employee data transformation:', {
             id: emp.id,
             employee_id: emp.employee_id,

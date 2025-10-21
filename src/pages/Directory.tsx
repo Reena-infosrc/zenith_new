@@ -570,8 +570,8 @@ export default function Directory() {
                       
                       {/* Employee List Table */}
                       <EmployeeList 
-                        employees={sortedAndFilteredEmployees as any} 
-                        updateEmployee={updateEmployee as any}
+                        employees={sortedAndFilteredEmployees as ApiEmployee[]} 
+                        updateEmployee={updateEmployee as (id: string, data: Partial<ApiEmployee>) => Promise<ApiEmployee | null>}
                         sortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
@@ -614,13 +614,13 @@ export default function Directory() {
 
                       {/* Render appropriate hierarchy view */}
                       {hierarchyViewMode === "levels" && (
-                        <EmployeeHierarchy employees={sortedAndFilteredEmployees as any} />
+                        <EmployeeHierarchy employees={sortedAndFilteredEmployees as ApiEmployee[]} />
                       )}
                       {hierarchyViewMode === "flowchart" && (
-                        <EmployeeHierarchyFlowchart employees={sortedAndFilteredEmployees as any} />
+                        <EmployeeHierarchyFlowchart employees={sortedAndFilteredEmployees as ApiEmployee[]} />
                       )}
                       {hierarchyViewMode === "tree" && (
-                        <InteractiveOrgChart employees={sortedAndFilteredEmployees as any} />
+                        <InteractiveOrgChart employees={sortedAndFilteredEmployees as ApiEmployee[]} />
                       )}
                     </>
                   )}

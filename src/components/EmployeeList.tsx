@@ -13,24 +13,7 @@ import {
   TableRow
 } from "@/components/ui/table";
 
-type Employee = {
-  id: string;
-  employeeId?: string;
-  name: string;
-  position: string;
-  department: string;
-  photoUrl: string;
-  email?: string;
-  phone?: string;
-  bio?: string;
-  startDate?: string;
-  manager?: string;
-  reporting_to?: string;
-  skills?: string[];
-  status?: string;
-  resignationDate?: string;
-  reasonForResignation?: string;
-}
+import { Employee } from '@/hooks/use-employees';
 
 interface EmployeeListProps {
   employees: Employee[];

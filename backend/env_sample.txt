@@ -15,6 +15,7 @@ DYNAMODB_TABLE_RECRUITMENT=zenith-hr-recruitment
 S3_BUCKET_NAME=zenith-hr-pulse-photos
 S3_BUCKET_REGION=us-east-1
 S3_PHOTOS_PREFIX=profile-photos/
+S3_USE_PRESIGNED_URLS=false
 
 # AWS Bedrock Configuration
 BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0

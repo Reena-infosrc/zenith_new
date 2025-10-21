@@ -331,7 +331,7 @@ export function BeeGame() {
     ctx.fillStyle = gameRef.current.nightMode ? "#ffffff" : "#000000";
     ctx.font = "bold 20px monospace";
     ctx.fillText(`Score: ${gameRef.current.currentScore}`, 20, 30);
-  }, [gameRef]);
+  }, [gameRef, beeImage, gameOver]);
 
   // Draw the bee
   const drawBee = (ctx: CanvasRenderingContext2D, isDead: boolean) => {

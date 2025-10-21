@@ -20,26 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface Employee {
-  id: string;
-  name: string;
-  position: string;
-  department: string;
-  photoUrl?: string;
-  email?: string;
-  phone?: string;
-  bio?: string;
-  startDate?: string;
-  reporting_to?: string;
-  employment_category?: string;
-  gender?: string;
-  employee_status?: string;
-  account?: string;
-  is_leader?: string;
-  location?: string;
-  date_of_birth?: string;
-  date_of_joining?: string;
-}
+import { Employee } from '@/hooks/use-employees';
 
 interface TreeNode {
   employee: Employee;
