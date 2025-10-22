@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { useFeatureFlags } from "@/contexts/FeatureFlagsContext";
+import { useAuth } from "@/hooks/use-auth";
 import { useMemo } from "react";
 
 type ModuleButtonProps = {
@@ -70,6 +71,7 @@ type SidebarContentProps = {
 
 export function SidebarContent({ activeModule, onModuleChange }: SidebarContentProps) {
   const { isEnabled, isDisabled, isHidden, isLoading } = useFeatureFlags();
+  const { isAdmin } = useAuth();
 
   const handleModuleClick = (moduleName: string) => {
     if (onModuleChange) {
@@ -83,7 +85,7 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
     { name: 'Leave', icon: <Calendar size={20} />, to: '/leave', featureFlag: 'leave_module' },
     { name: 'Recruitment', icon: <UserPlus size={20} />, to: '/recruitment', featureFlag: 'recruitment_module' },
     { name: 'Performance', icon: <BarChart2 size={20} />, to: '/performance', featureFlag: 'performance_module' },
-    { name: 'Analytics', icon: <TrendingUp size={20} />, featureFlag: 'dashboard_module' },
+    { name: 'Analytics', icon: <TrendingUp size={20} />, to: '/dashboard', featureFlag: 'dashboard_module', adminOnly: true },
     { name: 'Engagement', icon: <Star size={20} />, to: '/engagement', featureFlag: 'engagement_module' },
     { name: 'Resource Hub', icon: <Folders size={20} />, to: '/resource-hub', featureFlag: 'resource_hub_module' },
     { name: 'Compensation', icon: <DollarSign size={20} />, to: '/compensation', featureFlag: 'compensation_module' },
@@ -91,11 +93,16 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
     { name: 'Helpdesk', icon: <HelpCircle size={20} />, featureFlag: 'helpdesk_module' },
   ], []);
 
-  // Filter modules based on feature flags
+  // Filter modules based on feature flags and admin status
   const visibleModules = useMemo(() => modules.filter(module => {
+    // Hide admin-only modules for non-admin users
+    if (module.adminOnly && !isAdmin) {
+      return false;
+    }
+    
     if (!module.featureFlag) return true; // Always show modules without feature flags
     return !isHidden(module.featureFlag);
-  }), [modules, isHidden]);
+  }), [modules, isHidden, isAdmin]);
 
   // If still loading and no cached data, show skeleton or default state
   if (isLoading) {

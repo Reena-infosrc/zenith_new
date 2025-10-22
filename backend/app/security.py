@@ -47,6 +47,20 @@ def get_user(username: str) -> Optional[dict]:
     if username in MOCK_USERS:
         user_dict = MOCK_USERS[username]
         return user_dict
+    
+    # For real users (not in mock users), create a basic user object
+    # This allows any authenticated user to access the system
+    if "@" in username:  # Assume it's an email
+        return {
+            "id": username,
+            "username": username,
+            "email": username,
+            "full_name": username.split("@")[0].replace(".", " ").title(),
+            "hashed_password": "not_used_for_msal_users",
+            "is_active": True,
+            "is_admin": False  # Will be updated by get_current_active_user
+        }
+    
     return None
 
 def authenticate_user(username: str, password: str) -> Optional[dict]:
@@ -102,4 +116,30 @@ async def get_current_active_user(current_user: dict = Depends(get_current_user)
     """Get current active user."""
     if not current_user["is_active"]:
         raise HTTPException(status_code=400, detail="Inactive user")
+    
+    # Check if user is admin by email - avoid circular import
+    try:
+        # Import here to avoid circular import
+        from .database_dynamodb import get_admins_table, parse_dynamodb_item
+        
+        user_email = current_user.get("email") or current_user.get("username")
+        if user_email:
+            table = await get_admins_table()
+            response = await table.query(
+                IndexName="EmailIndex",
+                KeyConditionExpression="email = :email",
+                ExpressionAttributeValues={":email": user_email}
+            )
+            
+            if response.get("Items"):
+                admin_data = parse_dynamodb_item(response["Items"][0])
+                current_user["is_admin"] = admin_data.get("is_active", True)
+            else:
+                current_user["is_admin"] = False
+        else:
+            current_user["is_admin"] = False
+    except Exception as e:
+        logger.error(f"Error checking admin status: {str(e)}")
+        current_user["is_admin"] = False
+    
     return current_user
