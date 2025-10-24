@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, status, Form
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from ..models.employee import EmployeeCreate, EmployeeUpdate, EmployeeInDB
-from ..models.admin import AdminCreate, AdminUpdate, AdminInDB, Admin
 from ..database_dynamodb import get_employees_table, get_admins_table, parse_dynamodb_item, format_dynamodb_item, generate_id
 from ..security import get_current_active_user
 from ..services.image_upload import ImageUploadService
@@ -136,12 +135,12 @@ async def test_admin_endpoint():
             "timestamp": datetime.now().isoformat()
         }
 
-@router.get("/admins", response_model=List[Admin])
+@router.get("/admins", response_model=List[Dict[str, Any]])
 async def get_admins(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000)
 ):
-    """Get all admins - temporarily public for testing"""
+    """Get all admins - simplified version without Pydantic models"""
     print(f"DEBUG: get_admins called")
     
     try:
@@ -165,7 +164,7 @@ async def get_admins(
                     parsed_item[key] = value
             
             print(f"DEBUG: Parsed item: {parsed_item}")
-            admins.append(Admin(**parsed_item))
+            admins.append(parsed_item)
         
         print(f"DEBUG: Returning {len(admins)} admins")
         return admins
@@ -179,11 +178,11 @@ async def get_admins(
         print(f"DEBUG: Returning empty list due to error")
         return []
 
-@router.post("/admins", response_model=Admin)
+@router.post("/admins", response_model=Dict[str, Any])
 async def create_admin(
-    admin_data: AdminCreate
+    admin_data: Dict[str, Any]
 ):
-    """Create a new admin - temporarily public for testing"""
+    """Create a new admin - simplified version without Pydantic models"""
     print(f"DEBUG: create_admin called with data: {admin_data}")
     
     try:
@@ -195,11 +194,11 @@ async def create_admin(
         # Create admin data
         admin_item = {
             "id": admin_id,
-            "employee_id": admin_data.employee_id,
-            "email": admin_data.email,
-            "name": admin_data.name,
-            "department": admin_data.department,
-            "position": admin_data.position,
+            "employee_id": admin_data.get("employee_id", ""),
+            "email": admin_data.get("email", ""),
+            "name": admin_data.get("name", ""),
+            "department": admin_data.get("department", ""),
+            "position": admin_data.get("position", ""),
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "created_by": "manual_add",  # Temporarily hardcoded
@@ -213,7 +212,7 @@ async def create_admin(
         await table.put_item(Item=formatted_item)
         
         print(f"DEBUG: Created admin with ID: {admin_id}")
-        return Admin(**admin_item)
+        return admin_item
         
     except Exception as e:
         print(f"DEBUG: Error in create_admin: {str(e)}")
@@ -225,11 +224,11 @@ async def create_admin(
             detail="Failed to create admin"
         )
 
-@router.get("/admins/{admin_id}", response_model=Admin)
+@router.get("/admins/{admin_id}", response_model=Dict[str, Any])
 async def get_admin(
     admin_id: str
 ):
-    """Get a specific admin by ID"""
+    """Get a specific admin by ID - simplified version"""
     try:
         table = await get_admins_table()
         
@@ -241,7 +240,7 @@ async def get_admin(
             )
         
         admin_data = parse_dynamodb_item(response["Item"])
-        return Admin(**admin_data)
+        return admin_data
         
     except HTTPException:
         raise
@@ -252,12 +251,12 @@ async def get_admin(
             detail="Failed to fetch admin"
         )
 
-@router.put("/admins/{admin_id}", response_model=Admin)
+@router.put("/admins/{admin_id}", response_model=Dict[str, Any])
 async def update_admin(
     admin_id: str,
-    admin_data: AdminUpdate
+    admin_data: Dict[str, Any]
 ):
-    """Update an admin - only accessible by admins"""
+    """Update an admin - simplified version"""
     try:
         table = await get_admins_table()
         
@@ -269,11 +268,8 @@ async def update_admin(
                 detail="Admin not found"
             )
         
-        # Get existing admin data
-        existing_admin = parse_dynamodb_item(response["Item"])
-        
         # Update fields
-        update_data = admin_data.dict(exclude_unset=True)
+        update_data = {k: v for k, v in admin_data.items() if v is not None}
         update_data["updated_at"] = datetime.now().isoformat()
         
         # Update in database
@@ -287,7 +283,7 @@ async def update_admin(
         # Return updated admin
         updated_response = await table.get_item(Key={"id": admin_id})
         updated_admin = parse_dynamodb_item(updated_response["Item"])
-        return Admin(**updated_admin)
+        return updated_admin
         
     except HTTPException:
         raise
