@@ -15,6 +15,38 @@ router = APIRouter(
     tags=["admin-management"]
 )
 
+# Define specific routes first to avoid conflicts with {admin_id} route
+@router.get("/check/{email}", response_model=dict)
+async def check_admin_status(email: str):
+    """Check if a user is an admin by email - public endpoint for frontend"""
+    try:
+        is_admin = await is_user_admin(email)
+        return {"is_admin": is_admin}
+    except Exception as e:
+        logger.error(f"Error checking admin status: {str(e)}")
+        # Return False instead of error for production compatibility
+        return {"is_admin": False}
+
+@router.get("/test", response_model=dict)
+async def test_admin_endpoint():
+    """Test endpoint to debug admin functionality - public endpoint"""
+    try:
+        table = await get_admins_table()
+        return {
+            "status": "success",
+            "message": "Admin endpoint is working",
+            "table_name": table.table_name,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error in test endpoint: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Admin endpoint error: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }
+
+@router.get("", response_model=List[Admin])
 @router.get("/", response_model=List[Admin])
 async def get_admins(
     skip: int = Query(0, ge=0),
@@ -238,40 +270,6 @@ async def delete_admin(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete admin"
         )
-
-@router.get("/check/{email}", response_model=dict)
-async def check_admin_status(email: str):
-    """Check if a user is an admin by email - public endpoint for frontend"""
-    try:
-        is_admin = await is_user_admin(email)
-        return {"is_admin": is_admin}
-    except Exception as e:
-        logger.error(f"Error checking admin status: {str(e)}")
-        # Return False instead of error for production compatibility
-        return {"is_admin": False}
-
-@router.get("/test", response_model=dict)
-async def test_admin_endpoint():
-    """Test endpoint to debug admin functionality - public endpoint"""
-    try:
-        print("DEBUG: Test endpoint called")
-        table = await get_admins_table()
-        print(f"DEBUG: Got table: {table}")
-        
-        response = await table.scan(Limit=10)
-        print(f"DEBUG: Scan result: {response}")
-        
-        return {
-            "message": "Test successful",
-            "table_exists": table is not None,
-            "items_count": len(response.get("Items", []))
-        }
-    except Exception as e:
-        print(f"DEBUG: Test error: {str(e)}")
-        return {
-            "error": str(e),
-            "message": "Test failed"
-        }
 
 # Helper functions
 async def is_user_admin(email: str) -> bool:
