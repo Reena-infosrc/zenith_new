@@ -26,9 +26,9 @@ export function useAuth() {
   const checkAdminStatus = async (email: string) => {
     try {
       console.log('🔍 Checking admin status for:', email);
-      console.log('🌐 API URL:', `${API_BASE_URL}/employees/admins/check/${encodeURIComponent(email)}`);
+      console.log('🌐 API URL:', `${API_BASE_URL}/auth/admins/check/${encodeURIComponent(email)}`);
       
-      const response = await fetch(`${API_BASE_URL}/employees/admins/check/${encodeURIComponent(email)}`);
+      const response = await fetch(`${API_BASE_URL}/auth/admins/check/${encodeURIComponent(email)}`);
       console.log('📡 Response status:', response.status);
       
       if (response.ok) {

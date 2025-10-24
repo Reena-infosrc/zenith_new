@@ -1,16 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
 from fastapi.security import OAuth2PasswordRequestForm
-from typing import Union
+from typing import Union, List, Dict, Any
 try:
     from typing import Annotated
 except ImportError:
     # For Python < 3.9 compatibility
     from typing_extensions import Annotated
-from datetime import timedelta
+from datetime import timedelta, datetime
 import logging
 import traceback
+from decimal import Decimal
 
 from ..models import Token, UserLogin, MOCK_USERS
+from ..database_dynamodb import get_admins_table, parse_dynamodb_item, format_dynamodb_item, generate_id
 from ..security import (
     authenticate_user, 
     create_access_token, 
@@ -136,4 +138,100 @@ async def get_me(email: str = None):
         "employeeId": user.get("id", "1"),
         "name": user.get("full_name", "User"),
         "email": user.get("email", "user@example.com")
-    } 
+    }
+
+# Admin endpoints - added to auth router for production compatibility
+@router.get("/admins/check/{email}", response_model=dict)
+async def check_admin_status(email: str):
+    """Check if a user is an admin by email - public endpoint for frontend"""
+    try:
+        is_admin = await is_user_admin(email)
+        return {"is_admin": is_admin}
+    except Exception as e:
+        logger.error(f"Error checking admin status: {str(e)}")
+        # Return False instead of error for production compatibility
+        return {"is_admin": False}
+
+@router.get("/admins/test", response_model=dict)
+async def test_admin_endpoint():
+    """Test endpoint to debug admin functionality - public endpoint"""
+    try:
+        table = await get_admins_table()
+        return {
+            "status": "success",
+            "message": "Admin endpoint is working",
+            "table_name": table.table_name,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error in test endpoint: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Admin endpoint error: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }
+
+@router.get("/admins", response_model=List[Dict[str, Any]])
+async def get_admins(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000)
+):
+    """Get all admins - simplified version without Pydantic models"""
+    print(f"DEBUG: get_admins called")
+    
+    try:
+        table = await get_admins_table()
+        print(f"DEBUG: Got admins table: {table}")
+        
+        # Scan the table with pagination
+        response = await table.scan(Limit=limit)
+        print(f"DEBUG: Scan response: {response}")
+        
+        admins = []
+        for item in response.get("Items", []):
+            # Convert datetime objects to strings manually
+            parsed_item = {}
+            for key, value in item.items():
+                if isinstance(value, datetime):
+                    parsed_item[key] = value.isoformat()
+                elif isinstance(value, Decimal):
+                    parsed_item[key] = float(value)
+                else:
+                    parsed_item[key] = value
+            
+            print(f"DEBUG: Parsed item: {parsed_item}")
+            admins.append(parsed_item)
+        
+        print(f"DEBUG: Returning {len(admins)} admins")
+        return admins
+    except Exception as e:
+        print(f"DEBUG: Error in get_admins: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        logger.error(f"Error fetching admins: {str(e)}")
+        
+        # Return empty list instead of error for production compatibility
+        print(f"DEBUG: Returning empty list due to error")
+        return []
+
+# Helper function for admin status check
+async def is_user_admin(email: str) -> bool:
+    """Check if a user is an admin by email"""
+    try:
+        table = await get_admins_table()
+        
+        # Query by email using GSI
+        response = await table.query(
+            IndexName="EmailIndex",
+            KeyConditionExpression="email = :email",
+            ExpressionAttributeValues={":email": email}
+        )
+        
+        if response.get("Items"):
+            admin_data = parse_dynamodb_item(response["Items"][0])
+            return admin_data.get("is_active", True)
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error checking admin status: {str(e)}")
+        return False 
