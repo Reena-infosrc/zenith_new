@@ -34,8 +34,10 @@ async def employees_health_check():
     return {
         "status": "healthy",
         "router": "employees",
-        "version": "1.0.0",
-        "endpoints": ["/clients", "/employee-statuses", "/health", "/admins", "/admins/check/{email}", "/admins/test"]
+        "version": "2.0.0-DEPLOYMENT-TEST",
+        "endpoints": ["/clients", "/employee-statuses", "/health", "/admins", "/admins/check/{email}", "/admins/test"],
+        "deployment_id": "0fdc688-force-deploy",
+        "timestamp": datetime.now().isoformat()
     }
 
 @router.get("/clients", tags=["employees"])
