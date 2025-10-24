@@ -204,7 +204,7 @@ Resources:
       TaskRoleArn: !GetAtt ZenithHrPulseExecutionRole.Arn
       ContainerDefinitions:
         - Name: zenith-hr-pulse-api
-          Image: 339713066436.dkr.ecr.us-east-1.amazonaws.com/serverless-ig-zenith-hr-pulse-dev:latest
+          Image: !Sub '339713066436.dkr.ecr.us-east-1.amazonaws.com/serverless-ig-zenith-hr-pulse-${Stage}:latest'
           PortMappings:
             - ContainerPort: 5000
           Command:
