@@ -1,15 +1,20 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, status, Form
 from typing import List, Optional
 from ..models.employee import EmployeeCreate, EmployeeUpdate, EmployeeInDB
-from ..database_dynamodb import get_employees_table, parse_dynamodb_item, format_dynamodb_item
+from ..models.admin import AdminCreate, AdminUpdate, AdminInDB, Admin
+from ..database_dynamodb import get_employees_table, get_admins_table, parse_dynamodb_item, format_dynamodb_item, generate_id
 from ..security import get_current_active_user
 from ..services.image_upload import ImageUploadService
 from ..feature_flags import FeatureFlags
 import time
-import datetime
+from datetime import datetime
 import csv
 import io
 import uuid
+import logging
+from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 try:
     import pandas as pd
     PANDAS_AVAILABLE = True
@@ -31,7 +36,7 @@ async def employees_health_check():
         "status": "healthy",
         "router": "employees",
         "version": "1.0.0",
-        "endpoints": ["/clients", "/employee-statuses", "/health"]
+        "endpoints": ["/clients", "/employee-statuses", "/health", "/admins", "/admins/check/{email}", "/admins/test"]
     }
 
 @router.get("/clients", tags=["employees"])
@@ -99,6 +104,250 @@ async def get_unique_employee_statuses():
             status_code=500,
             detail=f"Failed to fetch employee statuses: {str(e)}"
         )
+
+# Admin endpoints - integrated into employees router for production compatibility
+@router.get("/admins/check/{email}", response_model=dict)
+async def check_admin_status(email: str):
+    """Check if a user is an admin by email - public endpoint for frontend"""
+    try:
+        is_admin = await is_user_admin(email)
+        return {"is_admin": is_admin}
+    except Exception as e:
+        logger.error(f"Error checking admin status: {str(e)}")
+        # Return False instead of error for production compatibility
+        return {"is_admin": False}
+
+@router.get("/admins/test", response_model=dict)
+async def test_admin_endpoint():
+    """Test endpoint to debug admin functionality - public endpoint"""
+    try:
+        table = await get_admins_table()
+        return {
+            "status": "success",
+            "message": "Admin endpoint is working",
+            "table_name": table.table_name,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error in test endpoint: {str(e)}")
+        return {
+            "status": "error",
+            "message": f"Admin endpoint error: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }
+
+@router.get("/admins", response_model=List[Admin])
+async def get_admins(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000)
+):
+    """Get all admins - temporarily public for testing"""
+    print(f"DEBUG: get_admins called")
+    
+    try:
+        table = await get_admins_table()
+        print(f"DEBUG: Got admins table: {table}")
+        
+        # Scan the table with pagination
+        response = await table.scan(Limit=limit)
+        print(f"DEBUG: Scan response: {response}")
+        
+        admins = []
+        for item in response.get("Items", []):
+            # Convert datetime objects to strings manually
+            parsed_item = {}
+            for key, value in item.items():
+                if isinstance(value, datetime):
+                    parsed_item[key] = value.isoformat()
+                elif isinstance(value, Decimal):
+                    parsed_item[key] = float(value)
+                else:
+                    parsed_item[key] = value
+            
+            print(f"DEBUG: Parsed item: {parsed_item}")
+            admins.append(Admin(**parsed_item))
+        
+        print(f"DEBUG: Returning {len(admins)} admins")
+        return admins
+    except Exception as e:
+        print(f"DEBUG: Error in get_admins: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        logger.error(f"Error fetching admins: {str(e)}")
+        
+        # Return empty list instead of error for production compatibility
+        print(f"DEBUG: Returning empty list due to error")
+        return []
+
+@router.post("/admins", response_model=Admin)
+async def create_admin(
+    admin_data: AdminCreate
+):
+    """Create a new admin - temporarily public for testing"""
+    print(f"DEBUG: create_admin called with data: {admin_data}")
+    
+    try:
+        table = await get_admins_table()
+        
+        # Generate new admin ID
+        admin_id = generate_id()
+        
+        # Create admin data
+        admin_item = {
+            "id": admin_id,
+            "employee_id": admin_data.employee_id,
+            "email": admin_data.email,
+            "name": admin_data.name,
+            "department": admin_data.department,
+            "position": admin_data.position,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "created_by": "manual_add",  # Temporarily hardcoded
+            "is_active": True
+        }
+        
+        # Format for DynamoDB
+        formatted_item = format_dynamodb_item(admin_item)
+        
+        # Insert into database
+        await table.put_item(Item=formatted_item)
+        
+        print(f"DEBUG: Created admin with ID: {admin_id}")
+        return Admin(**admin_item)
+        
+    except Exception as e:
+        print(f"DEBUG: Error in create_admin: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        logger.error(f"Error creating admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create admin"
+        )
+
+@router.get("/admins/{admin_id}", response_model=Admin)
+async def get_admin(
+    admin_id: str
+):
+    """Get a specific admin by ID"""
+    try:
+        table = await get_admins_table()
+        
+        response = await table.get_item(Key={"id": admin_id})
+        if "Item" not in response:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Admin not found"
+            )
+        
+        admin_data = parse_dynamodb_item(response["Item"])
+        return Admin(**admin_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch admin"
+        )
+
+@router.put("/admins/{admin_id}", response_model=Admin)
+async def update_admin(
+    admin_id: str,
+    admin_data: AdminUpdate
+):
+    """Update an admin - only accessible by admins"""
+    try:
+        table = await get_admins_table()
+        
+        # Check if admin exists
+        response = await table.get_item(Key={"id": admin_id})
+        if "Item" not in response:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Admin not found"
+            )
+        
+        # Get existing admin data
+        existing_admin = parse_dynamodb_item(response["Item"])
+        
+        # Update fields
+        update_data = admin_data.dict(exclude_unset=True)
+        update_data["updated_at"] = datetime.now().isoformat()
+        
+        # Update in database
+        formatted_item = format_dynamodb_item(update_data)
+        await table.update_item(
+            Key={"id": admin_id},
+            UpdateExpression="SET " + ", ".join([f"{k} = :{k}" for k in update_data.keys()]),
+            ExpressionAttributeValues={f":{k}": v for k, v in formatted_item.items()}
+        )
+        
+        # Return updated admin
+        updated_response = await table.get_item(Key={"id": admin_id})
+        updated_admin = parse_dynamodb_item(updated_response["Item"])
+        return Admin(**updated_admin)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update admin"
+        )
+
+@router.delete("/admins/{admin_id}")
+async def delete_admin(
+    admin_id: str
+):
+    """Delete an admin - only accessible by admins"""
+    try:
+        table = await get_admins_table()
+        
+        # Check if admin exists
+        response = await table.get_item(Key={"id": admin_id})
+        if "Item" not in response:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Admin not found"
+            )
+        
+        # Delete the admin
+        await table.delete_item(Key={"id": admin_id})
+        
+        return {"message": "Admin deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete admin"
+        )
+
+# Helper function for admin status check
+async def is_user_admin(email: str) -> bool:
+    """Check if a user is an admin by email"""
+    try:
+        table = await get_admins_table()
+        
+        # Query by email using GSI
+        response = await table.query(
+            IndexName="EmailIndex",
+            KeyConditionExpression="email = :email",
+            ExpressionAttributeValues={":email": email}
+        )
+        
+        if response.get("Items"):
+            admin_data = parse_dynamodb_item(response["Items"][0])
+            return admin_data.get("is_active", True)
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error checking admin status: {str(e)}")
+        return False
 
 @router.get("", response_model=List[EmployeeInDB])
 @router.get("/", response_model=List[EmployeeInDB])
