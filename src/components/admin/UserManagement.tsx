@@ -71,7 +71,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
 
   const fetchAdmins = useCallback(async () => {
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/auth/admins/`);
+      const response = await authenticatedFetch(`${API_BASE_URL}/employees/admins/`);
       if (response.ok) {
         const data = await response.json();
         setAdmins(data);
@@ -125,7 +125,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
     }
 
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/auth/admins/`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/employees/admins/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -167,7 +167,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
     }
 
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/auth/admins/${adminId}`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/employees/admins/${adminId}`, {
         method: "DELETE",
       });
 
