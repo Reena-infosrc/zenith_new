@@ -76,3 +76,7 @@ export const useTheme = () => {
 
   return context
 }
+
+// Fast refresh warning suppression - utility functions are intentionally exported with components
+// eslint-disable-next-line react-refresh/only-export-components
+export { ThemeProvider, useTheme }

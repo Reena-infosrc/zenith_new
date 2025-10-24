@@ -259,7 +259,7 @@ export function BeeGame() {
     
     // Continue the game loop
     gameRef.current.animationFrame = requestAnimationFrame(updateGame);
-  }, [drawGame]);
+  }, [drawGame, handleGameOver]);
 
   // Draw the game
   const drawGame = useCallback(() => {

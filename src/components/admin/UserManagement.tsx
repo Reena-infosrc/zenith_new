@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -69,12 +69,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
     position: ""
   });
 
-  useEffect(() => {
-    fetchAdmins();
-    fetchEmployees();
-  }, []);
-
-  const fetchAdmins = async () => {
+  const fetchAdmins = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}/admins/`);
       if (response.ok) {
@@ -91,9 +86,9 @@ export function UserManagement({ onClose }: UserManagementProps) {
         variant: "destructive"
       });
     }
-  };
+  }, []);
 
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       const response = await authenticatedFetch(`${API_BASE_URL}/employees/`);
       if (response.ok) {
@@ -112,7 +107,12 @@ export function UserManagement({ onClose }: UserManagementProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchAdmins();
+    fetchEmployees();
+  }, [fetchAdmins, fetchEmployees]);
 
   const handleAddAdmin = async () => {
     if (!formData.employee_id || !formData.email || !formData.name) {

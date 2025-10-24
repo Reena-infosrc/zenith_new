@@ -6,7 +6,7 @@ import '@testing-library/jest-dom';
 import { ReviewDetailsButton } from './ReviewDetailsButton';
 import { JobRequisitionData } from '@/services/recruitmentService';
 
-// @ts-ignore
+// @ts-expect-error - Mock module for testing
 jest.mock('@/hooks/useExportToPdf', () => ({
   useExportToPdf: () => ({ exportToPdf: jest.fn() })
 }));
@@ -28,11 +28,6 @@ const mockDetails: JobRequisitionData = {
   notes: 'Urgent hire'
 };
 
-// @ts-ignore
-// eslint-disable-next-line jest/valid-describe
-// @ts-ignore
-// eslint-disable-next-line jest/valid-it
-
 describe('ReviewDetailsButton', () => {
   it('opens modal and displays all fields', () => {
     render(<ReviewDetailsButton details={mockDetails} />);
@@ -53,7 +48,8 @@ describe('ReviewDetailsButton', () => {
   });
 
   it('calls exportToPdf when Download is clicked', () => {
-    const { useExportToPdf } = require('@/hooks/useExportToPdf');
+    // Use dynamic import instead of require
+    const { useExportToPdf } = jest.requireActual('@/hooks/useExportToPdf');
     const exportToPdf = useExportToPdf().exportToPdf;
     render(<ReviewDetailsButton details={mockDetails} />);
     fireEvent.click(screen.getByRole('button', { name: /review details/i }));

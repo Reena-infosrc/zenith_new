@@ -115,6 +115,8 @@ const NavigationMenuIndicator = React.forwardRef<
 NavigationMenuIndicator.displayName =
   NavigationMenuPrimitive.Indicator.displayName
 
+// Fast refresh warning suppression - utility functions are intentionally exported with components
+// eslint-disable-next-line react-refresh/only-export-components
 export {
   navigationMenuTriggerStyle,
   NavigationMenu,

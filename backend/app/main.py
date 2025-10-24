@@ -13,7 +13,10 @@ from mangum import Mangum
 
 load_dotenv()
 
-app = FastAPI(title="ZenithHR API")
+# Get ROOT_PATH from environment for production deployment
+root_path = os.getenv("ROOT_PATH", "")
+
+app = FastAPI(title="ZenithHR API", root_path=root_path)
 
 # Configure CORS
 # cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8080").split(",")
