@@ -110,9 +110,23 @@ jobs:
             echo "No running tasks found."
           fi
 
-          echo "Forcing ECS service update..."
+          echo "Forcing ECS service update with new image..."
+          # Force new deployment to pull latest image
           aws ecs update-service --cluster "$CLUSTER_NAME" --service "$SERVICE_NAME" --force-new-deployment --region $AWS_REGION
+          
+          echo "Stopping all existing tasks to force image pull..."
+          # Get all running tasks and stop them to force new image pull
+          RUNNING_TASKS=$(aws ecs list-tasks --cluster "$CLUSTER_NAME" --service-name "$SERVICE_NAME" --desired-status RUNNING --query 'taskArns' --output text --region $AWS_REGION)
+          if [ -n "$RUNNING_TASKS" ] && [ "$RUNNING_TASKS" != "None" ]; then
+            for TASK in $RUNNING_TASKS; do
+              echo "Stopping task: $TASK"
+              aws ecs stop-task --cluster "$CLUSTER_NAME" --task "$TASK" --reason "Force new image pull" --region $AWS_REGION || true
+            done
+          fi
+          
+          echo "Waiting for ECS service to stabilize with new tasks..."
           aws ecs wait services-stable --cluster "$CLUSTER_NAME" --services "$SERVICE_NAME" --region $AWS_REGION
+          echo "ECS service update completed successfully!"
 
       # ---------- Frontend Build & Deploy ----------
       - name: Setup Node

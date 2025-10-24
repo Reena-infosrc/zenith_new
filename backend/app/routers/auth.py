@@ -141,6 +141,18 @@ async def get_me(email: str = None):
     }
 
 # Admin endpoints - added to auth router for production compatibility
+@router.get("/health", response_model=dict)
+async def auth_health_check():
+    """Health check for auth router - verify deployment"""
+    return {
+        "status": "healthy",
+        "router": "auth",
+        "version": "2.0.0",
+        "deployment_id": "0af32bf-auth-router-admin",
+        "timestamp": datetime.now().isoformat(),
+        "endpoints": ["/token", "/msal-token", "/role", "/admins", "/admins/test", "/admins/check/{email}"]
+    }
+
 @router.get("/admins/check/{email}", response_model=dict)
 async def check_admin_status(email: str):
     """Check if a user is an admin by email - public endpoint for frontend"""
@@ -159,16 +171,20 @@ async def test_admin_endpoint():
         table = await get_admins_table()
         return {
             "status": "success",
-            "message": "Admin endpoint is working",
+            "message": "Admin endpoint is working - DEPLOYMENT TEST v2.0",
             "table_name": table.table_name,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "0af32bf-auth-router-admin",
+            "version": "2.0.0"
         }
     except Exception as e:
         logger.error(f"Error in test endpoint: {str(e)}")
         return {
             "status": "error",
             "message": f"Admin endpoint error: {str(e)}",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "0af32bf-auth-router-admin",
+            "version": "2.0.0"
         }
 
 @router.get("/admins", response_model=List[Dict[str, Any]])
