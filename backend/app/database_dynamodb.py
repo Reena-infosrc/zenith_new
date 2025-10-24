@@ -20,7 +20,8 @@ class DynamoDBService:
             "goals": os.getenv("DYNAMODB_TABLE_GOALS", "zenith-hr-goals"),
             "feedback": os.getenv("DYNAMODB_TABLE_FEEDBACK", "zenith-hr-feedback"),
             "recruitment": os.getenv("DYNAMODB_TABLE_RECRUITMENT", "zenith-hr-recruitment"),
-            "feature_flags": os.getenv("DYNAMODB_TABLE_FEATURE_FLAGS", "zenith-hr-feature-flags")
+            "feature_flags": os.getenv("DYNAMODB_TABLE_FEATURE_FLAGS", "zenith-hr-feature-flags"),
+            "admins": os.getenv("DYNAMODB_TABLE_ADMINS", "zenith-hr-admin")
         }
         self.session = None
         self.dynamodb = None
@@ -276,6 +277,44 @@ class DynamoDBService:
                     }
                 ],
                 "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+            },
+            "admins": {
+                "KeySchema": [
+                    {"AttributeName": "id", "KeyType": "HASH"}
+                ],
+                "AttributeDefinitions": [
+                    {"AttributeName": "id", "AttributeType": "S"},
+                    {"AttributeName": "employee_id", "AttributeType": "S"},
+                    {"AttributeName": "email", "AttributeType": "S"},
+                    {"AttributeName": "created_at", "AttributeType": "S"}
+                ],
+                "GlobalSecondaryIndexes": [
+                    {
+                        "IndexName": "EmployeeIndex",
+                        "KeySchema": [
+                            {"AttributeName": "employee_id", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "EmailIndex",
+                        "KeySchema": [
+                            {"AttributeName": "email", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "CreatedAtIndex",
+                        "KeySchema": [
+                            {"AttributeName": "created_at", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    }
+                ],
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
             }
         }
         
@@ -329,6 +368,11 @@ async def get_feature_flags_table():
     async with dynamodb_service as db:
         return await db.get_table("feature_flags")
 
+async def get_admins_table():
+    """Get admins table"""
+    async with dynamodb_service as db:
+        return await db.get_table("admins")
+
 # Utility functions for DynamoDB operations
 def generate_id() -> str:
     """Generate a unique ID for DynamoDB items"""
@@ -371,6 +415,9 @@ def parse_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
                 parsed_item[key] = datetime.fromisoformat(value.replace('Z', '+00:00'))
             except:
                 parsed_item[key] = value
+        elif isinstance(value, datetime):
+            # Handle datetime objects directly
+            parsed_item[key] = value.isoformat()
         elif isinstance(value, Decimal):
             # Convert Decimal back to float for API compatibility
             parsed_item[key] = float(value)

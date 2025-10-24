@@ -90,16 +90,30 @@ async def exchange_msal_token(msal_token: str = Body(..., embed=True)):
     try:
         print(f"DEBUG: Received MSAL token: {msal_token[:20]}...")
         
-        # For now, we'll create a token for the admin user
+        # For now, we'll create a token for the actual logged-in user
         # In a real implementation, you would validate the MSAL token with Microsoft
         # and extract user information from it
         
-        # Create a backend token for the admin user
+        # Extract user email from MSAL token (simplified approach)
+        # In production, you should validate the token with Microsoft Graph API
+        import jwt as pyjwt
+        
+        try:
+            # Decode the MSAL token without verification to get user info
+            # This is just for demo purposes - in production, validate with Microsoft
+            decoded_token = pyjwt.decode(msal_token, options={"verify_signature": False})
+            user_email = decoded_token.get("preferred_username") or decoded_token.get("email") or decoded_token.get("upn")
+            print(f"DEBUG: Extracted user email from MSAL token: {user_email}")
+        except Exception as e:
+            print(f"DEBUG: Could not decode MSAL token: {e}")
+            user_email = "admin@example.com"  # Fallback
+        
+        # Create a backend token for the actual user
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
-            data={"sub": "admin@example.com"}, expires_delta=access_token_expires
+            data={"sub": user_email}, expires_delta=access_token_expires
         )
-        print(f"DEBUG: Created backend token: {access_token[:20]}...")
+        print(f"DEBUG: Created backend token for: {user_email}")
         return {"access_token": access_token, "token_type": "bearer"}
     except Exception as e:
         logger.error(f"Error exchanging MSAL token: {str(e)}")

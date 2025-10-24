@@ -62,7 +62,7 @@ export default function Directory() {
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const { toast } = useToast();
   
-  const isAdmin = true; // For demo purposes, assume admin
+  const { isAdmin } = useAuth();
   
   const { 
     employees, 
@@ -442,10 +442,12 @@ export default function Directory() {
                   <Plus className="h-4 w-4" />
                   Add Employee
                 </Button>
-                <Button variant="outline" className="gap-2" onClick={handleNavigateToDashboard} disabled={isNavigating}>
-                  <BarChart2 className="h-4 w-4" />
-                  {isNavigating ? "Loading..." : "Dashboard"}
-                </Button>
+                {isAdmin && (
+                  <Button variant="outline" className="gap-2" onClick={handleNavigateToDashboard} disabled={isNavigating}>
+                    <BarChart2 className="h-4 w-4" />
+                    {isNavigating ? "Loading..." : "Dashboard"}
+                  </Button>
+                )}
                 <Button variant="outline" className="gap-2" onClick={() => setShowImport(true)}>
                   <Upload className="h-4 w-4" />
                   Import
