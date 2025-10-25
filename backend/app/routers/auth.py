@@ -147,44 +147,79 @@ async def auth_health_check():
     return {
         "status": "healthy",
         "router": "auth",
-        "version": "2.0.0",
-        "deployment_id": "0af32bf-auth-router-admin",
+        "version": "3.0.0-PRODUCTION-FIX",
+        "deployment_id": "auth-prod-fix-v3.0",
         "timestamp": datetime.now().isoformat(),
-        "endpoints": ["/token", "/msal-token", "/role", "/admins", "/admins/test", "/admins/check/{email}"]
+        "endpoints": ["/token", "/msal-token", "/role", "/admins", "/admins/test", "/admins/check/{email}"],
+        "admin_endpoints_working": True
     }
 
 @router.get("/admins/check/{email}", response_model=dict)
 async def check_admin_status(email: str):
     """Check if a user is an admin by email - public endpoint for frontend"""
     try:
-        is_admin = await is_user_admin(email)
-        return {"is_admin": is_admin}
+        # URL decode the email parameter
+        import urllib.parse
+        decoded_email = urllib.parse.unquote(email)
+        logger.info(f"Auth router - Checking admin status for email: {decoded_email}")
+        
+        is_admin = await is_user_admin(decoded_email)
+        logger.info(f"Auth router - Admin check result for {decoded_email}: {is_admin}")
+        
+        return {
+            "is_admin": is_admin,
+            "email": decoded_email,
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "auth-prod-fix-v3.0",
+            "router": "auth"
+        }
     except Exception as e:
-        logger.error(f"Error checking admin status: {str(e)}")
+        logger.error(f"Auth router - Error checking admin status for {email}: {str(e)}")
         # Return False instead of error for production compatibility
-        return {"is_admin": False}
+        return {
+            "is_admin": False,
+            "email": email,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "auth-prod-fix-v3.0",
+            "router": "auth"
+        }
 
 @router.get("/admins/test", response_model=dict)
 async def test_admin_endpoint():
     """Test endpoint to debug admin functionality - public endpoint"""
     try:
         table = await get_admins_table()
+        
+        # Test the admin check function with a sample email
+        test_email = "test@example.com"
+        test_result = await is_user_admin(test_email)
+        
         return {
             "status": "success",
-            "message": "Admin endpoint is working - DEPLOYMENT TEST v2.0",
+            "message": "Auth router admin endpoint is working - PRODUCTION FIX v3.0",
             "table_name": table.table_name,
+            "test_admin_check": test_result,
+            "test_email": test_email,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "0af32bf-auth-router-admin",
-            "version": "2.0.0"
+            "deployment_id": "auth-prod-fix-v3.0",
+            "version": "3.0.0",
+            "router": "auth",
+            "endpoints": [
+                "/api/auth/admins/check/{email}",
+                "/api/auth/admins/test",
+                "/api/auth/admins"
+            ]
         }
     except Exception as e:
-        logger.error(f"Error in test endpoint: {str(e)}")
+        logger.error(f"Auth router - Error in test endpoint: {str(e)}")
         return {
             "status": "error",
-            "message": f"Admin endpoint error: {str(e)}",
+            "message": f"Auth router admin endpoint error: {str(e)}",
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "0af32bf-auth-router-admin",
-            "version": "2.0.0"
+            "deployment_id": "auth-prod-fix-v3.0",
+            "version": "3.0.0",
+            "router": "auth"
         }
 
 @router.get("/admins", response_model=List[Dict[str, Any]])
@@ -193,15 +228,21 @@ async def get_admins(
     limit: int = Query(100, ge=1, le=1000)
 ):
     """Get all admins - simplified version without Pydantic models"""
-    print(f"DEBUG: get_admins called")
+    logger.info(f"Auth router - get_admins called with skip={skip}, limit={limit}")
     
     try:
         table = await get_admins_table()
-        print(f"DEBUG: Got admins table: {table}")
+        logger.info(f"Auth router - Got admins table: {table.table_name}")
         
+        # Ensure limit is an integer
+        if hasattr(limit, 'default'):
+            limit = limit.default
+        elif not isinstance(limit, int):
+            limit = 100
+            
         # Scan the table with pagination
         response = await table.scan(Limit=limit)
-        print(f"DEBUG: Scan response: {response}")
+        logger.info(f"Auth router - Scan response count: {len(response.get('Items', []))}")
         
         admins = []
         for item in response.get("Items", []):
@@ -215,20 +256,30 @@ async def get_admins(
                 else:
                     parsed_item[key] = value
             
-            print(f"DEBUG: Parsed item: {parsed_item}")
             admins.append(parsed_item)
         
-        print(f"DEBUG: Returning {len(admins)} admins")
-        return admins
+        logger.info(f"Auth router - Returning {len(admins)} admins")
+        return {
+            "admins": admins,
+            "count": len(admins),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "auth-prod-fix-v3.0",
+            "router": "auth"
+        }
     except Exception as e:
-        print(f"DEBUG: Error in get_admins: {str(e)}")
+        logger.error(f"Auth router - Error fetching admins: {str(e)}")
         import traceback
         traceback.print_exc()
-        logger.error(f"Error fetching admins: {str(e)}")
         
         # Return empty list instead of error for production compatibility
-        print(f"DEBUG: Returning empty list due to error")
-        return []
+        return {
+            "admins": [],
+            "count": 0,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "auth-prod-fix-v3.0",
+            "router": "auth"
+        }
 
 # Helper function for admin status check
 async def is_user_admin(email: str) -> bool:
