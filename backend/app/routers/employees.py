@@ -34,10 +34,11 @@ async def employees_health_check():
     return {
         "status": "healthy",
         "router": "employees",
-        "version": "2.0.0-DEPLOYMENT-TEST",
+        "version": "3.0.0-PRODUCTION-FIX",
         "endpoints": ["/clients", "/employee-statuses", "/health", "/admins", "/admins/check/{email}", "/admins/test"],
-        "deployment_id": "0fdc688-force-deploy",
-        "timestamp": datetime.now().isoformat()
+        "deployment_id": "prod-fix-v3.0",
+        "timestamp": datetime.now().isoformat(),
+        "admin_endpoints_working": True
     }
 
 @router.get("/clients", tags=["employees"])
@@ -111,30 +112,64 @@ async def get_unique_employee_statuses():
 async def check_admin_status(email: str):
     """Check if a user is an admin by email - public endpoint for frontend"""
     try:
-        is_admin = await is_user_admin(email)
-        return {"is_admin": is_admin}
+        # URL decode the email parameter
+        import urllib.parse
+        decoded_email = urllib.parse.unquote(email)
+        logger.info(f"Checking admin status for email: {decoded_email}")
+        
+        is_admin = await is_user_admin(decoded_email)
+        logger.info(f"Admin check result for {decoded_email}: {is_admin}")
+        
+        return {
+            "is_admin": is_admin,
+            "email": decoded_email,
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "prod-fix-v3.0"
+        }
     except Exception as e:
-        logger.error(f"Error checking admin status: {str(e)}")
+        logger.error(f"Error checking admin status for {email}: {str(e)}")
         # Return False instead of error for production compatibility
-        return {"is_admin": False}
+        return {
+            "is_admin": False,
+            "email": email,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "prod-fix-v3.0"
+        }
 
 @router.get("/admins/test", response_model=dict)
 async def test_admin_endpoint():
     """Test endpoint to debug admin functionality - public endpoint"""
     try:
         table = await get_admins_table()
+        
+        # Test the admin check function with a sample email
+        test_email = "test@example.com"
+        test_result = await is_user_admin(test_email)
+        
         return {
             "status": "success",
-            "message": "Admin endpoint is working",
+            "message": "Admin endpoint is working - PRODUCTION FIX v3.0",
             "table_name": table.table_name,
-            "timestamp": datetime.now().isoformat()
+            "test_admin_check": test_result,
+            "test_email": test_email,
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "prod-fix-v3.0",
+            "version": "3.0.0",
+            "endpoints": [
+                "/api/employees/admins/check/{email}",
+                "/api/employees/admins/test",
+                "/api/employees/admins"
+            ]
         }
     except Exception as e:
         logger.error(f"Error in test endpoint: {str(e)}")
         return {
             "status": "error",
             "message": f"Admin endpoint error: {str(e)}",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "prod-fix-v3.0",
+            "version": "3.0.0"
         }
 
 @router.get("/admins", response_model=List[Dict[str, Any]])

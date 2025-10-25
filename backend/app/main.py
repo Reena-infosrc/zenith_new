@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 from dotenv import load_dotenv
 
-from .routers import auth, employees, goals, feedback, ai, employees_dashboard, feature_flags
+from .routers import auth, employees, goals, feedback, ai, employees_dashboard, feature_flags, admin
 from .database import initialize_dynamodb
 from .services.s3_service import initialize_s3
 from .services.bedrock_service import initialize_bedrock
@@ -41,6 +41,7 @@ app.include_router(goals.router)
 app.include_router(feedback.router)
 app.include_router(ai.router)
 app.include_router(feature_flags.router)
+app.include_router(admin.router)
 
 @app.on_event("startup")
 async def startup_event():
