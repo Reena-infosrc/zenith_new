@@ -147,8 +147,8 @@ async def auth_health_check():
     return {
         "status": "healthy",
         "router": "auth",
-        "version": "5.0.0-PRODUCTION-FIX",
-        "deployment_id": "auth-prod-fix-v5.0",
+        "version": "6.0.0-PRODUCTION-FIX",
+        "deployment_id": "auth-router-prod-fix-v6.0",
         "timestamp": datetime.now().isoformat(),
         "endpoints": ["/token", "/msal-token", "/role", "/admins", "/admins/test", "/admins/check/{email}"],
         "admin_endpoints_working": True
@@ -171,9 +171,9 @@ async def check_admin_status(email: str):
             "is_admin": is_admin,
             "email": decoded_email,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v5.0",
+            "deployment_id": "auth-router-prod-fix-v6.0",
             "router": "auth",
-            "version": "5.0.0"
+            "version": "6.0.0"
         }
     except Exception as e:
         logger.error(f"Auth router - Error checking admin status for {email}: {str(e)}")
@@ -183,9 +183,9 @@ async def check_admin_status(email: str):
             "email": email,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v5.0",
+            "deployment_id": "auth-router-prod-fix-v6.0",
             "router": "auth",
-            "version": "5.0.0"
+            "version": "6.0.0"
         }
 
 @router.get("/admins/test", response_model=dict)
@@ -200,13 +200,13 @@ async def test_admin_endpoint():
         
         return {
             "status": "success",
-            "message": "Auth router admin endpoint is working - PRODUCTION FIX v5.0",
+            "message": "Auth router admin endpoint is working - PRODUCTION FIX v6.0",
             "table_name": table.table_name,
             "test_admin_check": test_result,
             "test_email": test_email,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v5.0",
-            "version": "5.0.0",
+            "deployment_id": "auth-router-prod-fix-v6.0",
+            "version": "6.0.0",
             "router": "auth",
             "endpoints": [
                 "/api/auth/admins/check/{email}",
@@ -221,8 +221,8 @@ async def test_admin_endpoint():
             "status": "error",
             "message": f"Auth router admin endpoint error: {str(e)}",
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v5.0",
-            "version": "5.0.0",
+            "deployment_id": "auth-router-prod-fix-v6.0",
+            "version": "6.0.0",
             "router": "auth"
         }
 
@@ -268,9 +268,9 @@ async def get_admins(
             "admins": admins,
             "count": len(admins),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v5.0",
+            "deployment_id": "auth-router-prod-fix-v6.0",
             "router": "auth",
-            "version": "5.0.0"
+            "version": "6.0.0"
         }
     except Exception as e:
         logger.error(f"Auth router - Error fetching admins: {str(e)}")
@@ -283,9 +283,9 @@ async def get_admins(
             "count": 0,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v5.0",
+            "deployment_id": "auth-router-prod-fix-v6.0",
             "router": "auth",
-            "version": "5.0.0"
+            "version": "6.0.0"
         }
 
 # Helper function for admin status check
