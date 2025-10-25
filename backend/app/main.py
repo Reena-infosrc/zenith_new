@@ -53,6 +53,7 @@ app.include_router(admin.router)
 # Production admin endpoints - added directly to main app for production compatibility
 # This follows the same pattern that made /clients endpoint work in production
 @app.get("/api/auth/admins/check/{email}")
+@app.get("/api/auth/admins/check/{email}/")
 async def main_check_admin_status(email: str):
     """Check if a user is an admin by email - main app endpoint for production"""
     try:
@@ -67,8 +68,9 @@ async def main_check_admin_status(email: str):
             "is_admin": is_admin,
             "email": decoded_email,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "main-app-prod-fix-v3.0",
-            "source": "main_app"
+            "deployment_id": "main-app-prod-fix-v4.0",
+            "source": "main_app",
+            "version": "4.0.0"
         }
     except Exception as e:
         logger.error(f"Main app - Error checking admin status for {email}: {str(e)}")
@@ -77,12 +79,14 @@ async def main_check_admin_status(email: str):
             "email": email,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "main-app-prod-fix-v3.0",
-            "source": "main_app"
+            "deployment_id": "main-app-prod-fix-v4.0",
+            "source": "main_app",
+            "version": "4.0.0"
         }
 
 @app.get("/api/auth/admins/")
 @app.get("/api/auth/admins")
+@app.get("/api/auth/admins/list")
 async def main_get_admins():
     """Get all admins - main app endpoint for production"""
     logger.info("Main app - get_admins called")
@@ -114,8 +118,9 @@ async def main_get_admins():
             "admins": admins,
             "count": len(admins),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "main-app-prod-fix-v3.0",
-            "source": "main_app"
+            "deployment_id": "main-app-prod-fix-v4.0",
+            "source": "main_app",
+            "version": "4.0.0"
         }
     except Exception as e:
         logger.error(f"Main app - Error fetching admins: {str(e)}")
@@ -124,9 +129,30 @@ async def main_get_admins():
             "count": 0,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "main-app-prod-fix-v3.0",
-            "source": "main_app"
+            "deployment_id": "main-app-prod-fix-v4.0",
+            "source": "main_app",
+            "version": "4.0.0"
         }
+
+# Debug endpoint to verify deployment
+@app.get("/api/debug/admin-endpoints")
+async def debug_admin_endpoints():
+    """Debug endpoint to verify admin endpoints are working"""
+    return {
+        "status": "success",
+        "message": "Admin endpoints are working - PRODUCTION FIX v4.0",
+        "timestamp": datetime.now().isoformat(),
+        "deployment_id": "main-app-prod-fix-v4.0",
+        "version": "4.0.0",
+        "available_endpoints": [
+            "/api/auth/admins/check/{email}",
+            "/api/auth/admins/",
+            "/api/auth/admins",
+            "/api/auth/admins/list",
+            "/api/debug/admin-endpoints"
+        ],
+        "root_path": root_path
+    }
 
 # Helper function for admin status check in main app
 async def is_user_admin_main(email: str) -> bool:
@@ -185,7 +211,9 @@ async def health_check():
             "auth_router": True,
             "employees_router": True
         },
-        "deployment_id": "main-app-prod-fix-v3.0"
+        "deployment_id": "main-app-prod-fix-v4.0",
+        "version": "4.0.0",
+        "root_path": root_path
     }
 
 lambda_handler = Mangum(app)

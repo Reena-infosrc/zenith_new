@@ -147,14 +147,15 @@ async def auth_health_check():
     return {
         "status": "healthy",
         "router": "auth",
-        "version": "3.0.0-PRODUCTION-FIX",
-        "deployment_id": "auth-prod-fix-v3.0",
+        "version": "5.0.0-PRODUCTION-FIX",
+        "deployment_id": "auth-prod-fix-v5.0",
         "timestamp": datetime.now().isoformat(),
         "endpoints": ["/token", "/msal-token", "/role", "/admins", "/admins/test", "/admins/check/{email}"],
         "admin_endpoints_working": True
     }
 
 @router.get("/admins/check/{email}", response_model=dict)
+@router.get("/admins/check/{email}/", response_model=dict)
 async def check_admin_status(email: str):
     """Check if a user is an admin by email - public endpoint for frontend"""
     try:
@@ -170,8 +171,9 @@ async def check_admin_status(email: str):
             "is_admin": is_admin,
             "email": decoded_email,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v3.0",
-            "router": "auth"
+            "deployment_id": "auth-prod-fix-v5.0",
+            "router": "auth",
+            "version": "5.0.0"
         }
     except Exception as e:
         logger.error(f"Auth router - Error checking admin status for {email}: {str(e)}")
@@ -181,8 +183,9 @@ async def check_admin_status(email: str):
             "email": email,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v3.0",
-            "router": "auth"
+            "deployment_id": "auth-prod-fix-v5.0",
+            "router": "auth",
+            "version": "5.0.0"
         }
 
 @router.get("/admins/test", response_model=dict)
@@ -197,18 +200,19 @@ async def test_admin_endpoint():
         
         return {
             "status": "success",
-            "message": "Auth router admin endpoint is working - PRODUCTION FIX v3.0",
+            "message": "Auth router admin endpoint is working - PRODUCTION FIX v5.0",
             "table_name": table.table_name,
             "test_admin_check": test_result,
             "test_email": test_email,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v3.0",
-            "version": "3.0.0",
+            "deployment_id": "auth-prod-fix-v5.0",
+            "version": "5.0.0",
             "router": "auth",
             "endpoints": [
                 "/api/auth/admins/check/{email}",
                 "/api/auth/admins/test",
-                "/api/auth/admins"
+                "/api/auth/admins",
+                "/api/auth/admins/"
             ]
         }
     except Exception as e:
@@ -217,12 +221,13 @@ async def test_admin_endpoint():
             "status": "error",
             "message": f"Auth router admin endpoint error: {str(e)}",
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v3.0",
-            "version": "3.0.0",
+            "deployment_id": "auth-prod-fix-v5.0",
+            "version": "5.0.0",
             "router": "auth"
         }
 
 @router.get("/admins", response_model=List[Dict[str, Any]])
+@router.get("/admins/", response_model=List[Dict[str, Any]])
 async def get_admins(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000)
@@ -263,8 +268,9 @@ async def get_admins(
             "admins": admins,
             "count": len(admins),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v3.0",
-            "router": "auth"
+            "deployment_id": "auth-prod-fix-v5.0",
+            "router": "auth",
+            "version": "5.0.0"
         }
     except Exception as e:
         logger.error(f"Auth router - Error fetching admins: {str(e)}")
@@ -277,8 +283,9 @@ async def get_admins(
             "count": 0,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "auth-prod-fix-v3.0",
-            "router": "auth"
+            "deployment_id": "auth-prod-fix-v5.0",
+            "router": "auth",
+            "version": "5.0.0"
         }
 
 # Helper function for admin status check
