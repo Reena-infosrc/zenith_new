@@ -107,34 +107,102 @@ async def get_unique_employee_statuses():
             detail=f"Failed to fetch employee statuses: {str(e)}"
         )
 
-# Admin endpoints - integrated into employees router for production compatibility
-@router.get("/admins/check/{email}", response_model=dict)
-async def check_admin_status(email: str):
-    """Check if a user is an admin by email - public endpoint for frontend"""
+# Admin endpoints - moved to employees router for production compatibility
+# This follows the same pattern as /clients endpoint which works in production
+@router.get("/auth-admins/check/{email}", response_model=dict)
+@router.get("/auth-admins/check/{email}/", response_model=dict)
+async def check_admin_status_auth(email: str):
+    """Check if a user is an admin by email - moved to employees router for production"""
     try:
         # URL decode the email parameter
         import urllib.parse
         decoded_email = urllib.parse.unquote(email)
-        logger.info(f"Checking admin status for email: {decoded_email}")
+        logger.info(f"Employees router - Checking admin status for email: {decoded_email}")
         
         is_admin = await is_user_admin(decoded_email)
-        logger.info(f"Admin check result for {decoded_email}: {is_admin}")
+        logger.info(f"Employees router - Admin check result for {decoded_email}: {is_admin}")
         
         return {
             "is_admin": is_admin,
             "email": decoded_email,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "prod-fix-v3.0"
+            "deployment_id": "employees-router-prod-fix-v7.0",
+            "router": "employees",
+            "version": "7.0.0"
         }
     except Exception as e:
-        logger.error(f"Error checking admin status for {email}: {str(e)}")
+        logger.error(f"Employees router - Error checking admin status for {email}: {str(e)}")
         # Return False instead of error for production compatibility
         return {
             "is_admin": False,
             "email": email,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "prod-fix-v3.0"
+            "deployment_id": "employees-router-prod-fix-v7.0",
+            "router": "employees",
+            "version": "7.0.0"
+        }
+
+@router.get("/auth-admins/", response_model=List[Dict[str, Any]])
+@router.get("/auth-admins", response_model=List[Dict[str, Any]])
+async def get_admins_auth(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000)
+):
+    """Get all admins - moved to employees router for production"""
+    logger.info(f"Employees router - get_admins called with skip={skip}, limit={limit}")
+    
+    try:
+        table = await get_admins_table()
+        logger.info(f"Employees router - Got admins table: {table.table_name}")
+        
+        # Ensure limit is an integer
+        if hasattr(limit, 'default'):
+            limit = limit.default
+        elif not isinstance(limit, int):
+            limit = 100
+            
+        # Scan the table with pagination
+        response = await table.scan(Limit=limit)
+        logger.info(f"Employees router - Scan response count: {len(response.get('Items', []))}")
+        
+        admins = []
+        for item in response.get("Items", []):
+            # Convert datetime objects to strings manually
+            parsed_item = {}
+            for key, value in item.items():
+                if isinstance(value, datetime):
+                    parsed_item[key] = value.isoformat()
+                elif isinstance(value, Decimal):
+                    parsed_item[key] = float(value)
+                else:
+                    parsed_item[key] = value
+            
+            admins.append(parsed_item)
+        
+        logger.info(f"Employees router - Returning {len(admins)} admins")
+        return {
+            "admins": admins,
+            "count": len(admins),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "employees-router-prod-fix-v7.0",
+            "router": "employees",
+            "version": "7.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Employees router - Error fetching admins: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Return empty list instead of error for production compatibility
+        return {
+            "admins": [],
+            "count": 0,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "employees-router-prod-fix-v7.0",
+            "router": "employees",
+            "version": "7.0.0"
         }
 
 @router.get("/admins/test", response_model=dict)
