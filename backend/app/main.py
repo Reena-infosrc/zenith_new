@@ -40,6 +40,89 @@ app.add_middleware(
 if os.path.exists("uploads"):
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
+# CRITICAL: Add these endpoints BEFORE routers to ensure they're registered
+@app.get("/api/employees/auth-admins")
+@app.get("/api/employees/auth-admins/")
+async def employees_auth_admins_endpoint():
+    """Get all admins - employees router fallback"""
+    logger.info("Main app - employees auth-admins called")
+    
+    try:
+        table = await get_admins_table()
+        
+        response = await table.scan(Limit=100)
+        
+        admins = []
+        for item in response.get("Items", []):
+            parsed_item = {}
+            for key, value in item.items():
+                if isinstance(value, datetime):
+                    parsed_item[key] = value.isoformat()
+                elif hasattr(value, 'value'):
+                    parsed_item[key] = float(value)
+                else:
+                    parsed_item[key] = value
+            
+            admins.append(parsed_item)
+        
+        return {
+            "admins": admins,
+            "count": len(admins),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "main-app-direct-v10.0",
+            "version": "10.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        return {
+            "admins": [],
+            "count": 0,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "main-app-direct-v10.0",
+            "version": "10.0.0"
+        }
+
+@app.get("/api/employees/auth-admins-check/{email}")
+@app.get("/api/employees/auth-admins-check/{email}/")
+async def employees_auth_admins_check_endpoint(email: str):
+    """Check if a user is an admin - employees router fallback"""
+    logger.info(f"Main app - checking admin status for: {email}")
+    
+    try:
+        decoded_email = urllib.parse.unquote(email)
+        
+        table = await get_admins_table()
+        
+        response = await table.query(
+            IndexName="EmailIndex",
+            KeyConditionExpression="email = :email",
+            ExpressionAttributeValues={":email": decoded_email}
+        )
+        
+        is_admin = False
+        if response.get("Items"):
+            admin_data = parse_dynamodb_item(response["Items"][0])
+            is_admin = admin_data.get("is_active", True)
+        
+        return {
+            "is_admin": is_admin,
+            "email": decoded_email,
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "main-app-direct-v10.0",
+            "version": "10.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        return {
+            "is_admin": False,
+            "email": email,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "main-app-direct-v10.0",
+            "version": "10.0.0"
+        }
+
 # Include routers
 app.include_router(auth.router)
 app.include_router(employees.router)
