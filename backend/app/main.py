@@ -41,6 +41,16 @@ if os.path.exists("uploads"):
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # CRITICAL: Add these endpoints BEFORE routers to ensure they're registered
+@app.get("/api/version-check")
+async def version_check():
+    """Check which version is running"""
+    return {
+        "version": "10.0.0-DEPLOYED",
+        "deployment_id": "main-app-direct-v10.0",
+        "timestamp": datetime.now().isoformat(),
+        "message": "If you see this, the new code is deployed!"
+    }
+
 @app.get("/api/employees/auth-admins")
 @app.get("/api/employees/auth-admins/")
 async def employees_auth_admins_endpoint():
