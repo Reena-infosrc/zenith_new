@@ -61,8 +61,7 @@ app.include_router(ai.router)
 app.include_router(feature_flags.router)
 app.include_router(admin.router)
 
-# CRITICAL FIX: Add admin endpoints directly to main app for production
-# This ensures they work even if router registration fails
+# Fallback admin endpoints - should use /api/employees/auth-admins instead
 @app.get("/api/auth/admins/")
 @app.get("/api/auth/admins")
 async def main_get_admins():
