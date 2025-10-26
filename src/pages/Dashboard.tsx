@@ -25,6 +25,7 @@ import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { useToast } from "@/hooks/use-toast";
 import { consolidateRemoteLocations } from "@/lib/utils";
 import { exportEmployeesToCSV } from "@/utils/csvExport";
+import { API_BASE_URL } from "@/config/api";
 
 interface Employee {
   id: string;
@@ -145,7 +146,7 @@ export default function Dashboard() {
         return;
       }
       
-      const response = await fetch('https://zenith-hr-api.apps.infoservices.com/api/employees-dashboard/');
+      const response = await fetch(`${API_BASE_URL}/employees-dashboard/`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

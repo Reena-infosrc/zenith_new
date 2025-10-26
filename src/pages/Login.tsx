@@ -9,6 +9,7 @@ import { useMsal } from "@azure/msal-react";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { Loader2 } from "lucide-react";
 import { Employee } from "@/hooks/use-employees";
+import { API_BASE_URL } from "@/config/api";
 
 export default function Login() {
   const [loginClicked, setLoginClicked] = useState(false);
@@ -84,7 +85,7 @@ export default function Login() {
     // Exchange MSAL token for backend token
     try {
       
-      const backendRes = await fetch("https://zenith-hr-api.apps.infoservices.com/api/auth/msal-token", {
+      const backendRes = await fetch(`${API_BASE_URL}/auth/msal-token`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -136,7 +137,7 @@ export default function Login() {
       // Create parallel API calls
       const apiCalls = [
         // Feature Flags API
-        fetch('https://zenith-hr-api.apps.infoservices.com/api/feature-flags/', { headers })
+        fetch(`${API_BASE_URL}/feature-flags/`, { headers })
           .then(async response => {
             if (response.ok) {
               const data = await response.json();
@@ -153,7 +154,7 @@ export default function Login() {
           }),
 
         // Employees API
-        fetch('https://zenith-hr-api.apps.infoservices.com/api/employees', { headers })
+        fetch(`${API_BASE_URL}/employees`, { headers })
           .then(async response => {
             if (response.ok) {
               const data = await response.json();
@@ -219,7 +220,7 @@ export default function Login() {
           }),
 
         // Dashboard API
-        fetch('https://zenith-hr-api.apps.infoservices.com/api/employees-dashboard/', { headers })
+        fetch(`${API_BASE_URL}/employees-dashboard/`, { headers })
           .then(async response => {
             if (response.ok) {
               const data = await response.json();

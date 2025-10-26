@@ -1,6 +1,7 @@
 import { toast } from 'sonner';
+import { API_BASE_URL } from '@/config/api';
 
-const API_BASE_URL = 'https://zenith-hr-api.apps.infoservices.com/api/recruitment';
+const RECRUITMENT_API_BASE = `${API_BASE_URL}/recruitment`;
 
 export interface JobRequisitionData {
   jobTitle: string;
@@ -86,7 +87,7 @@ class RecruitmentService {
         department_request: data,
         created_by: 'current_user' // This should come from auth context
       };
-      const response = await fetch(`${API_BASE_URL}/job-requisitions`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/job-requisitions`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(payload)
@@ -119,7 +120,7 @@ class RecruitmentService {
       if (params?.status) queryParams.append('status', params.status);
       if (params?.department) queryParams.append('department', params.department);
 
-      const response = await fetch(`${API_BASE_URL}/job-requisitions?${queryParams}`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/job-requisitions?${queryParams}`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });
@@ -138,7 +139,7 @@ class RecruitmentService {
 
   async getJobRequisition(id: string): Promise<JobRequisition> {
     try {
-      const response = await fetch(`${API_BASE_URL}/job-requisitions/${id}`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/job-requisitions/${id}`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });
@@ -162,7 +163,7 @@ class RecruitmentService {
     comments?: string
   ): Promise<{ success: boolean; message: string; updated_step: WorkflowStep }> {
     try {
-      const response = await fetch(`${API_BASE_URL}/job-requisitions/${requisitionId}/workflow/${stepId}`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/job-requisitions/${requisitionId}/workflow/${stepId}`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
@@ -188,7 +189,7 @@ class RecruitmentService {
 
   async getRecruitmentStats(): Promise<RecruitmentStats> {
     try {
-      const response = await fetch(`${API_BASE_URL}/stats`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/stats`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });
@@ -207,7 +208,7 @@ class RecruitmentService {
 
   async getHeadcountForecast(): Promise<HeadcountForecast[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/headcount-forecast`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/headcount-forecast`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });
@@ -226,7 +227,7 @@ class RecruitmentService {
 
   async getDepartments(): Promise<string[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/departments`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/departments`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });
@@ -246,7 +247,7 @@ class RecruitmentService {
 
   async getJobTypes(): Promise<string[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/job-types`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/job-types`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });
@@ -266,7 +267,7 @@ class RecruitmentService {
 
   async getExperienceLevels(): Promise<string[]> {
     try {
-      const response = await fetch(`${API_BASE_URL}/experience-levels`, {
+      const response = await fetch(`${RECRUITMENT_API_BASE}/experience-levels`, {
         method: 'GET',
         headers: this.getAuthHeaders()
       });

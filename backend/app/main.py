@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
@@ -53,7 +53,7 @@ async def version_check():
 
 @app.get("/api/employees/auth-admins")
 @app.get("/api/employees/auth-admins/")
-async def employees_auth_admins_endpoint():
+async def employees_auth_admins_get_endpoint():
     """Get all admins - employees router fallback"""
     logger.info("Main app - employees auth-admins called")
     
@@ -87,6 +87,62 @@ async def employees_auth_admins_endpoint():
         return {
             "admins": [],
             "count": 0,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "main-app-direct-v10.0",
+            "version": "10.0.0"
+        }
+
+@app.post("/api/employees/auth-admins")
+@app.post("/api/employees/auth-admins/")
+async def employees_auth_admins_post_endpoint(request: Request):
+    """Add a new admin"""
+    logger.info("Main app - add admin called")
+    
+    try:
+        from .database_dynamodb import generate_id, format_dynamodb_item
+        
+        # Parse request body
+        body = await request.json()
+        logger.info(f"Received data: {body}")
+        
+        table = await get_admins_table()
+        
+        admin_id = generate_id()
+        
+        # Prepare admin data
+        admin_data = {
+            'id': admin_id,
+            'employee_id': body.get('employee_id', ''),
+            'email': body.get('email', ''),
+            'name': body.get('name', ''),
+            'department': body.get('department', ''),
+            'position': body.get('position', ''),
+            'created_by': body.get('created_by', 'manual_add'),
+            'is_active': True,
+            'created_at': datetime.now(),
+            'updated_at': datetime.now()
+        }
+        
+        # Format and save to DynamoDB
+        formatted_item = format_dynamodb_item(admin_data)
+        await table.put_item(Item=formatted_item)
+        
+        logger.info(f"Admin added: {admin_data['name']}")
+        return {
+            "success": True,
+            "message": "Admin added successfully",
+            "admin": admin_data,
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "main-app-direct-v10.0",
+            "version": "10.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Error adding admin: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
             "deployment_id": "main-app-direct-v10.0",

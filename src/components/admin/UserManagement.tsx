@@ -74,7 +74,9 @@ export function UserManagement({ onClose }: UserManagementProps) {
       const response = await authenticatedFetch(`${API_BASE_URL}/employees/auth-admins`);
       if (response.ok) {
         const data = await response.json();
-        setAdmins(data);
+        // Handle both array and object responses
+        const adminsData = Array.isArray(data) ? data : (data.admins || []);
+        setAdmins(adminsData);
       } else {
         throw new Error("Failed to fetch admins");
       }
@@ -201,12 +203,17 @@ export function UserManagement({ onClose }: UserManagementProps) {
     });
   };
 
-  const filteredEmployees = employees.filter(emp => 
-    !admins.some(admin => admin.employee_id === emp.employee_id) &&
-    (emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     emp.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     emp.employee_id.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredEmployees = employees.filter(emp => {
+    // Only filter out employees who are already admins if admins is an array
+    if (Array.isArray(admins) && admins.some(admin => admin.employee_id === emp.employee_id)) {
+      return false;
+    }
+    
+    // Filter by search term
+    return emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           emp.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           emp.employee_id.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   if (loading) {
     return (
