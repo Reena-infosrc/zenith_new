@@ -147,6 +147,44 @@ async def get_auth_admins():
             detail=f"Failed to fetch admins: {str(e)}"
         )
 
+@router.post("/auth-admins", tags=["employees"])
+async def add_auth_admin(data: dict):
+    """Add a new admin - EXACT same pattern as working endpoints"""
+    try:
+        table = await get_admins_table()
+        admin_id = generate_id()
+        
+        admin_data = {
+            'id': admin_id,
+            'employee_id': data.get('employee_id', ''),
+            'email': data.get('email', ''),
+            'name': data.get('name', ''),
+            'department': data.get('department', ''),
+            'position': data.get('position', ''),
+            'created_by': data.get('created_by', 'manual_add'),
+            'is_active': True,
+            'created_at': datetime.now(),
+            'updated_at': datetime.now()
+        }
+        
+        formatted_item = format_dynamodb_item(admin_data)
+        await table.put_item(Item=formatted_item)
+        
+        return {
+            "success": True,
+            "message": "Admin added successfully",
+            "admin": admin_data,
+            "timestamp": datetime.now().isoformat(),
+            "deployment_id": "employees-exact-pattern-v9.0",
+            "router": "employees",
+            "version": "9.0.0"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to add admin: {str(e)}"
+        )
+
 @router.get("/auth-admins-check/{email}", tags=["employees"])
 async def check_auth_admin_status(email: str):
     """Check if a user is an admin by email - EXACT same pattern as working endpoints"""
