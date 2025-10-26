@@ -136,9 +136,9 @@ async def get_auth_admins():
             "admins": admins,
             "count": len(admins),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "employees-exact-pattern-v9.0",
+            "deployment_id": "employees-exact-pattern-v11.0",
             "router": "employees",
-            "version": "9.0.0"
+            "version": "11.0.0"
         }
         
     except Exception as e:
