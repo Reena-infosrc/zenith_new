@@ -136,9 +136,9 @@ async def get_auth_admins():
             "admins": admins,
             "count": len(admins),
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "employees-exact-pattern-v11.0",
+            "deployment_id": "employees-exact-pattern-v12.0",
             "router": "employees",
-            "version": "11.0.0"
+            "version": "12.0.0"
         }
         
     except Exception as e:
@@ -175,9 +175,9 @@ async def add_auth_admin(data: dict):
             "message": "Admin added successfully",
             "admin": admin_data,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "employees-exact-pattern-v9.0",
+            "deployment_id": "employees-exact-pattern-v12.0",
             "router": "employees",
-            "version": "9.0.0"
+            "version": "12.0.0"
         }
     except Exception as e:
         raise HTTPException(
@@ -211,9 +211,9 @@ async def check_auth_admin_status(email: str):
             "is_admin": is_admin,
             "email": decoded_email,
             "timestamp": datetime.now().isoformat(),
-            "deployment_id": "employees-exact-pattern-v9.0",
+            "deployment_id": "employees-exact-pattern-v12.0",
             "router": "employees",
-            "version": "9.0.0"
+            "version": "12.0.0"
         }
         
     except Exception as e:
