@@ -82,6 +82,9 @@ export default function Login() {
     }
     const profile = await graphRes.json();
 
+    // First, clear any old/invalid tokens
+    localStorage.removeItem('auth_token');
+    
     // Exchange MSAL token for backend token
     try {
       
@@ -102,16 +105,23 @@ export default function Login() {
         
         // Verify the token was stored correctly
         const storedToken = localStorage.getItem('auth_token');
+        console.log('✅ Backend token stored successfully');
       } else {
         const errorText = await backendRes.text();
-        console.error("Failed to get backend token:", backendRes.status, errorText);
-        // Fallback: store MSAL token (will cause 401 errors)
-        localStorage.setItem('auth_token', accessToken);
+        console.error("❌ Failed to get backend token:", backendRes.status, errorText);
+        // Clear any old tokens
+        localStorage.removeItem('auth_token');
+        setIsProcessingLogin(false);
+        alert('Authentication failed. Please try again.');
+        return;
       }
     } catch (error) {
-      console.error("Error exchanging MSAL token:", error);
-      // Fallback: store MSAL token (will cause 401 errors)
-      localStorage.setItem('auth_token', accessToken);
+      console.error("❌ Error exchanging MSAL token:", error);
+      // Clear any old tokens
+      localStorage.removeItem('auth_token');
+      setIsProcessingLogin(false);
+      alert('Authentication failed. Please try again.');
+      return;
     }
 
     // Wait a moment to ensure token is stored before proceeding

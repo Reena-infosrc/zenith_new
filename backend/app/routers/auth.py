@@ -98,12 +98,12 @@ async def exchange_msal_token(msal_token: str = Body(..., embed=True)):
         
         # Extract user email from MSAL token (simplified approach)
         # In production, you should validate the token with Microsoft Graph API
-        import jwt as pyjwt
+        from jose import jwt as jose_jwt
         
         try:
             # Decode the MSAL token without verification to get user info
             # This is just for demo purposes - in production, validate with Microsoft
-            decoded_token = pyjwt.decode(msal_token, options={"verify_signature": False})
+            decoded_token = jose_jwt.get_unverified_claims(msal_token)
             user_email = decoded_token.get("preferred_username") or decoded_token.get("email") or decoded_token.get("upn")
             print(f"DEBUG: Extracted user email from MSAL token: {user_email}")
         except Exception as e:

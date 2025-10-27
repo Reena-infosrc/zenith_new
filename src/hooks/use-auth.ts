@@ -3,6 +3,15 @@ import { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { API_BASE_URL } from '@/config/api';
 
+// Global cache for admin status to prevent repeated API calls
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+interface CacheEntry {
+  isAdmin: boolean;
+  timestamp: number;
+}
+const globalAdminCache = new Map<string, CacheEntry>();
+const globalPendingChecks = new Map<string, Promise<boolean>>();
+
 type User = {
   id: string;
   name: string;
@@ -22,46 +31,75 @@ export function useAuth() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  // Function to check admin status from backend
+  // Function to check admin status from backend with caching
   const checkAdminStatus = async (email: string) => {
     try {
+      // Check cache first
+      const cached = globalAdminCache.get(email);
+      const now = Date.now();
+      
+      if (cached && (now - cached.timestamp < CACHE_DURATION_MS)) {
+        console.log('📦 Using cached admin status for:', email);
+        return cached.isAdmin;
+      }
+      
+      // Check if there's already a pending request
+      const pendingCheck = globalPendingChecks.get(email);
+      if (pendingCheck) {
+        console.log('⏳ Waiting for pending admin check for:', email);
+        return await pendingCheck;
+      }
+      
+      // Make API call
       console.log('🔍 Checking admin status for:', email);
       console.log('🌐 API URL:', `${API_BASE_URL}/admin/check/${encodeURIComponent(email)}`);
       
-      const response = await fetch(`${API_BASE_URL}/admin/check/${encodeURIComponent(email)}`);
-      console.log('📡 Response status:', response.status);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Admin check result:', data);
-        return data.is_admin || false;
-      } else {
-        console.error('❌ Admin check failed:', response.status, response.statusText);
-        
-        // Temporary workaround for production - hardcode admin users
-        const adminEmails = [
-          'jagadeesh.l@infoservices.com'
-        ];
-        
-        if (adminEmails.includes(email)) {
-          console.log('🔧 Using temporary admin workaround for:', email);
-          return true;
+      const fetchPromise = (async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/admin/check/${encodeURIComponent(email)}`);
+          console.log('📡 Response status:', response.status);
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('✅ Admin check result:', data);
+            const isAdmin = data.is_admin || false;
+            
+            // Cache the result
+            globalAdminCache.set(email, {
+              isAdmin,
+              timestamp: Date.now()
+            });
+            
+            return isAdmin;
+          } else {
+            console.error('❌ Admin check failed:', response.status, response.statusText);
+            const isAdmin = false;
+            
+            // Cache negative result
+            globalAdminCache.set(email, {
+              isAdmin,
+              timestamp: Date.now()
+            });
+            
+            return isAdmin;
+          }
+        } catch (error) {
+          console.error('❌ Error checking admin status:', error);
+          return false;
+        } finally {
+          // Remove from pending checks
+          globalPendingChecks.delete(email);
         }
-      }
+      })();
+      
+      // Store pending check
+      globalPendingChecks.set(email, fetchPromise);
+      
+      return await fetchPromise;
     } catch (error) {
-      console.error('❌ Error checking admin status:', error);
-      
-      // Temporary workaround for production - hardcode admin users
-      const adminEmails = [
-        'jagadeesh.l@infoservices.com'
-      ];
-      
-      if (adminEmails.includes(email)) {
-        console.log('🔧 Using temporary admin workaround for:', email);
-        return true;
-      }
+      console.error('❌ Error in checkAdminStatus:', error);
+      return false;
     }
-    return false;
   };
 
   // Function to update user admin status

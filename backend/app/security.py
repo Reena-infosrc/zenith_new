@@ -97,6 +97,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        # First, decode without verification to check the algorithm
+        unverified_header = jwt.get_unverified_header(token)
+        print(f"DEBUG: Token algorithm: {unverified_header.get('alg')}")
+        
+        # Decode token with verification - use HS256 only (RS256 requires PEM keys)
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         print(f"DEBUG: Decoded username: {username}")

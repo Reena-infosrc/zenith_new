@@ -18,6 +18,7 @@ import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award,
 import { useEmployees } from '@/hooks/use-employees';
 import { useClients } from '@/hooks/use-clients';
 import { useEmployeeStatuses } from '@/hooks/use-employee-statuses';
+import { useAuth } from '@/hooks/use-auth';
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { consolidateRemoteLocations, DEPARTMENT_OPTIONS, EMPLOYEE_STATUS_OPTIONS, CLIENT_OPTIONS, toCamelCase } from "@/lib/utils";
@@ -94,13 +95,25 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const [isUpdating, setIsUpdating] = useState(false);
   const [skillsInput, setSkillsInput] = useState<string>('');
   const { toast } = useToast();
-  const isAdmin = true; // For demo purposes, assume admin
+  const { user, isAdmin, isLoading } = useAuth();
   const { updateEmployee, employees, fetchEmployees } = useEmployees();
   const { clients: dynamicClients, isLoading: clientsLoading } = useClients();
   const { employeeStatuses: dynamicEmployeeStatuses, isLoading: statusesLoading } = useEmployeeStatuses();
   
+  // Determine if current user can edit this profile
+  // Allow editing if:
+  // 1. User is an admin, OR
+  // 2. User's email matches the employee's email (case-insensitive)
+  const canEditProfile = !isLoading && (isAdmin || (user?.email && employee?.email && user.email.toLowerCase() === employee.email.toLowerCase()));
+  
   // Debug logging - COMPREHENSIVE
   console.log('🔍 EmployeeProfile DEBUGGING:');
+  console.log('🔐 Permission check:', {
+    isAdmin,
+    userEmail: user?.email,
+    employeeEmail: employee?.email,
+    canEditProfile
+  });
   console.log('📥 Received employee prop:', {
     id: employee.id,
     employeeId: employee.employeeId,
@@ -489,7 +502,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
               <h2 className="text-xl font-bold">{profileData.name}</h2>
               <p className="text-sm text-muted-foreground">{profileData.position}</p>
             </div>
-            {isAdmin && (
+            {canEditProfile && (
               <div className="flex items-center gap-2">
                 {!isEditing ? (
                   <Button variant="outline" size="sm" className="gap-2" onClick={() => setIsEditing(true)}>

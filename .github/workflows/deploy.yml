@@ -51,15 +51,11 @@ jobs:
           IMAGE_URI: ${{ env.IMAGE_URI }}
           ECR_REPO: ${{ secrets.ECR_REPO }}
         run: |
-          # Pull latest image for cache (only layers, not for runtime)
-          docker pull ${IMAGE_URI}:latest || echo "No existing image to pull, will build fresh"
-          
           IMAGE_TAG=${IMAGE_URI}:${GITHUB_SHA::7}
           echo "Building Docker image: ${IMAGE_URI}:latest and ${IMAGE_TAG}"
           
           # Use BuildKit for better caching and build performance
           DOCKER_BUILDKIT=1 docker build \
-            --cache-from ${IMAGE_URI}:latest \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
             -t ${IMAGE_URI}:latest \
             -t ${IMAGE_TAG} \
@@ -68,6 +64,10 @@ jobs:
           echo "Pushing images..."
           docker push ${IMAGE_URI}:latest
           docker push ${IMAGE_TAG}
+          
+          echo "✅ Docker image build and push completed successfully"
+          echo "📦 Verifying new files in image..."
+          docker run --rm ${IMAGE_URI}:latest ls -la /app/app/routers/admin_auth.py || echo "⚠️ admin_auth.py not found in image"
 
       # ---------- Check if CloudFormation template changed ----------
       - name: Check if CloudFormation template changed
@@ -106,35 +106,33 @@ jobs:
           SERVICE_NAME: ${{ secrets.ECS_SERVICE_NAME }}
         run: |
           set -e
-          echo "Listing running tasks for $SERVICE_NAME in $CLUSTER_NAME..."
+          echo "🔄 Starting force redeploy process..."
+          
+          # First, update the ECS service to use the new image
+          echo "📝 Updating ECS service to pull new image..."
+          aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "$SERVICE_NAME" \
+            --force-new-deployment \
+            --region $AWS_REGION
+          
+          echo "⏳ Waiting for service to update..."
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME" \
+            --region $AWS_REGION
+          
+          echo "✅ ECS service deployment completed successfully!"
+          
+          # Verify the new tasks are running
+          echo "🔍 Checking running tasks..."
           TASK_ARNS=$(aws ecs list-tasks --cluster "$CLUSTER_NAME" --service-name "$SERVICE_NAME" --desired-status RUNNING --query 'taskArns' --output text --region $AWS_REGION || true)
-
+          
           if [ -n "$TASK_ARNS" ] && [ "$TASK_ARNS" != "None" ]; then
-            echo "Stopping existing ECS tasks..."
-            for TASK in $TASK_ARNS; do
-              aws ecs stop-task --cluster "$CLUSTER_NAME" --task "$TASK" --reason "Force redeploy via CI" --region $AWS_REGION || true
-            done
+            echo "✅ Found $(echo $TASK_ARNS | wc -w) running task(s)"
           else
-            echo "No running tasks found."
+            echo "⚠️ No running tasks found"
           fi
-
-          echo "Forcing ECS service update with new image..."
-          # Force new deployment to pull latest image
-          aws ecs update-service --cluster "$CLUSTER_NAME" --service "$SERVICE_NAME" --force-new-deployment --region $AWS_REGION
-          
-          echo "Stopping all existing tasks to force image pull..."
-          # Get all running tasks and stop them to force new image pull
-          RUNNING_TASKS=$(aws ecs list-tasks --cluster "$CLUSTER_NAME" --service-name "$SERVICE_NAME" --desired-status RUNNING --query 'taskArns' --output text --region $AWS_REGION)
-          if [ -n "$RUNNING_TASKS" ] && [ "$RUNNING_TASKS" != "None" ]; then
-            for TASK in $RUNNING_TASKS; do
-              echo "Stopping task: $TASK"
-              aws ecs stop-task --cluster "$CLUSTER_NAME" --task "$TASK" --reason "Force new image pull" --region $AWS_REGION || true
-            done
-          fi
-          
-          echo "Waiting for ECS service to stabilize with new tasks..."
-          aws ecs wait services-stable --cluster "$CLUSTER_NAME" --services "$SERVICE_NAME" --region $AWS_REGION
-          echo "ECS service update completed successfully!"
 
       # ---------- Frontend Build & Deploy ----------
       - name: Setup Node
