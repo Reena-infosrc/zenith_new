@@ -281,8 +281,10 @@ async def routes_debug():
 # Static import attempts (keep for local / dev)
 try:
     from .routers import auth, employees, goals, feedback, ai, employees_dashboard, feature_flags, admin, admin_auth
-except Exception:
+    logger.info("✅ Successfully imported all routers statically")
+except Exception as import_error:
     # if static import fails, we will try dynamic loader below
+    logger.error(f"❌ Failed to import routers statically: {import_error}", exc_info=True)
     auth = employees = goals = feedback = ai = employees_dashboard = feature_flags = admin = admin_auth = None
 
 # dynamic router loader with per-module error logging

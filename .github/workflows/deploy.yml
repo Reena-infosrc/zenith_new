@@ -55,8 +55,9 @@ jobs:
           echo "Building Docker image: ${IMAGE_URI}:latest and ${IMAGE_TAG}"
           
           # Use BuildKit for better caching and build performance
+          # --no-cache flag ensures fresh dependencies are installed
           DOCKER_BUILDKIT=1 docker build \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --no-cache \
             -t ${IMAGE_URI}:latest \
             -t ${IMAGE_TAG} \
             ./backend
@@ -66,8 +67,10 @@ jobs:
           docker push ${IMAGE_TAG}
           
           echo "✅ Docker image build and push completed successfully"
-          echo "📦 Verifying new files in image..."
+          echo "📦 Verifying files and dependencies in image..."
           docker run --rm ${IMAGE_URI}:latest ls -la /app/app/routers/admin_auth.py || echo "⚠️ admin_auth.py not found in image"
+          docker run --rm ${IMAGE_URI}:latest python -c "import httpx; print('✅ httpx installed:', httpx.__version__)" || echo "⚠️ httpx not installed"
+          docker run --rm ${IMAGE_URI}:latest python -c "import jose; print('✅ python-jose installed')" || echo "⚠️ python-jose not installed"
 
       # ---------- Check if CloudFormation template changed ----------
       - name: Check if CloudFormation template changed

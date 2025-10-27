@@ -31,6 +31,10 @@ COPY . .
 # Verify the application code is copied correctly (for debugging)
 RUN ls -la /app/app/ | head -20
 
+# Verify critical dependencies are installed
+RUN /opt/venv/bin/python -c "import httpx; print('✅ httpx installed')" || echo "❌ httpx not installed"
+RUN /opt/venv/bin/python -c "import jose; print('✅ jose installed')" || echo "❌ jose not installed"
+
 # ---- Runtime Stage ----
 FROM python:3.11-slim
 
