@@ -127,7 +127,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
     }
 
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/employees/auth-admins`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/admin`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
