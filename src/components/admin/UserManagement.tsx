@@ -148,6 +148,8 @@ export function UserManagement({ onClose }: UserManagementProps) {
           department: "",
           position: ""
         });
+        setSelectedEmployee(null);
+        setSearchTerm("");
         fetchAdmins();
       } else {
         const error = await response.json();
@@ -232,7 +234,21 @@ export function UserManagement({ onClose }: UserManagementProps) {
         </div>
         
         <div className="flex gap-2">
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+            setIsAddDialogOpen(open);
+            if (!open) {
+              // Reset state when dialog is closed
+              setSelectedEmployee(null);
+              setSearchTerm("");
+              setFormData({
+                employee_id: "",
+                email: "",
+                name: "",
+                department: "",
+                position: ""
+              });
+            }
+          }}>
             <DialogTrigger asChild>
               <Button>
                 <UserPlus className="h-4 w-4 mr-2" />
