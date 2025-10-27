@@ -69,8 +69,8 @@ jobs:
           echo "✅ Docker image build and push completed successfully"
           echo "📦 Verifying files and dependencies in image..."
           docker run --rm ${IMAGE_URI}:latest ls -la /app/app/routers/admin_auth.py || echo "⚠️ admin_auth.py not found in image"
-          docker run --rm ${IMAGE_URI}:latest python -c "import httpx; print('✅ httpx installed:', httpx.__version__)" || echo "⚠️ httpx not installed"
-          docker run --rm ${IMAGE_URI}:latest python -c "import jose; print('✅ python-jose installed')" || echo "⚠️ python-jose not installed"
+          docker run --rm ${IMAGE_URI}:latest python -c "from jose import jwt as jose_jwt; print('✅ python-jose installed')" || echo "⚠️ python-jose not installed"
+          docker run --rm ${IMAGE_URI}:latest grep -A 5 "def exchange_msal_token" /app/app/routers/auth.py || echo "⚠️ msal-token endpoint not found"
 
       # ---------- Check if CloudFormation template changed ----------
       - name: Check if CloudFormation template changed
@@ -102,40 +102,65 @@ jobs:
             --region $AWS_REGION
 
       # ---------- Force stop running tasks and redeploy ----------
-      - name: Force-stop running ECS tasks and force redeploy
+       # ---------- Register new task definition and update ECS service ----------
+      - name: Register new task definition and update ECS service
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           CLUSTER_NAME: ${{ secrets.ECS_CLUSTER_NAME }}
           SERVICE_NAME: ${{ secrets.ECS_SERVICE_NAME }}
+          IMAGE_URI: ${{ env.IMAGE_URI }}
         run: |
           set -e
-          echo "🔄 Starting force redeploy process..."
-          
-          # First, update the ECS service to use the new image
-          echo "📝 Updating ECS service to pull new image..."
+          IMAGE_TAG=${GITHUB_SHA::7}
+          NEW_IMAGE="${IMAGE_URI}:${IMAGE_TAG}"
+          echo "🔄 Updating ECS service with new image: $NEW_IMAGE"
+
+          # Get current task definition
+          CURRENT_TASK_DEF=$(aws ecs describe-services \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME" \
+            --region $AWS_REGION \
+            --query 'services[0].taskDefinition' --output text)
+          echo "📋 Current task definition: $CURRENT_TASK_DEF"
+
+          # Get current task definition details
+          aws ecs describe-task-definition --task-definition "$CURRENT_TASK_DEF" \
+            --region $AWS_REGION --query 'taskDefinition' > /tmp/current-taskdef.json
+
+          # Remove fields that shouldn't be in new task definition
+          jq 'del(.status, .revision, .taskDefinitionArn, .compatibilities, .registeredAt, .registeredBy, .requiresAttributes, .placementConstraints)' \
+            /tmp/current-taskdef.json > /tmp/tmpl.json
+
+          # Update container image
+          jq --arg img "$NEW_IMAGE" '.containerDefinitions[0].image = $img' \
+            /tmp/tmpl.json > /tmp/new-taskdef.json
+
+          # Register new task definition
+          echo "📝 Registering new task definition..."
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/new-taskdef.json \
+            --region $AWS_REGION \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "✅ Registered new task definition: $NEW_TASK_DEF_ARN"
+
+          # Update service to use the new task definition
+          echo "🚀 Updating ECS service to use new task definition..."
           aws ecs update-service \
             --cluster "$CLUSTER_NAME" \
             --service "$SERVICE_NAME" \
+            --task-definition "$NEW_TASK_DEF_ARN" \
             --force-new-deployment \
             --region $AWS_REGION
-          
-          echo "⏳ Waiting for service to update..."
+
+          # Wait for service to stabilize
+          echo "⏳ Waiting for service to stabilize..."
           aws ecs wait services-stable \
             --cluster "$CLUSTER_NAME" \
             --services "$SERVICE_NAME" \
             --region $AWS_REGION
           
           echo "✅ ECS service deployment completed successfully!"
-          
-          # Verify the new tasks are running
-          echo "🔍 Checking running tasks..."
-          TASK_ARNS=$(aws ecs list-tasks --cluster "$CLUSTER_NAME" --service-name "$SERVICE_NAME" --desired-status RUNNING --query 'taskArns' --output text --region $AWS_REGION || true)
-          
-          if [ -n "$TASK_ARNS" ] && [ "$TASK_ARNS" != "None" ]; then
-            echo "✅ Found $(echo $TASK_ARNS | wc -w) running task(s)"
-          else
-            echo "⚠️ No running tasks found"
-          fi
+          echo "🎉 Service is now running image: $NEW_IMAGE"
 
       # ---------- Frontend Build & Deploy ----------
       - name: Setup Node
