@@ -46,17 +46,25 @@ jobs:
           fi
           echo "IMAGE_URI=${REPO}" >> $GITHUB_ENV
 
-      - name: Pull latest image for cache (if exists)
-        run: docker pull ${IMAGE_URI}:latest || true
-
       - name: Build & Push Backend Docker Image
         env:
           IMAGE_URI: ${{ env.IMAGE_URI }}
           ECR_REPO: ${{ secrets.ECR_REPO }}
         run: |
+          # Pull latest image for cache (only layers, not for runtime)
+          docker pull ${IMAGE_URI}:latest || echo "No existing image to pull, will build fresh"
+          
           IMAGE_TAG=${IMAGE_URI}:${GITHUB_SHA::7}
           echo "Building Docker image: ${IMAGE_URI}:latest and ${IMAGE_TAG}"
-          docker build --cache-from ${IMAGE_URI}:latest -t ${IMAGE_URI}:latest -t ${IMAGE_TAG} ./backend
+          
+          # Use BuildKit for better caching and build performance
+          DOCKER_BUILDKIT=1 docker build \
+            --cache-from ${IMAGE_URI}:latest \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            -t ${IMAGE_URI}:latest \
+            -t ${IMAGE_TAG} \
+            ./backend
+          
           echo "Pushing images..."
           docker push ${IMAGE_URI}:latest
           docker push ${IMAGE_TAG}

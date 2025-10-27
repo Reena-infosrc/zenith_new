@@ -25,8 +25,11 @@ RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install --upgrade pip wheel setuptools && \
     /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code (this will invalidate cache when code changes)
 COPY . .
+
+# Verify the application code is copied correctly (for debugging)
+RUN ls -la /app/app/ | head -20
 
 # ---- Runtime Stage ----
 FROM python:3.11-slim
