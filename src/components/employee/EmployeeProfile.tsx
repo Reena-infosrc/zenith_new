@@ -106,6 +106,10 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   // 2. User's email matches the employee's email (case-insensitive)
   const canEditProfile = !isLoading && (isAdmin || (user?.email && employee?.email && user.email.toLowerCase() === employee.email.toLowerCase()));
   
+  // Determine if user can edit basic information fields
+  // Only admins can edit basic information (Email, Phone, Department, etc.)
+  const canEditBasicInfo = isAdmin;
+  
   // Debug logging - COMPREHENSIVE
   console.log('🔍 EmployeeProfile DEBUGGING:');
   console.log('🔐 Permission check:', {
@@ -715,8 +719,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     type="email"
                     value={profileData.email || ''} 
                     onChange={handleChange}
-                    disabled={!isEditing}
-                    className={!isEditing ? "bg-muted" : ""}
+                    disabled={!isEditing || !canEditBasicInfo}
+                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
                   />
                 </div>
 
@@ -728,8 +732,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     name="phone"
                     value={profileData.phone || profileData.mobile || ''} 
                     onChange={handleChange}
-                    disabled={!isEditing}
-                    className={!isEditing ? "bg-muted" : ""}
+                    disabled={!isEditing || !canEditBasicInfo}
+                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
                   />
                 </div>
 
@@ -773,6 +777,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     <Select 
                       value={profileData.department || 'none'} 
                       onValueChange={(value) => setProfileData(prev => ({ ...prev, department: value === 'none' ? '' : value }))}
+                      disabled={!canEditBasicInfo}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select department" />
@@ -805,6 +810,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     <Select 
                       value={profileData.employeeStatus || 'none'} 
                       onValueChange={(value) => setProfileData(prev => ({ ...prev, employeeStatus: value === 'none' ? '' : value }))}
+                      disabled={!canEditBasicInfo}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select employee status" />
@@ -834,6 +840,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     <Select 
                       value={profileData.account || 'none'} 
                       onValueChange={(value) => setProfileData(prev => ({ ...prev, account: value === 'none' ? '' : value }))}
+                      disabled={!canEditBasicInfo}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select client" />
@@ -863,6 +870,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     <Select 
                       value={profileData.reporting_to || 'none'} 
                       onValueChange={(value) => setProfileData(prev => ({ ...prev, reporting_to: value === 'none' ? '' : value }))}
+                      disabled={!canEditBasicInfo}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select manager" />
@@ -892,6 +900,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     <Select 
                       value={profileData.gender || 'none'} 
                       onValueChange={(value) => setProfileData(prev => ({ ...prev, gender: value === 'none' ? '' : value }))}
+                      disabled={!canEditBasicInfo}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select gender" />
@@ -937,8 +946,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     type="date"
                     value={profileData.dateOfJoining || ''} 
                     onChange={handleChange}
-                    disabled={!isEditing}
-                    className={!isEditing ? "bg-muted" : ""}
+                    disabled={!isEditing || !canEditBasicInfo}
+                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
                   />
                 </div>
 
@@ -951,8 +960,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     type="date"
                     value={profileData.projectStartDate || ''} 
                     onChange={handleChange}
-                    disabled={!isEditing}
-                    className={!isEditing ? "bg-muted" : ""}
+                    disabled={!isEditing || !canEditBasicInfo}
+                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
                   />
                 </div>
 
@@ -965,8 +974,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     type="date"
                     value={profileData.projectEndDate || ''} 
                     onChange={handleChange}
-                    disabled={!isEditing}
-                    className={!isEditing ? "bg-muted" : ""}
+                    disabled={!isEditing || !canEditBasicInfo}
+                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
                   />
                 </div>
 
@@ -1000,6 +1009,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                             reasonForResignation: checked ? '' : prev.reasonForResignation
                           }));
                         }}
+                        disabled={!canEditBasicInfo}
                       />
                       <Label htmlFor="status" className="text-sm font-medium">
                         {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}

@@ -438,20 +438,22 @@ export default function Directory() {
                   </Button>
                 </div>
                 
-                <Button variant="default" className="gap-2" onClick={() => setShowAddEmployee(true)}>
-                  <Plus className="h-4 w-4" />
-                  Add Employee
-                </Button>
                 {isAdmin && (
-                  <Button variant="outline" className="gap-2" onClick={handleNavigateToDashboard} disabled={isNavigating}>
-                    <BarChart2 className="h-4 w-4" />
-                    {isNavigating ? "Loading..." : "Dashboard"}
-                  </Button>
+                  <>
+                    <Button variant="default" className="gap-2" onClick={() => setShowAddEmployee(true)}>
+                      <Plus className="h-4 w-4" />
+                      Add Employee
+                    </Button>
+                    <Button variant="outline" className="gap-2" onClick={handleNavigateToDashboard} disabled={isNavigating}>
+                      <BarChart2 className="h-4 w-4" />
+                      {isNavigating ? "Loading..." : "Dashboard"}
+                    </Button>
+                    <Button variant="outline" className="gap-2" onClick={() => setShowImport(true)}>
+                      <Upload className="h-4 w-4" />
+                      Import
+                    </Button>
+                  </>
                 )}
-                <Button variant="outline" className="gap-2" onClick={() => setShowImport(true)}>
-                  <Upload className="h-4 w-4" />
-                  Import
-                </Button>
                 {/* Hidden Fix Names button - removed as requested */}
                 {/* <Button 
                   variant="outline" 
@@ -530,7 +532,7 @@ export default function Directory() {
                       : "No employees match your current filters. Try adjusting your filters."
                     }
                   </div>
-                  {employees.length === 0 && (
+                  {employees.length === 0 && isAdmin && (
                     <Button onClick={() => setShowAddEmployee(true)} variant="default">
                       <Plus className="h-4 w-4 mr-2" />
                       Add First Employee
@@ -559,15 +561,17 @@ export default function Directory() {
                         <div className="text-sm text-muted-foreground">
                           Showing {sortedAndFilteredEmployees.length} of {activeEmployeesCount} active employees
                         </div>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={exportToCSV}
-                          className="gap-2"
-                        >
-                          <Download className="h-4 w-4" />
-                          Export CSV
-                        </Button>
+                        {isAdmin && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={exportToCSV}
+                            className="gap-2"
+                          >
+                            <Download className="h-4 w-4" />
+                            Export CSV
+                          </Button>
+                        )}
                       </div>
                       
                       {/* Employee List Table */}

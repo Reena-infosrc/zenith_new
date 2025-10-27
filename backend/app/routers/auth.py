@@ -87,30 +87,15 @@ async def refresh_access_token(current_user = Depends(get_current_active_user)):
         )
 
 @router.post("/msal-token", response_model=Token)
-async def exchange_msal_token(request_data: Dict[str, Any] = Body(...)):
+async def exchange_msal_token(msal_token: str = Body(..., embed=True)):
     """Exchange MSAL token for backend JWT token"""
     try:
-        # Handle different payload formats
-        if isinstance(request_data, dict):
-            msal_token = request_data.get("msal_token")
-        else:
-            # If request_data is already a string
-            msal_token = request_data
-        
-        if not msal_token:
-            logger.error("No MSAL token provided in request")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="MSAL token is required"
-            )
-        
-        logger.info(f"DEBUG: Received MSAL token request")
+        logger.info(f"DEBUG: Received MSAL token")
         
         # Extract user email from MSAL token (simplified approach)
         # In production, you should validate the token with Microsoft Graph API
         from jose import jwt as jose_jwt
         
-        user_email = None
         try:
             # Decode the MSAL token without verification to get user info
             # This is just for demo purposes - in production, validate with Microsoft
@@ -118,27 +103,12 @@ async def exchange_msal_token(request_data: Dict[str, Any] = Body(...)):
             user_email = decoded_token.get("preferred_username") or decoded_token.get("email") or decoded_token.get("upn")
             logger.info(f"DEBUG: Extracted user email from MSAL token: {user_email}")
         except Exception as e:
-            logger.warning(f"DEBUG: Could not decode MSAL token directly: {e}")
-            
-            # Try to extract user info from Microsoft Graph API
-            try:
-                import httpx
-                graph_response = await httpx.get(
-                    "https://graph.microsoft.com/v1.0/me",
-                    headers={"Authorization": f"Bearer {msal_token}"},
-                    timeout=10.0
-                )
-                if graph_response.status_code == 200:
-                    graph_data = graph_response.json()
-                    user_email = graph_data.get("userPrincipalName") or graph_data.get("mail")
-                    logger.info(f"DEBUG: Extracted user email from Graph API: {user_email}")
-            except Exception as graph_error:
-                logger.error(f"DEBUG: Could not fetch from Graph API: {graph_error}")
+            logger.warning(f"DEBUG: Could not decode MSAL token: {e}")
+            user_email = None
         
-        # If still no email, use a fallback or raise error
+        # If we can't extract email, use a fallback for now
         if not user_email:
-            logger.error("Could not extract user email from MSAL token or Graph API")
-            # In production, this should be an error, but for now we'll use a fallback
+            logger.warning("Could not extract email from MSAL token, using fallback")
             user_email = "admin@example.com"
         
         # Create a backend token for the actual user
@@ -148,13 +118,11 @@ async def exchange_msal_token(request_data: Dict[str, Any] = Body(...)):
         )
         logger.info(f"DEBUG: Created backend token for: {user_email}")
         return {"access_token": access_token, "token_type": "bearer"}
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error exchanging MSAL token: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid MSAL token: {str(e)}"
+            detail="Invalid MSAL token"
         )
 
 @router.get("/me")
