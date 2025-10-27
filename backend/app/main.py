@@ -255,10 +255,10 @@ async def version_check():
 
 # Static import attempts (keep for local / dev)
 try:
-    from .routers import auth, employees, goals, feedback, ai, employees_dashboard, feature_flags, admin
+    from .routers import auth, employees, goals, feedback, ai, employees_dashboard, feature_flags, admin, admin_auth
 except Exception:
     # if static import fails, we will try dynamic loader below
-    auth = employees = goals = feedback = ai = employees_dashboard = feature_flags = admin = None
+    auth = employees = goals = feedback = ai = employees_dashboard = feature_flags = admin = admin_auth = None
 
 # dynamic router loader with per-module error logging
 router_names = [
@@ -270,6 +270,7 @@ router_names = [
     ("ai", "ai"),
     ("feature_flags", "feature_flags"),
     ("admin", "admin"),
+    ("admin_auth", "admin_auth"),
 ]
 
 for name, module_name in router_names:
@@ -305,6 +306,10 @@ for name, module_name in router_names:
         if name == "admin" and admin:
             app.include_router(admin.router)
             logger.info("Included router: admin (static)")
+            continue
+        if name == "admin_auth" and admin_auth:
+            app.include_router(admin_auth.router)
+            logger.info("Included router: admin_auth (static)")
             continue
 
         module = importlib.import_module(f"{__package__}.routers.{module_name}")

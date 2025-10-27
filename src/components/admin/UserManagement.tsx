@@ -71,7 +71,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
 
   const fetchAdmins = useCallback(async () => {
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/employees/auth-admins`);
+      const response = await authenticatedFetch(`${API_BASE_URL}/admin`);
       if (response.ok) {
         const data = await response.json();
         // Handle both array and object responses
@@ -169,7 +169,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
     }
 
     try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/employees/auth-admins/${adminId}`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/admin/${adminId}`, {
         method: "DELETE",
       });
 

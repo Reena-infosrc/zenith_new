@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
+import { useFeatureFlags } from "@/hooks/use-feature-flags";
 import { UserManagement } from "@/components/admin/UserManagement";
 
 type AdminPortalProps = {
@@ -21,6 +22,7 @@ type AdminPortalProps = {
 
 export function AdminPortal({ disabled = false }: AdminPortalProps) {
   const { user, isAdmin } = useAuth();
+  const { isHidden } = useFeatureFlags();
   const [isOpen, setIsOpen] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
   const navigate = useNavigate();
@@ -78,6 +80,22 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
     }
   ];
 
+  // Add feature flags to each item
+  const adminItemsWithFlags = adminItems.map(item => ({
+    ...item,
+    featureFlag: item.label === "Feature Flags" ? "feature_flag_management" :
+                  item.label === "User Management" ? "user_management" :
+                  item.label === "System Analytics" ? "system_analytics" :
+                  item.label === "Data Management" ? "data_management" :
+                  item.label === "Security Settings" ? "security_settings" : undefined
+  }));
+
+  // Filter items based on feature flags - only show items that are not hidden
+  const visibleAdminItems = adminItemsWithFlags.filter(item => {
+    if (!item.featureFlag) return true;
+    return !isHidden(item.featureFlag);
+  });
+
   return (
     <>
       <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
@@ -123,7 +141,7 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
           <DropdownMenuSeparator className="my-2" />
           
           <div className="space-y-1">
-            {adminItems.map((item, index) => (
+            {visibleAdminItems.map((item, index) => (
               <DropdownMenuItem
                 key={index}
                 onClick={item.action}
@@ -145,11 +163,6 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
           </div>
           
           <DropdownMenuSeparator className="my-2" />
-          
-          <DropdownMenuItem className="flex items-center gap-2 p-3 rounded-lg hover:bg-accent/30 transition-colors duration-200">
-            <Settings className="w-4 h-4" />
-            <span className="text-sm">Admin Settings</span>
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

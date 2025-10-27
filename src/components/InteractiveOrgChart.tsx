@@ -398,13 +398,6 @@ export function InteractiveOrgChart({ employees }: InteractiveOrgChartProps) {
     }
   }, [employees]);
 
-  // Toggle node expansion
-  const toggleNode = useCallback((nodeId: string) => {
-    setTree(prev => 
-      prev.map(toggleNodeExpansion(nodeId))
-    );
-  }, [toggleNodeExpansion]);
-
   // Helper function to toggle node expansion recursively
   const toggleNodeExpansion = useCallback((nodeId: string) => (node: TreeNode): TreeNode => {
     if (node.employee.id === nodeId) {
@@ -415,6 +408,13 @@ export function InteractiveOrgChart({ employees }: InteractiveOrgChartProps) {
       children: node.children.map(toggleNodeExpansion(nodeId))
     };
   }, []);
+
+  // Toggle node expansion
+  const toggleNode = useCallback((nodeId: string) => {
+    setTree(prev => 
+      prev.map(toggleNodeExpansion(nodeId))
+    );
+  }, [toggleNodeExpansion]);
 
   // Handle employee click
   const handleEmployeeClick = (employee: Employee) => {
