@@ -253,6 +253,31 @@ async def version_check():
         "message": "If you see this, the new code is deployed!"
     }
 
+@app.get("/api/routes-debug")
+async def routes_debug():
+    """Debug endpoint to check registered routes"""
+    routes = []
+    for route in app.router.routes:
+        try:
+            if hasattr(route, 'path') and '/admin' in route.path:
+                routes.append({
+                    "path": route.path,
+                    "methods": getattr(route, 'methods', []),
+                    "name": getattr(route, 'name', 'unknown')
+                })
+        except Exception as e:
+            routes.append({"error": str(e)})
+    
+    # Also check if admin_auth module loaded
+    admin_auth_loaded = admin_auth is not None
+    
+    return {
+        "admin_routes": routes,
+        "admin_auth_module_loaded": admin_auth_loaded,
+        "all_routes_count": len(app.router.routes),
+        "timestamp": datetime.now().isoformat()
+    }
+
 # Static import attempts (keep for local / dev)
 try:
     from .routers import auth, employees, goals, feedback, ai, employees_dashboard, feature_flags, admin, admin_auth
