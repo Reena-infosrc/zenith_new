@@ -163,11 +163,11 @@ async def create_admin(
         # Generate new admin ID
         admin_id = generate_id()
         
-        # Create admin data
+        # Create admin data - normalize email to lowercase
         admin_item = {
             "id": admin_id,
             "employee_id": admin_data.get("employee_id", ""),
-            "email": admin_data.get("email", ""),
+            "email": admin_data.get("email", "").lower().strip(),  # Normalize to lowercase
             "name": admin_data.get("name", ""),
             "department": admin_data.get("department", ""),
             "position": admin_data.get("position", ""),
@@ -297,24 +297,35 @@ async def delete_admin(
 
 # Helper function for admin status check
 async def is_user_admin(email: str) -> bool:
-    """Check if a user is an admin by email"""
+    """Check if a user is an admin by email - case insensitive"""
     try:
         table = await get_admins_table()
+        
+        # Normalize email to lowercase for consistent comparison
+        normalized_email = email.lower().strip()
+        logger.info(f"Employees router - Checking admin status for normalized email: {normalized_email}")
         
         # Query by email using GSI
         response = await table.query(
             IndexName="EmailIndex",
             KeyConditionExpression="email = :email",
-            ExpressionAttributeValues={":email": email}
+            ExpressionAttributeValues={":email": normalized_email}
         )
+        
+        logger.info(f"Employees router - Query result items count: {len(response.get('Items', []))}")
         
         if response.get("Items"):
             admin_data = parse_dynamodb_item(response["Items"][0])
-            return admin_data.get("is_active", True)
+            is_active = admin_data.get("is_active", True)
+            logger.info(f"Employees router - Found admin record. Email: {admin_data.get('email')}, Active: {is_active}")
+            return is_active
         
+        logger.info(f"Employees router - No admin record found for email: {normalized_email}")
         return False
     except Exception as e:
-        logger.error(f"Error checking admin status: {str(e)}")
+        logger.error(f"Error checking admin status for {email}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
 @router.get("", response_model=List[EmployeeInDB])

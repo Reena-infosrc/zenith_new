@@ -20,12 +20,28 @@ router = APIRouter(
 async def check_admin_status(email: str):
     """Check if a user is an admin by email - public endpoint for frontend"""
     try:
-        is_admin = await is_user_admin(email)
-        return {"is_admin": is_admin}
+        # URL decode the email parameter
+        import urllib.parse
+        decoded_email = urllib.parse.unquote(email)
+        logger.info(f"Admin router - Checking admin status for email: {decoded_email}")
+        
+        is_admin = await is_user_admin(decoded_email.lower())
+        logger.info(f"Admin router - Admin check result for {decoded_email}: {is_admin}")
+        
+        return {
+            "is_admin": is_admin,
+            "email": decoded_email,
+            "timestamp": datetime.now().isoformat()
+        }
     except Exception as e:
         logger.error(f"Error checking admin status: {str(e)}")
         # Return False instead of error for production compatibility
-        return {"is_admin": False}
+        return {
+            "is_admin": False,
+            "email": email,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 @router.get("/test", response_model=dict)
 async def test_admin_endpoint():
@@ -107,11 +123,11 @@ async def create_admin(
         # Generate new admin ID
         admin_id = generate_id()
         
-        # Create admin data
+        # Create admin data - normalize email to lowercase
         admin_item = {
             "id": admin_id,
             "employee_id": admin_data.employee_id,
-            "email": admin_data.email,
+            "email": admin_data.email.lower().strip(),  # Normalize to lowercase
             "name": admin_data.name,
             "department": admin_data.department,
             "position": admin_data.position,
@@ -273,24 +289,35 @@ async def delete_admin(
 
 # Helper functions
 async def is_user_admin(email: str) -> bool:
-    """Check if a user is an admin by email"""
+    """Check if a user is an admin by email - case insensitive"""
     try:
         table = await get_admins_table()
+        
+        # Normalize email to lowercase for consistent comparison
+        normalized_email = email.lower().strip()
+        logger.info(f"Checking admin status for normalized email: {normalized_email}")
         
         # Query by email using GSI
         response = await table.query(
             IndexName="EmailIndex",
             KeyConditionExpression="email = :email",
-            ExpressionAttributeValues={":email": email}
+            ExpressionAttributeValues={":email": normalized_email}
         )
+        
+        logger.info(f"Query result items count: {len(response.get('Items', []))}")
         
         if response.get("Items"):
             admin_data = parse_dynamodb_item(response["Items"][0])
-            return admin_data.get("is_active", True)
+            is_active = admin_data.get("is_active", True)
+            logger.info(f"Found admin record. Email: {admin_data.get('email')}, Active: {is_active}")
+            return is_active
         
+        logger.info(f"No admin record found for email: {normalized_email}")
         return False
     except Exception as e:
         logger.error(f"Error checking admin status for {email}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
 async def get_admin_by_employee_id_or_email(employee_id: str, email: str) -> Optional[dict]:
