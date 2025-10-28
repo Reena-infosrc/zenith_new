@@ -91,13 +91,16 @@ async def check_admin_status(email: str):
         import urllib.parse
         decoded_email = urllib.parse.unquote(email)
         
+        # Normalize email to lowercase for consistent comparison
+        normalized_email = decoded_email.lower().strip()
+        
         table = await get_admins_table()
         
         # Query by email using GSI
         response = await table.query(
             IndexName="EmailIndex",
             KeyConditionExpression="email = :email",
-            ExpressionAttributeValues={":email": decoded_email}
+            ExpressionAttributeValues={":email": normalized_email}
         )
         
         is_admin = False

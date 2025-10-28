@@ -335,11 +335,12 @@ async def get_admin_by_employee_id_or_email(employee_id: str, email: str) -> Opt
         if response.get("Items"):
             return parse_dynamodb_item(response["Items"][0])
         
-        # Check by email
+        # Check by email - normalize to lowercase
+        normalized_email = email.lower().strip()
         response = await table.query(
             IndexName="EmailIndex",
             KeyConditionExpression="email = :email",
-            ExpressionAttributeValues={":email": email}
+            ExpressionAttributeValues={":email": normalized_email}
         )
         
         if response.get("Items"):

@@ -129,11 +129,14 @@ async def get_current_active_user(current_user: dict = Depends(get_current_user)
         
         user_email = current_user.get("email") or current_user.get("username")
         if user_email:
+            # Normalize email to lowercase for consistent comparison
+            normalized_email = user_email.lower().strip()
+            
             table = await get_admins_table()
             response = await table.query(
                 IndexName="EmailIndex",
                 KeyConditionExpression="email = :email",
-                ExpressionAttributeValues={":email": user_email}
+                ExpressionAttributeValues={":email": normalized_email}
             )
             
             if response.get("Items"):

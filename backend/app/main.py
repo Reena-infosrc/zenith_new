@@ -422,19 +422,34 @@ async def main_check_admin_status(email: str):
         }
 
 async def is_user_admin_main(email: str) -> bool:
+    """Check if a user is an admin by email - case insensitive"""
     try:
         table = await get_admins_table()
+        
+        # Normalize email to lowercase for consistent comparison
+        normalized_email = email.lower().strip()
+        logger.info(f"Main app - Checking admin status for normalized email: {normalized_email}")
+        
         response = await table.query(
             IndexName="EmailIndex",
             KeyConditionExpression="email = :email",
-            ExpressionAttributeValues={":email": email}
+            ExpressionAttributeValues={":email": normalized_email}
         )
+        
+        logger.info(f"Main app - Query result items count: {len(response.get('Items', []))}")
+        
         if response.get("Items"):
             admin_data = parse_dynamodb_item(response["Items"][0])
-            return admin_data.get("is_active", True)
+            is_active = admin_data.get("is_active", True)
+            logger.info(f"Main app - Found admin record. Email: {admin_data.get('email')}, Active: {is_active}")
+            return is_active
+        
+        logger.info(f"Main app - No admin record found for email: {normalized_email}")
         return False
     except Exception as e:
         logger.error(f"Main app - Error checking admin status: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
 # startup init (kept commented out if originally commented)
@@ -452,7 +467,7 @@ async def health_check():
         "status": "healthy",
         "services": {
             "dynamodb": "initialized",
-            "s3": "initialized",
+            "s3": "initialized", 
             "bedrock": "initialized"
         },
         "deployment_id": "router-only-prod-fix-v6.0",
