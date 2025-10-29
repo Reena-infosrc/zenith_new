@@ -11,6 +11,7 @@ import csv
 import io
 import uuid
 import logging
+import traceback
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
@@ -399,6 +400,12 @@ async def get_employees(
             # Set default status to "active" if not present (but don't override explicit "inactive")
             if doc.get("status") is None or doc.get("status") == "":
                 doc["status"] = "active"
+            
+            # Ensure required fields have default values
+            if not doc.get("department"):
+                doc["department"] = ""
+            if not doc.get("position"):
+                doc["position"] = ""
 
             parsed.append(doc)
         
@@ -451,8 +458,11 @@ async def get_employees(
         return sliced
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         print(f"Error fetching employees from DynamoDB: {e}")
-        return []
+        print(f"Full traceback: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Error fetching employees: {str(e)}")
 
 @router.get("/{employee_id}", response_model=EmployeeInDB)
 async def get_employee(employee_id: str):

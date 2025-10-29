@@ -409,9 +409,12 @@ def parse_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Parse item from DynamoDB storage"""
     parsed_item = {}
     for key, value in item.items():
-        if isinstance(value, str) and (key in ['created_at', 'updated_at'] or 'date' in key.lower() or 'time' in key.lower()):
+        # Keep created_at and updated_at as strings for Pydantic compatibility
+        if isinstance(value, str) and (key in ['created_at', 'updated_at']):
+            parsed_item[key] = value
+        elif isinstance(value, str) and ('date' in key.lower() or 'time' in key.lower()):
             try:
-                # Try to parse as datetime
+                # Try to parse as datetime for other date fields
                 parsed_item[key] = datetime.fromisoformat(value.replace('Z', '+00:00'))
             except:
                 parsed_item[key] = value

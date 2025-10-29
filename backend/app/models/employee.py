@@ -103,6 +103,10 @@ class EmployeeInDB(EmployeeBase):
             return v
         if isinstance(v, str):
             try:
+                # Handle datetime strings with time component
+                if 'T' in v:
+                    # Extract just the date part from datetime strings
+                    v = v.split('T')[0]
                 return date.fromisoformat(v)
             except Exception:
                 pass

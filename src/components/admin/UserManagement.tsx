@@ -255,7 +255,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
                 Add Admin
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-5xl w-full">
+            <DialogContent className="max-w-6xl w-full">
             <DialogHeader>
               <DialogTitle>Add New Admin</DialogTitle>
               <DialogDescription>
