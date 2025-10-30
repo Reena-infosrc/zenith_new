@@ -48,6 +48,18 @@ export async function refreshAccessToken(): Promise<string | null> {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ Token refresh failed:', response.status, response.statusText, errorText);
+      // If credentials are invalid (401/403), clear token and force logout
+      if (response.status === 401 || response.status === 403) {
+        try {
+          localStorage.removeItem('auth_token');
+        } catch {}
+        // best-effort redirect to login/root so RequireAuth kicks in
+        try {
+          if (typeof window !== 'undefined') {
+            window.location.href = '/';
+          }
+        } catch {}
+      }
       return null;
     }
 

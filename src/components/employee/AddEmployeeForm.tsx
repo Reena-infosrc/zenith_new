@@ -9,6 +9,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -237,7 +239,7 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] flex flex-col">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle>Add New Employee</DialogTitle>
         </DialogHeader>
@@ -475,22 +477,38 @@ export function AddEmployeeForm({ isOpen, onClose, departments }: AddEmployeeFor
               
               <div className="space-y-2">
                 <Label htmlFor="manager">Manager</Label>
-                <Select 
-                  onValueChange={(value) => handleSelectChange('manager', value)}
-                  value={formData.manager}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select manager" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Manager</SelectItem>
-                    {managers.map(manager => (
-                      <SelectItem key={manager.id} value={manager.id}>
-                        {manager.name} ({manager.position})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="outline" role="combobox" className="w-full justify-between">
+                      {(() => {
+                        const selected = managers.find(m => m.id === (formData.manager || ''))
+                        return selected ? `${selected.name} (${selected.position})` : 'No Manager'
+                      })()}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="p-0 w-[--radix-popover-trigger-width]">
+                    <Command>
+                      <CommandInput placeholder="Search manager..." />
+                      <CommandEmpty>No managers found.</CommandEmpty>
+                      <CommandList>
+                        <CommandGroup>
+                          <CommandItem value="none" onSelect={() => handleSelectChange('manager', 'none')}>
+                            No Manager
+                          </CommandItem>
+                          {managers.map(manager => (
+                            <CommandItem
+                              key={manager.id}
+                              value={`${manager.name} ${manager.position}`}
+                              onSelect={() => handleSelectChange('manager', manager.id)}
+                            >
+                              {manager.name} ({manager.position})
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
               
               <div className="space-y-2 col-span-2">

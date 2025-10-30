@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award, Save, Clock } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useEmployees } from '@/hooks/use-employees';
 import { useClients } from '@/hooks/use-clients';
 import { useEmployeeStatuses } from '@/hooks/use-employee-statuses';
@@ -867,23 +869,50 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                 <div className="space-y-2">
                   <Label htmlFor="manager">Manager</Label>
                   {isEditing ? (
-                    <Select 
-                      value={profileData.reporting_to || 'none'} 
-                      onValueChange={(value) => setProfileData(prev => ({ ...prev, reporting_to: value === 'none' ? '' : value }))}
-                      disabled={!canEditBasicInfo}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select manager" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No Manager</SelectItem>
-                        {managers.map((manager) => (
-                          <SelectItem key={manager.id} value={manager.id}>
-                            {manager.name} ({manager.position})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <>
+                      {/* Searchable Combobox */}
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            className="w-full justify-between"
+                            disabled={!canEditBasicInfo}
+                          >
+                            {(() => {
+                              const selected = managers.find(m => m.id === (profileData.reporting_to || ''))
+                              return selected ? `${selected.name} (${selected.position})` : 'No Manager'
+                            })()}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="p-0 w-[--radix-popover-trigger-width]">
+                          <Command>
+                            <CommandInput placeholder="Search manager..." />
+                            <CommandEmpty>No managers found.</CommandEmpty>
+                            <CommandList>
+                              <CommandGroup>
+                                <CommandItem
+                                  value="none"
+                                  onSelect={() => setProfileData(prev => ({ ...prev, reporting_to: '' }))}
+                                >
+                                  No Manager
+                                </CommandItem>
+                                {managers.map(manager => (
+                                  <CommandItem
+                                    key={manager.id}
+                                    value={`${manager.name} ${manager.position}`}
+                                    onSelect={() => setProfileData(prev => ({ ...prev, reporting_to: manager.id }))}
+                                  >
+                                    {manager.name} ({manager.position})
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </>
                   ) : (
                     <Input 
                       value={managerName || 'Not provided'} 
