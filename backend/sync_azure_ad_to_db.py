@@ -14,6 +14,7 @@ import json
 import uuid
 import os
 from dotenv import load_dotenv
+import argparse
 
 # Load environment variables
 load_dotenv()
@@ -79,6 +80,82 @@ def check_email_exists_case_insensitive(table, email):
         print(f"Error checking email existence for {email}: {str(e)}")
         return False
 
+def get_employee_by_email(table, email_lower: str):
+    """Fetch an employee item by case-normalized email using GSI, fallback to scan."""
+    if not email_lower:
+        return None
+    try:
+        # Try GSI first
+        response = table.query(
+            IndexName='EmailIndex',
+            KeyConditionExpression=Key('email').eq(email_lower),
+            Limit=1
+        )
+        if response.get('Items'):
+            return response['Items'][0]
+
+        # Fallback scan limited
+        response = table.scan(
+            FilterExpression=Attr('email').exists(),
+            Limit=200
+        )
+        for item in response.get('Items', []):
+            if item.get('email', '').lower() == email_lower:
+                return item
+    except Exception as e:
+        print(f"Error fetching employee by email {email_lower}: {str(e)}")
+    return None
+
+def update_reporting_to_by_manager_email(table, employee_email_lower: str, manager_email_lower: str, skip_if_already_set: bool = True) -> bool:
+    """
+    Set reporting_to for the employee (by email) using manager's email.
+    - Looks up manager by email to get manager id
+    - Updates employee item setting reporting_to to manager id
+    Returns True if updated, False if employee or manager not found or on error.
+    """
+    try:
+        if not employee_email_lower or not manager_email_lower:
+            return False
+
+        # Find employee to update
+        employee = get_employee_by_email(table, employee_email_lower)
+        if not employee:
+            # No employee with that email
+            return False
+
+        # Find manager by email
+        manager = get_employee_by_email(table, manager_email_lower)
+        if not manager:
+            # Manager not found yet in DB
+            return False
+
+        manager_id = manager.get('id')
+        if not manager_id:
+            return False
+
+        # Update reporting_to if changed or missing
+        employee_id = employee.get('id')
+        if not employee_id:
+            return False
+
+        current_reporting_to = employee.get('reporting_to')
+        # If requested, skip when reporting_to already has any value
+        if skip_if_already_set and current_reporting_to:
+            return False
+        # If it's already the manager_id, no-op counted as success
+        if current_reporting_to == manager_id:
+            return True
+
+        table.update_item(
+            Key={'id': employee_id},
+            UpdateExpression='SET reporting_to = :mgr',
+            ExpressionAttributeValues={':mgr': manager_id}
+        )
+        return True
+    except Exception as e:
+        print(f"Error updating reporting_to for {employee_email_lower} -> {manager_email_lower}: {str(e)}")
+        return False
+
 def insert_employee(table, employee_data):
     """Insert a new employee into DynamoDB"""
     try:
@@ -129,7 +206,7 @@ def map_azure_user_to_employee(azure_user):
     
     return employee_data
 
-def sync_users(json_file_path):
+def sync_users(json_file_path, update_reporting_only: bool = False):
     """Main function to sync users from JSON to DynamoDB"""
     
     # Load excluded users
@@ -154,24 +231,63 @@ def sync_users(json_file_path):
     added_count = 0
     excluded_count = 0
     duplicate_count = 0
+    updated_reporting_count = 0
+    skipped_reporting_already_set = 0
     
     # Process each user
-    for user in azure_users:
-        email = user.get('email', '')
-        user_principal_name = user.get('user_principal_name', '')
+    total = len(azure_users)
+    for idx, user in enumerate(azure_users, start=1):
+        # Use user_principal_name as authoritative email for matching (lowercased), fallback to email
+        user_principal_name = (user.get('user_principal_name') or '').strip()
+        email = (user.get('email') or '').strip()
+        effective_email_lower = (user_principal_name or email).lower()
         
         # Check if user should be excluded
-        if email.lower() in excluded_set or (user_principal_name and user_principal_name.lower() in excluded_set):
+        print(f"[{idx}/{total}] Processing: upn/email={user_principal_name or email} -> key={effective_email_lower}", flush=True)
+        if (email.lower() in excluded_set) or (user_principal_name and user_principal_name.lower() in excluded_set):
             excluded_count += 1
+            print(f"  - Skipped (excluded): {user_principal_name or email}", flush=True)
             continue
         
-        # Check if email already exists (case-insensitive)
-        if check_email_exists_case_insensitive(table, email):
-            print(f"Skipping existing user: {email} (already in database)")
+        # If the employee exists, optionally update only reporting_to based on manager email from Azure JSON
+        if check_email_exists_case_insensitive(table, effective_email_lower):
             duplicate_count += 1
+            # Pull manager email and try to update reporting_to
+            manager_email = (
+                (user.get('organization') or {}).get('manager', {})
+            ).get('manager_email') or ''
+            manager_email_lower = manager_email.lower()
+            if manager_email_lower:
+                updated = update_reporting_to_by_manager_email(
+                    table,
+                    effective_email_lower,
+                    manager_email_lower,
+                    skip_if_already_set=True
+                )
+                if updated:
+                    updated_reporting_count += 1
+                    print(f"  - Updated reporting_to -> manager_email={manager_email_lower}", flush=True)
+                else:
+                    # Determine if skipped because already set
+                    existing = get_employee_by_email(table, effective_email_lower)
+                    if existing and existing.get('reporting_to'):
+                        skipped_reporting_already_set += 1
+                        print(f"  - Skipped (reporting_to already set)", flush=True)
+                    else:
+                        print(f"  - Skipped (manager not found or no change): manager_email={manager_email_lower}", flush=True)
+            else:
+                print(f"  - No manager_email found in JSON", flush=True)
+            # In reporting-only mode, do not attempt insert logic for existing users
+            if update_reporting_only:
+                continue
+            # If not reporting-only, we still skip inserts for existing users
             continue
         
         # Map and insert
+        if update_reporting_only:
+            # In reporting-only mode, we do not create new employees
+            skipped_count += 1
+            continue
         employee_data = map_azure_user_to_employee(user)
         employee_data['email'] = employee_data['email'].lower()  # Ensure lowercase
         
@@ -188,19 +304,26 @@ def sync_users(json_file_path):
     print(f"  New users added: {added_count}")
     print(f"  Skipped (excluded): {excluded_count}")
     print(f"  Skipped (duplicates): {duplicate_count}")
+    print(f"  Updated reporting_to: {updated_reporting_count}")
+    print(f"  Skipped (reporting_to already set): {skipped_reporting_already_set}")
     print(f"  Total skipped: {skipped_count}")
     print("="*60)
 
 if __name__ == "__main__":
-    json_file = 'azure_ad_users.json'
-    
+    parser = argparse.ArgumentParser(description="Sync Azure AD users to DynamoDB")
+    parser.add_argument("--json", dest="json_file", default="azure_ad_users.json", help="Path to azure_ad_users.json")
+    parser.add_argument("--update-reporting-only", action="store_true", help="Only update reporting_to based on manager_email; do not insert new users")
+    args = parser.parse_args()
+
+    json_file = args.json_file
+
     print("Azure AD to DynamoDB Sync")
     print("="*60)
-    
+
     if not os.path.exists(json_file):
         print(f"Error: {json_file} not found")
         exit(1)
-    
-    sync_users(json_file)
-    
+
+    sync_users(json_file, update_reporting_only=args.update_reporting_only)
+
     print("\nSync complete!")
