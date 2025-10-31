@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
-import { PerformanceOverview } from "@/components/performance/PerformanceOverview";
+import { AdminPerformanceView } from "@/components/performance/AdminPerformanceView";
+import { UserPerformanceView } from "@/components/performance/UserPerformanceView";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Performance() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeModule, setActiveModule] = useState<string>("Performance");
+  const { isAdmin } = useAuth();
   
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   
@@ -40,13 +43,18 @@ export default function Performance() {
             {/* Welcome Section */}
             <section className="mb-8">
               <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-2">
-                Performance
+                Performance Management
               </h1>
-              <p className="text-muted-foreground">Track, analyze, and improve employee performance with powerful AI-driven insights</p>
+              <p className="text-muted-foreground">
+                {isAdmin 
+                  ? "Manage employee goals, track performance, and drive growth with AI-powered insights"
+                  : "Track your performance, achieve goals, and visualize your growth journey"
+                }
+              </p>
             </section>
             
-            {/* Performance Overview */}
-            <PerformanceOverview />
+            {/* Conditional Rendering based on User Role */}
+            {isAdmin ? <AdminPerformanceView /> : <UserPerformanceView />}
           </div>
         </main>
       </div>
