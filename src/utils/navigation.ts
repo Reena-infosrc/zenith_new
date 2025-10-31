@@ -7,7 +7,6 @@ export const MODULE_NAVIGATION_ORDER = [
   { name: 'Leave', route: '/leave', featureFlag: 'leave_module' },
   { name: 'Recruitment', route: '/recruitment', featureFlag: 'recruitment_module' },
   { name: 'Performance', route: '/performance', featureFlag: 'performance_module' },
-  { name: 'Analytics', route: '/dashboard', featureFlag: 'dashboard_module' },
   { name: 'Engagement', route: '/engagement', featureFlag: 'engagement_module' },
   { name: 'Resource Hub', route: '/resource-hub', featureFlag: 'resource_hub_module' },
   { name: 'Compensation', route: '/compensation', featureFlag: 'compensation_module' },

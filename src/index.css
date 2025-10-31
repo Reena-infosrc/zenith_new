@@ -122,6 +122,109 @@
   .glass-effect {
     @apply backdrop-blur-md bg-white/90 dark:bg-black/70 border border-white/20 dark:border-white/10;
   }
+  
+  /* Custom scrollbar for sidebar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--primary) / 0.2) transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--primary) / 0.2);
+    border-radius: 3px;
+    border: none;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--primary) / 0.4);
+  }
+  
+  /* Sidebar glass morphism effect */
+  .sidebar-glass {
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--background) / 0.95),
+      hsl(var(--background) / 0.98),
+      hsl(var(--background) / 0.95)
+    );
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid hsl(var(--border) / 0.5);
+    box-shadow: 
+      0 0 0 1px hsl(var(--border) / 0.1),
+      -4px 0 24px -4px hsl(var(--primary) / 0.05);
+  }
+  
+  /* Animated HR Character Animations */
+  @keyframes bounce-slow {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+  
+  @keyframes arm-swing {
+    0%, 100% {
+      transform: rotate(-3deg);
+    }
+    50% {
+      transform: rotate(3deg);
+    }
+  }
+  
+  .animate-arm-swing line:first-child {
+    transform-origin: 45px 75px;
+  }
+  
+  .animate-arm-swing line:last-child {
+    transform-origin: 75px 75px;
+  }
+  
+  @keyframes document-float {
+    0%, 100% {
+      transform: translateY(0) rotate(0deg);
+    }
+    50% {
+      transform: translateY(-3px) rotate(2deg);
+    }
+  }
+  
+  @keyframes screen-glow {
+    0%, 100% {
+      opacity: 0.9;
+      filter: brightness(1);
+    }
+    50% {
+      opacity: 1;
+      filter: brightness(1.1);
+    }
+  }
+  
+  .animate-bounce-slow {
+    animation: bounce-slow 3s ease-in-out infinite;
+  }
+  
+  .animate-arm-swing {
+    animation: arm-swing 2s ease-in-out infinite;
+  }
+  
+  .animate-document-float {
+    animation: document-float 2.5s ease-in-out infinite;
+  }
+  
+  .animate-screen-glow {
+    animation: screen-glow 3s ease-in-out infinite;
+  }
 
   .hr-sidebar-trigger {
     @apply fixed z-40 top-1/2 -translate-y-1/2 right-0 bg-white dark:bg-gray-800 shadow-lg p-2 rounded-l-md opacity-60 hover:opacity-100 transition-all duration-300;
