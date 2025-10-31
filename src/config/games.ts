@@ -1,3 +1,5 @@
+import BeeGameImage from "@/components/Bee-game-FE.jpg";
+
 export interface GameConfig {
   id: number;
   title: string;
@@ -44,7 +46,7 @@ export const gamesConfig: Record<string, GameConfig> = {
     id: 1,
     title: "Bee Game",
     description: "Guide your bee over obstacles in this fun runner game",
-    image: "/src/components/Bee-game-FE.jpg",
+    image: BeeGameImage,
     active: true,
     defaultLeaderboard: generateBeeLeaderboard()
   },
