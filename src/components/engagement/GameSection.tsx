@@ -52,33 +52,46 @@ export function GameSection() {
     };
   }, [isActive, toast]);
 
+  // Initialize leaderboard once and subscribe to cross-tab updates
   useEffect(() => {
-    const savedScores = localStorage.getItem('beeGameScores');
-    if (savedScores) {
-      try {
-        setBeeLeaderboard(JSON.parse(savedScores));
-      } catch (e) {
-        console.error('Error parsing saved scores:', e);
+    try {
+      const saved = localStorage.getItem('beeGameScores');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setBeeLeaderboard(parsed);
+      } else {
+        localStorage.setItem('beeGameScores', JSON.stringify(beeLeaderboard));
       }
-    } else {
-      localStorage.setItem('beeGameScores', JSON.stringify(beeLeaderboard));
+    } catch (e) {
+      console.error('Error initializing saved scores:', e);
     }
-    
+
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'beeGameScores') {
+      if (e.key === 'beeGameScores' && e.newValue) {
         try {
-          const newScores = JSON.parse(e.newValue || '[]');
-          setBeeLeaderboard(newScores);
-        } catch (e) {
-          console.error('Error parsing storage change scores:', e);
+          const parsed = JSON.parse(e.newValue);
+          // Only update if different to avoid unnecessary renders
+          if (JSON.stringify(parsed) !== JSON.stringify(beeLeaderboard)) {
+            setBeeLeaderboard(parsed);
+          }
+        } catch (err) {
+          console.error('Error parsing storage change scores:', err);
         }
       }
     };
-    
+
     window.addEventListener('storage', handleStorageChange);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
+    return () => window.removeEventListener('storage', handleStorageChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist leaderboard whenever it changes (same-tab)
+  useEffect(() => {
+    try {
+      localStorage.setItem('beeGameScores', JSON.stringify(beeLeaderboard));
+    } catch (e) {
+      console.error('Error saving scores:', e);
+    }
   }, [beeLeaderboard]);
 
   const formatTime = (seconds: number) => {

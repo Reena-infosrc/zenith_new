@@ -159,7 +159,64 @@ export function BeeGame() {
         cancelAnimationFrame(currentGameRef.animationFrame);
       }
     };
-  }, [gameStarted, gameOver, drawGame, startGame]);
+  }, [gameStarted, gameOver]);
+
+  // Draw the game (hoisted to avoid TDZ)
+  function drawGame() {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = gameRef.current.nightMode ? "#1a1a4f" : "#87CEEB";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#ffffff";
+    gameRef.current.clouds.forEach(cloud => {
+      ctx.beginPath();
+      ctx.arc(cloud.x, cloud.y, 15, 0, Math.PI * 2);
+      ctx.arc(cloud.x + 15, cloud.y - 10, 12, 0, Math.PI * 2);
+      ctx.arc(cloud.x + 25, cloud.y, 15, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.fillStyle = gameRef.current.nightMode ? "#005500" : "#00AA00";
+    ctx.fillRect(0, gameRef.current.ground.y, canvas.width, 20);
+    ctx.fillStyle = gameRef.current.nightMode ? "#003300" : "#008800";
+    ctx.fillRect(0, gameRef.current.ground.y, canvas.width, 2);
+    if (beeImage && beeImage.complete) {
+      ctx.save();
+      if (gameOver) {
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
+        ctx.fillRect(
+          gameRef.current.bee.x,
+          gameRef.current.bee.y,
+          gameRef.current.bee.width,
+          gameRef.current.bee.height
+        );
+      }
+      const rotation = gameRef.current.bee.velocityY * 0.05;
+      ctx.translate(
+        gameRef.current.bee.x + gameRef.current.bee.width / 2,
+        gameRef.current.bee.y + gameRef.current.bee.height / 2
+      );
+      ctx.rotate(rotation);
+      ctx.drawImage(
+        beeImage,
+        -gameRef.current.bee.width / 2,
+        -gameRef.current.bee.height / 2,
+        gameRef.current.bee.width,
+        gameRef.current.bee.height
+      );
+      ctx.restore();
+    } else {
+      drawBee(ctx, gameOver);
+    }
+    gameRef.current.obstacles.forEach(obstacle => {
+      drawFlower(ctx, obstacle);
+    });
+    ctx.fillStyle = gameRef.current.nightMode ? "#ffffff" : "#000000";
+    ctx.font = "bold 20px monospace";
+    ctx.fillText(`Score: ${gameRef.current.currentScore}`, 20, 30);
+  }
 
   // Game loop
   const updateGame = useCallback(() => {
@@ -259,81 +316,9 @@ export function BeeGame() {
     
     // Continue the game loop
     gameRef.current.animationFrame = requestAnimationFrame(updateGame);
-  }, [drawGame, handleGameOver]);
+  }, []);
 
-  // Draw the game
-  const drawGame = useCallback(() => {
-    if (!canvasRef.current) return;
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    
-    // Clear canvas with sky blue background
-    ctx.fillStyle = gameRef.current.nightMode ? "#1a1a4f" : "#87CEEB";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw clouds
-    ctx.fillStyle = "#ffffff";
-    gameRef.current.clouds.forEach(cloud => {
-      ctx.beginPath();
-      ctx.arc(cloud.x, cloud.y, 15, 0, Math.PI * 2);
-      ctx.arc(cloud.x + 15, cloud.y - 10, 12, 0, Math.PI * 2);
-      ctx.arc(cloud.x + 25, cloud.y, 15, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    
-    // Draw ground with green grass
-    ctx.fillStyle = gameRef.current.nightMode ? "#005500" : "#00AA00";
-    ctx.fillRect(0, gameRef.current.ground.y, canvas.width, 20);
-    ctx.fillStyle = gameRef.current.nightMode ? "#003300" : "#008800";
-    ctx.fillRect(0, gameRef.current.ground.y, canvas.width, 2);
-    
-    // Draw bee - either image if loaded or fallback to drawn bee
-    if (beeImage && beeImage.complete) {
-      ctx.save();
-      if (gameOver) {
-        // Add red tint for game over
-        ctx.globalAlpha = 0.8;
-        ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
-        ctx.fillRect(
-          gameRef.current.bee.x,
-          gameRef.current.bee.y,
-          gameRef.current.bee.width,
-          gameRef.current.bee.height
-        );
-      }
-      
-      // Draw with slight rotation based on velocity for flying effect
-      const rotation = gameRef.current.bee.velocityY * 0.05;
-      ctx.translate(
-        gameRef.current.bee.x + gameRef.current.bee.width / 2,
-        gameRef.current.bee.y + gameRef.current.bee.height / 2
-      );
-      ctx.rotate(rotation);
-      ctx.drawImage(
-        beeImage,
-        -gameRef.current.bee.width / 2,
-        -gameRef.current.bee.height / 2,
-        gameRef.current.bee.width,
-        gameRef.current.bee.height
-      );
-      ctx.restore();
-    } else {
-      // Fallback to drawn bee if image not loaded
-      drawBee(ctx, gameOver);
-    }
-    
-    // Draw obstacles as flowers
-    gameRef.current.obstacles.forEach(obstacle => {
-      drawFlower(ctx, obstacle);
-    });
-    
-    // Draw score
-    ctx.fillStyle = gameRef.current.nightMode ? "#ffffff" : "#000000";
-    ctx.font = "bold 20px monospace";
-    ctx.fillText(`Score: ${gameRef.current.currentScore}`, 20, 30);
-  }, [gameRef, beeImage, gameOver]);
+  // drawGame function moved above (hoisted)
 
   // Draw the bee
   const drawBee = (ctx: CanvasRenderingContext2D, isDead: boolean) => {
