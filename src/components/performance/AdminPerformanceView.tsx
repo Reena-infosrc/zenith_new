@@ -2,22 +2,16 @@ import { useState, useEffect } from "react";
 import { 
   Users, 
   Target, 
-  Sparkles, 
-  Save, 
-  Send,
   Filter,
   Search,
   Plus,
   Edit,
-  TrendingUp,
   AlertCircle,
   CheckCircle2,
-  Clock,
   Calendar,
-  BookOpen,
   Briefcase,
-  Award,
-  Brain
+  X,
+  Save
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +21,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { GoalSettingModal, Employee as GoalEmployee } from "./GoalSettingModal";
+import { Progress } from "@/components/ui/progress";
 
 interface Employee {
   id: string;
@@ -68,6 +64,7 @@ export function AdminPerformanceView() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDept, setFilterDept] = useState<string>("all");
   const [showGoalModal, setShowGoalModal] = useState(false);
+  const [showEmployeeDetail, setShowEmployeeDetail] = useState(false);
   const [goalDraft, setGoalDraft] = useState<GoalDraft | null>(null);
   const [isDraftMode, setIsDraftMode] = useState(false);
 
@@ -308,17 +305,29 @@ export function AdminPerformanceView() {
                         </div>
                       </div>
 
-                      <Button
-                        className="w-full mt-4 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedEmployee(employee);
-                          setShowGoalModal(true);
-                        }}
-                      >
-                        <Target className="h-4 w-4 mr-2" />
-                        Set Goals
-                      </Button>
+                      <div className="flex gap-2 mt-4">
+                        <Button
+                          className="flex-1 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedEmployee(employee);
+                            setShowEmployeeDetail(true);
+                          }}
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          View & Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedEmployee(employee);
+                            setShowGoalModal(true);
+                          }}
+                        >
+                          <Target className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -392,10 +401,29 @@ export function AdminPerformanceView() {
         </TabsContent>
       </Tabs>
 
-      {/* Goal Setting Modal - will be created in separate component */}
+      {/* Employee Detail View */}
+      {showEmployeeDetail && selectedEmployee && (
+        <EmployeeDetailView
+          employee={selectedEmployee}
+          goals={getGoalsForEmployee(selectedEmployee.id)}
+          onClose={() => {
+            setShowEmployeeDetail(false);
+            setSelectedEmployee(null);
+          }}
+          onEditGoal={(goal) => {
+            // TODO: Open edit modal
+          }}
+          onSetNewGoal={() => {
+            setShowEmployeeDetail(false);
+            setShowGoalModal(true);
+          }}
+        />
+      )}
+
+      {/* Goal Setting Modal */}
       {showGoalModal && selectedEmployee && (
         <GoalSettingModal
-          employee={selectedEmployee}
+          employee={selectedEmployee as GoalEmployee}
           open={showGoalModal}
           onClose={() => {
             setShowGoalModal(false);
@@ -408,243 +436,125 @@ export function AdminPerformanceView() {
   );
 }
 
-// Goal Setting Modal Component
-interface GoalSettingModalProps {
+// Employee Detail View Component for Admin
+interface EmployeeDetailViewProps {
   employee: Employee;
-  open: boolean;
+  goals: Goal[];
   onClose: () => void;
-  onAISuggestions: () => void;
+  onEditGoal: (goal: Goal) => void;
+  onSetNewGoal: () => void;
 }
 
-function GoalSettingModal({ employee, open, onClose, onAISuggestions }: GoalSettingModalProps) {
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    category: "technical",
-    targetDate: "",
-    notes: ""
-  });
-  const [isDraft, setIsDraft] = useState(false);
-  const [aiSuggestions, setAiSuggestions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-
-  const handleAISuggestions = async () => {
-    setLoading(true);
-    setShowSuggestions(true);
-    // TODO: Call AI API
-    // Mock suggestions for now
-    setTimeout(() => {
-      setAiSuggestions([
-        {
-          title: `Master ${employee.skills[0]} Advanced Concepts`,
-          description: `Based on ${employee.yearsOfExperience} years of experience, focus on advanced patterns and best practices.`,
-          category: "technical",
-          reasoning: "Aligns with current skill level and growth path"
-        },
-        {
-          title: "Lead Technical Project",
-          description: `With ${employee.yearsOfExperience} years of experience, leading a project will develop leadership skills.`,
-          category: "leadership",
-          reasoning: "Natural progression for senior role"
-        }
-      ]);
-      setLoading(false);
-    }, 1500);
-  };
-
-  const applySuggestion = (suggestion: any) => {
-    setFormData({
-      ...formData,
-      title: suggestion.title,
-      description: suggestion.description,
-      category: suggestion.category
-    });
-    setShowSuggestions(false);
-  };
-
-  if (!open) return null;
-
+function EmployeeDetailView({ employee, goals, onClose, onEditGoal, onSetNewGoal }: EmployeeDetailViewProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 shadow-2xl">
-        <CardHeader className="border-b border-border/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 shadow-2xl">
+        <CardHeader className="border-b border-border/50 sticky top-0 bg-background/95 backdrop-blur-sm z-10">
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-2xl">Set Goals for {employee.name}</CardTitle>
-              <CardDescription>{employee.position} • {employee.department}</CardDescription>
+            <div className="flex items-center gap-4">
+              <Avatar className="h-16 w-16 border-2 border-primary/30">
+                <AvatarImage src={employee.photoUrl} />
+                <AvatarFallback className="bg-primary/10 text-primary text-xl font-semibold">
+                  {employee.name.split(' ').map(n => n[0]).join('')}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <CardTitle className="text-2xl">{employee.name}</CardTitle>
+                <CardDescription className="text-base">{employee.position} • {employee.department}</CardDescription>
+              </div>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose}>
-              ×
+              <X className="h-4 w-4" />
             </Button>
           </div>
         </CardHeader>
         <CardContent className="p-6 space-y-6">
-          {/* AI Suggestions Button */}
-          <div className="flex items-center gap-2 p-4 rounded-lg bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20">
-            <Brain className="h-5 w-5 text-primary" />
-            <div className="flex-1">
-              <p className="font-medium">AI-Powered Goal Suggestions</p>
-              <p className="text-sm text-muted-foreground">
-                Get intelligent goal recommendations based on {employee.name}'s profile and experience
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              onClick={handleAISuggestions}
-              disabled={loading}
-              className="border-primary/30 bg-primary/5 hover:bg-primary/10"
-            >
-              {loading ? (
-                <>
-                  <div className="h-4 w-4 mr-2 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Get Suggestions
-                </>
-              )}
-            </Button>
-          </div>
-
-          {/* AI Suggestions Display */}
-          {showSuggestions && aiSuggestions.length > 0 && (
-            <div className="space-y-3 p-4 rounded-lg bg-gradient-to-r from-purple-500/10 to-purple-500/5 border border-purple-500/20">
-              <h4 className="font-semibold flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-purple-500" />
-                AI Suggestions
-              </h4>
-              {aiSuggestions.map((suggestion, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 rounded-lg bg-background/50 border border-border hover:border-primary/30 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <p className="font-medium">{suggestion.title}</p>
-                      <p className="text-sm text-muted-foreground mt-1">{suggestion.description}</p>
-                      <p className="text-xs text-primary mt-2 italic">💡 {suggestion.reasoning}</p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => applySuggestion(suggestion)}
-                    className="mt-2"
-                  >
-                    <Sparkles className="h-3 w-3 mr-1" />
-                    Use This Suggestion
-                  </Button>
+          {/* Employee Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <Card className="bg-background/50 border-border/50">
+              <CardContent className="p-4">
+                <p className="text-sm text-muted-foreground mb-1">Years of Experience</p>
+                <p className="text-xl font-semibold">{employee.yearsOfExperience} years</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-background/50 border-border/50">
+              <CardContent className="p-4">
+                <p className="text-sm text-muted-foreground mb-1">Skills</p>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {employee.skills.slice(0, 3).map((skill, idx) => (
+                    <Badge key={idx} variant="secondary" className="text-xs">{skill}</Badge>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* Form Fields */}
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Goal Title</label>
-              <Input
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="e.g., Master React Performance Optimization"
-                className="bg-background/50"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">Description</label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Describe the goal in detail..."
-                className="w-full min-h-[100px] px-3 py-2 rounded-md border border-input bg-background/50 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Category</label>
-                <Select value={formData.category} onValueChange={(value) => setFormData({ ...formData, category: value })}>
-                  <SelectTrigger className="bg-background/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="technical">Technical Skills</SelectItem>
-                    <SelectItem value="leadership">Leadership</SelectItem>
-                    <SelectItem value="communication">Communication</SelectItem>
-                    <SelectItem value="business">Business Acumen</SelectItem>
-                    <SelectItem value="certification">Certification</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium mb-2 block">Target Date</label>
-                <Input
-                  type="date"
-                  value={formData.targetDate}
-                  onChange={(e) => setFormData({ ...formData, targetDate: e.target.value })}
-                  className="bg-background/50"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">Additional Notes (Optional)</label>
-              <textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Any additional context or milestones..."
-                className="w-full min-h-[80px] px-3 py-2 rounded-md border border-input bg-background/50 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center justify-between pt-4 border-t border-border/50">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="draft"
-                checked={isDraft}
-                onChange={(e) => setIsDraft(e.target.checked)}
-                className="rounded border-input"
-              />
-              <label htmlFor="draft" className="text-sm font-medium cursor-pointer">
-                Save as Draft
-              </label>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={onClose}>
-                Cancel
+          {/* Current Goals Section */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Current Goals</h3>
+              <Button onClick={onSetNewGoal} className="bg-gradient-to-r from-primary to-primary/80">
+                <Plus className="h-4 w-4 mr-2" />
+                Set New Goal
               </Button>
-              {isDraft ? (
-                <Button
-                  onClick={() => {
-                    // TODO: Save draft
-                    onClose();
-                  }}
-                  className="bg-blue-500 hover:bg-blue-600"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Draft
-                </Button>
-              ) : (
-                <Button
-                  onClick={() => {
-                    // TODO: Publish goal
-                    onClose();
-                  }}
-                  className="bg-gradient-to-r from-primary to-primary/80"
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  Publish Goal
-                </Button>
-              )}
             </div>
+
+            {goals.length > 0 ? (
+              <div className="space-y-3">
+                {goals.map((goal) => (
+                  <Card key={goal.id} className="bg-background/50 border-border/50 hover:border-primary/30 transition-colors">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="font-semibold">{goal.title}</h4>
+                            <Badge variant="outline">{goal.category}</Badge>
+                            {goal.status === 'published' && (
+                              <Badge className="bg-green-500/10 text-green-600 border-green-500/20">Published</Badge>
+                            )}
+                            {goal.status === 'draft' && (
+                              <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">Draft</Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-3">{goal.description}</p>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span><Calendar className="h-3 w-3 inline mr-1" />Due: {new Date(goal.targetDate).toLocaleDateString()}</span>
+                            {goal.status === 'published' && (
+                              <span>Completion: {goal.completion}%</span>
+                            )}
+                          </div>
+                          {goal.status === 'published' && (
+                            <div className="mt-3">
+                              <Progress value={goal.completion} className="h-2" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onEditGoal(goal)}
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card className="bg-background/50 border-border/50">
+                <CardContent className="p-8 text-center">
+                  <Target className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                  <p className="text-muted-foreground mb-4">No goals set for this employee yet</p>
+                  <Button onClick={onSetNewGoal} className="bg-gradient-to-r from-primary to-primary/80">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Set First Goal
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </CardContent>
       </Card>

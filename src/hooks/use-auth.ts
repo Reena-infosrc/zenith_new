@@ -16,8 +16,10 @@ type User = {
   id: string;
   name: string;
   email: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'manager';
   is_admin?: boolean;
+  is_manager?: boolean;
+  reporting_to?: string; // ID of the person they report to
 };
 
 export function useAuth() {
@@ -27,7 +29,8 @@ export function useAuth() {
     name: 'User',
     email: 'user@example.com',
     role: 'user',
-    is_admin: false
+    is_admin: false,
+    is_manager: false
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -162,10 +165,22 @@ export function useAuth() {
     }
   }, [accounts]);
 
+  // Check manager status - TODO: Implement API call to check if user is manager
+  // For now, checking if position contains "manager" or "lead"
+  const checkManagerStatus = (email: string, position?: string): boolean => {
+    // TODO: Replace with actual API call
+    if (position) {
+      const pos = position.toLowerCase();
+      return pos.includes('manager') || pos.includes('lead') || pos.includes('director');
+    }
+    return false;
+  };
+
   return {
     user,
     isLoading,
     isAdmin: user?.is_admin || user?.role === 'admin',
+    isManager: user?.is_manager || user?.role === 'manager' || checkManagerStatus(user.email),
     updateAdminStatus
   };
 } 

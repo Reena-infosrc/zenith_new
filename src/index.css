@@ -173,21 +173,69 @@
     }
   }
   
-  @keyframes arm-swing {
+  @keyframes gear-rotate {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  
+  @keyframes cloud-bounce {
     0%, 100% {
-      transform: rotate(-3deg);
+      transform: translateY(0px) scale(1);
+    }
+    25% {
+      transform: translateY(-6px) scale(1.02);
     }
     50% {
-      transform: rotate(3deg);
+      transform: translateY(-12px) scale(1.05);
+    }
+    75% {
+      transform: translateY(-6px) scale(1.02);
     }
   }
   
-  .animate-arm-swing line:first-child {
-    transform-origin: 45px 75px;
+  @keyframes sparkle {
+    0%, 100% {
+      opacity: 0.3;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.3);
+    }
   }
   
-  .animate-arm-swing line:last-child {
-    transform-origin: 75px 75px;
+  .animate-gear-rotate {
+    animation: gear-rotate 15s linear infinite;
+    transform-origin: 60px 60px;
+  }
+  
+  .animate-cloud-bounce {
+    animation: cloud-bounce 3s ease-in-out infinite;
+    transform-origin: 60px 50px;
+  }
+  
+  .animate-cloud-float {
+    animation: cloud-float 4s ease-in-out infinite;
+  }
+  
+  .animate-sparkle circle {
+    animation: sparkle 2s ease-in-out infinite;
+  }
+  
+  .animate-sparkle circle:nth-child(2) {
+    animation-delay: 0.5s;
+  }
+  
+  .animate-sparkle circle:nth-child(3) {
+    animation-delay: 1s;
+  }
+  
+  .animate-sparkle circle:nth-child(4) {
+    animation-delay: 1.5s;
   }
   
   @keyframes document-float {
