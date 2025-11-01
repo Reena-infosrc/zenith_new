@@ -63,7 +63,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
   };
 
   return (
-    <header className={`sticky top-0 z-30 w-full transition-all duration-300 ${
+    <header className={`fixed top-0 left-0 right-0 z-30 w-full transition-all duration-300 ${
       scrolled ? 'bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm shadow-sm' : 'bg-transparent'
     }`}>
       <div className="container px-0 h-16 flex items-center justify-between">

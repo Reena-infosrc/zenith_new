@@ -627,10 +627,10 @@ export default function Dashboard() {
       
       {/* Main Layout */}
       <div className="flex min-h-[calc(100vh-4rem)]">
-        {/* Left Sidebar */}
+        {/* Left Sidebar - Always Fixed */}
         <aside className={`fixed inset-y-0 left-0 z-20 w-64 sidebar-glass transform transition-transform duration-300 ease-in-out pt-16 flex flex-col ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0 lg:static lg:z-0`}>
+        } lg:translate-x-0`}>
           <SidebarContent 
             activeModule={activeModule} 
             onModuleChange={setActiveModule} 
@@ -645,8 +645,8 @@ export default function Dashboard() {
           />
         )}
         
-        {/* Main Content */}
-        <main className="flex-1 p-6">
+        {/* Main Content - Account for fixed sidebar and header */}
+        <main className="flex-1 p-6 lg:ml-64 pt-16">
           {/* Header Section */}
           <div className="mb-8">
             <div className="flex items-center gap-4 mb-4">

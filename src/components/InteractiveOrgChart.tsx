@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,36 +13,27 @@ import {
   RefreshCw,
   Mail,
   Phone,
-  Calendar,
-  MapPin,
-  Building,
-  User,
-  Briefcase
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Search,
+  X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
 import { Employee } from '@/hooks/use-employees';
-
-interface OrgChartNode {
-  id: number;
-  name: string;
-  designation: string;
-  profilePic?: string;
-  directReports: number;
-  currentProject: string;
-  children: OrgChartNode[];
-}
+import { Input } from '@/components/ui/input';
 
 interface TreeNode {
   employee: Employee;
   children: TreeNode[];
-  isExpanded: boolean;
   directReportsCount: number;
   level: number;
+  hasChildrenWithReportees: boolean; // Track if any child has reportees
 }
 
 interface InteractiveOrgChartProps {
   employees: Employee[];
+  searchQuery?: string;
 }
 
 interface EmployeeDetailModalProps {
@@ -64,6 +55,14 @@ function EmployeeDetailModal({ employee, employees, isOpen, onClose }: EmployeeD
     }
   };
 
+  const directReports = employees.filter(emp => 
+    emp.reporting_to && emp.reporting_to.trim() !== '' && emp.reporting_to === employee.id
+  );
+  
+  const reportingManager = employee.reporting_to && employee.reporting_to.trim() !== '' 
+    ? employees.find(emp => emp.id === employee.reporting_to)
+    : null;
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -83,49 +82,27 @@ function EmployeeDetailModal({ employee, employees, isOpen, onClose }: EmployeeD
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Basic Information */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <User className="h-5 w-5" />
-                Basic Information
-              </CardTitle>
+              <CardTitle className="text-lg">Basic Information</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Building className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Department:</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground ml-6">{employee.department}</p>
+                <div>
+                  <span className="text-sm font-medium">Department:</span>
+                  <p className="text-sm text-muted-foreground">{employee.department}</p>
                 </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Location:</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground ml-6">{employee.location || 'Not specified'}</p>
+                <div>
+                  <span className="text-sm font-medium">Location:</span>
+                  <p className="text-sm text-muted-foreground">{employee.location || 'Not specified'}</p>
                 </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">Employment Category:</span>
-                  </div>
-                  <Badge variant="secondary" className="ml-6">
-                    {employee.employment_category || 'Not specified'}
-                  </Badge>
+                <div>
+                  <span className="text-sm font-medium">Employment Category:</span>
+                  <Badge variant="secondary">{employee.employment_category || 'Not specified'}</Badge>
                 </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">Status:</span>
-                  </div>
-                  <Badge 
-                    variant={employee.employee_status === 'Billable' ? 'default' : 'secondary'}
-                    className="ml-6"
-                  >
+                <div>
+                  <span className="text-sm font-medium">Status:</span>
+                  <Badge variant={employee.employee_status === 'Billable' ? 'default' : 'secondary'}>
                     {employee.employee_status || 'Not specified'}
                   </Badge>
                 </div>
@@ -133,338 +110,257 @@ function EmployeeDetailModal({ employee, employees, isOpen, onClose }: EmployeeD
             </CardContent>
           </Card>
 
-          {/* Contact Information */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Mail className="h-5 w-5" />
-                Contact Information
+                <Users className="h-5 w-5" />
+                Reporting Relationships
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-3">
-                {employee.email && (
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{employee.email}</span>
+              {reportingManager && (
+                <div className="space-y-2">
+                  <span className="text-sm font-medium">Reports to:</span>
+                  <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={reportingManager.photoUrl} alt={reportingManager.name} />
+                      <AvatarFallback className="text-xs">
+                        {reportingManager.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="text-sm font-medium">{reportingManager.name}</p>
+                      <p className="text-xs text-muted-foreground">{reportingManager.position}</p>
+                    </div>
                   </div>
-                )}
-                {employee.phone && (
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{employee.phone}</span>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Reporting Relationships */}
-          {(() => {
-            // Find direct reports (children)
-            const directReports = employees.filter(emp => 
-              emp.reporting_to && emp.reporting_to !== null && emp.reporting_to.trim() !== '' && emp.reporting_to === employee.id
-            );
-            
-            // Find reporting manager
-            const reportingManager = employee.reporting_to && employee.reporting_to !== null && employee.reporting_to.trim() !== '' 
-              ? employees.find(emp => emp.id === employee.reporting_to)
-              : null;
-            
-            // Only show this section if there are relationships
-            if (directReports.length === 0 && !reportingManager) {
-              return null;
-            }
-            
-            return (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Users className="h-5 w-5" />
-                    Reporting Relationships
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Reporting Manager */}
-                  {reportingManager && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <ChevronDown className="h-4 w-4 text-muted-foreground rotate-180" />
-                        <span className="text-sm font-medium">Reports to:</span>
-                      </div>
-                      <div className="ml-6 flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                </div>
+              )}
+              
+              {directReports.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-sm font-medium">Direct Reports ({directReports.length}):</span>
+                  <div className="space-y-2">
+                    {directReports.map(report => (
+                      <div key={report.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={reportingManager.photoUrl} alt={reportingManager.name} />
+                          <AvatarImage src={report.photoUrl} alt={report.name} />
                           <AvatarFallback className="text-xs">
-                            {reportingManager.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                            {report.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="text-sm font-medium">{reportingManager.name}</p>
-                          <p className="text-xs text-muted-foreground">{reportingManager.position}</p>
+                          <p className="text-sm font-medium">{report.name}</p>
+                          <p className="text-xs text-muted-foreground">{report.position}</p>
                         </div>
                       </div>
-                    </div>
-                  )}
-                  
-                  {/* Direct Reports */}
-                  {directReports.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">Direct Reports ({directReports.length}):</span>
-                      </div>
-                      <div className="ml-6 space-y-2">
-                        {directReports.map(report => (
-                          <div key={report.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src={report.photoUrl} alt={report.name} />
-                              <AvatarFallback className="text-xs">
-                                {report.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <p className="text-sm font-medium">{report.name}</p>
-                              <p className="text-xs text-muted-foreground">{report.position}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })()}
-
-          {/* Bio */}
-          {employee.bio && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">About</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{employee.bio}</p>
-              </CardContent>
-            </Card>
-          )}
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-export function InteractiveOrgChart({ employees }: InteractiveOrgChartProps) {
+export function InteractiveOrgChart({ employees, searchQuery = '' }: InteractiveOrgChartProps) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Build tree structure from employee data
+  // Improved tree building algorithm
   const buildTree = useCallback(() => {
     try {
       setLoading(true);
       
-      // Find root employees (those who don't report to anyone or report to someone not in the list)
-      const rootEmployees = employees.filter(emp => 
-        !emp.reporting_to || emp.reporting_to === null || emp.reporting_to.trim() === '' || !employees.find(e => e.id === emp.reporting_to)
-      );
+      if (!employees || employees.length === 0) {
+        setTree([]);
+        setLoading(false);
+        return;
+      }
+
+      // Create a map for quick employee lookup
+      const employeeMap = new Map<string, Employee>();
+      employees.forEach(emp => {
+        if (emp.id) {
+          employeeMap.set(emp.id, emp);
+        }
+      });
+
+      // Find root employees: those with no reporting_to or reporting_to not in the list
+      const rootEmployees = employees.filter(emp => {
+        const reportingTo = emp.reporting_to;
+        if (!reportingTo || reportingTo.trim() === '') {
+          return true;
+        }
+        // Check if the reporting manager exists in our employee list
+        return !employeeMap.has(reportingTo);
+      });
 
       // Calculate direct reports count for each employee
       const directReportsCount = new Map<string, number>();
       employees.forEach(emp => {
-        if (emp.reporting_to && emp.reporting_to !== null && emp.reporting_to.trim() !== '') {
-          directReportsCount.set(emp.reporting_to, (directReportsCount.get(emp.reporting_to) || 0) + 1);
+        const reportingTo = emp.reporting_to;
+        if (reportingTo && reportingTo.trim() !== '' && employeeMap.has(reportingTo)) {
+          directReportsCount.set(reportingTo, (directReportsCount.get(reportingTo) || 0) + 1);
         }
       });
 
       // Recursively build tree
       const buildNodeWithChildren = (employee: Employee, level: number = 0): TreeNode => {
-        const directReports = employees.filter(emp => emp.reporting_to && emp.reporting_to !== null && emp.reporting_to.trim() !== '' && emp.reporting_to === employee.id);
+        const directReports = employees.filter(emp => 
+          emp.reporting_to && emp.reporting_to.trim() !== '' && emp.reporting_to === employee.id
+        );
         
-        // Sort children by hierarchy level, then by name
-        const getHierarchyLevel = (position: string): number => {
-          const pos = position.toLowerCase();
-          
-          // Executive level (highest) - only C-level executives - use word boundaries
-          if (pos.includes(' ceo ') || pos.includes(' cto ') || pos.includes(' cfo ') || pos.includes(' cso ') ||
-              pos.startsWith('ceo') || pos.startsWith('cto') || pos.startsWith('cfo') || pos.startsWith('cso') ||
-              pos.endsWith('ceo') || pos.endsWith('cto') || pos.endsWith('cfo') || pos.endsWith('cso')) {
-            return 1;
-          }
-          // VP level
-          if (pos.includes('vp') || pos.includes('vice president')) {
-            return 2;
-          }
-          // All Director types (both Director and Senior Director) - consolidated into Level 3
-          if (pos.includes('director')) {
-            return 3;
-          }
-          // Manager level
-          if (pos.includes('manager') || pos.includes('lead')) {
-            return 4;
-          }
-          // Senior level
-          if (pos.includes('senior')) {
-            return 5;
-          }
-          // Regular level (lowest)
-          return 6;
-        };
-        
-        // Sort direct reports by hierarchy level, then by name
+        // Sort direct reports: first by hierarchy (if we can determine it), then by name
         directReports.sort((a, b) => {
-          const levelA = getHierarchyLevel(a.position);
-          const levelB = getHierarchyLevel(b.position);
+          // Try to sort by position hierarchy
+          const aIsManager = a.position?.toLowerCase().includes('manager') || 
+                            a.position?.toLowerCase().includes('director') ||
+                            a.position?.toLowerCase().includes('vp') ||
+                            a.position?.toLowerCase().includes('ceo');
+          const bIsManager = b.position?.toLowerCase().includes('manager') || 
+                            b.position?.toLowerCase().includes('director') ||
+                            b.position?.toLowerCase().includes('vp') ||
+                            b.position?.toLowerCase().includes('ceo');
           
-          if (levelA !== levelB) {
-            return levelA - levelB; // Lower level number = higher in hierarchy
-          }
+          if (aIsManager && !bIsManager) return -1;
+          if (!aIsManager && bIsManager) return 1;
           
-          // If same level, sort by name
           return a.name.localeCompare(b.name);
         });
         
         const children = directReports.map(child => buildNodeWithChildren(child, level + 1));
         
+        // Check if any child has reportees
+        const hasChildrenWithReportees = children.some(child => child.directReportsCount > 0);
+        
         return {
           employee,
           children,
-          isExpanded: level < 2, // Expand first 2 levels by default
           directReportsCount: directReportsCount.get(employee.id) || 0,
-          level
+          level,
+          hasChildrenWithReportees
         };
       };
 
-      // Create root nodes and sort by hierarchy level (same logic as Org's List)
       const rootNodes = rootEmployees.map(emp => buildNodeWithChildren(emp, 0));
       
-      // Sort root employees by hierarchy level (CEO/CTO at top, then VPs, then Directors, etc.)
-      const getHierarchyLevel = (position: string): number => {
-        const pos = position.toLowerCase();
-        
-        // Executive level (highest) - only C-level executives - use word boundaries
-        if (pos.includes(' ceo ') || pos.includes(' cto ') || pos.includes(' cfo ') || pos.includes(' cso ') ||
-            pos.startsWith('ceo') || pos.startsWith('cto') || pos.startsWith('cfo') || pos.startsWith('cso') ||
-            pos.endsWith('ceo') || pos.endsWith('cto') || pos.endsWith('cfo') || pos.endsWith('cso')) {
-          return 1;
-        }
-        // VP level
-        if (pos.includes('vp') || pos.includes('vice president')) {
-          return 2;
-        }
-        // All Director types (both Director and Senior Director) - consolidated into Level 3
-        if (pos.includes('director')) {
-          return 3;
-        }
-        // Manager level
-        if (pos.includes('manager') || pos.includes('lead')) {
-          return 4;
-        }
-        // Senior level
-        if (pos.includes('senior')) {
-          return 5;
-        }
-        // Regular level (lowest)
-        return 6;
-      };
-      
-      // Sort root nodes by hierarchy level, then by name
+      // Sort root nodes by position hierarchy
       rootNodes.sort((a, b) => {
-        const levelA = getHierarchyLevel(a.employee.position);
-        const levelB = getHierarchyLevel(b.employee.position);
+        const aIsExec = a.employee.position?.toLowerCase().includes('ceo') ||
+                       a.employee.position?.toLowerCase().includes('cto') ||
+                       a.employee.position?.toLowerCase().includes('cfo');
+        const bIsExec = b.employee.position?.toLowerCase().includes('ceo') ||
+                       b.employee.position?.toLowerCase().includes('cto') ||
+                       b.employee.position?.toLowerCase().includes('cfo');
         
-        if (levelA !== levelB) {
-          return levelA - levelB; // Lower level number = higher in hierarchy
-        }
+        if (aIsExec && !bIsExec) return -1;
+        if (!aIsExec && bIsExec) return 1;
         
-        // If same level, sort by name
         return a.employee.name.localeCompare(b.employee.name);
       });
-      
-      console.log('📊 Org Tree - Root employees sorted by hierarchy level:', rootNodes.map(node => ({
-        name: node.employee.name,
-        position: node.employee.position,
-        level: getHierarchyLevel(node.employee.position)
-      })));
       
       setTree(rootNodes);
       setError(null);
     } catch (err) {
+      console.error('Error building tree:', err);
       setError('Failed to build organization chart');
     } finally {
       setLoading(false);
     }
   }, [employees]);
 
-  // Helper function to toggle node expansion recursively
-  const toggleNodeExpansion = useCallback((nodeId: string) => (node: TreeNode): TreeNode => {
-    if (node.employee.id === nodeId) {
-      return { ...node, isExpanded: !node.isExpanded };
+  // Initialize expanded nodes for first 2 levels
+  useEffect(() => {
+    if (tree.length > 0) {
+      const initialExpanded = new Set<string>();
+      const markExpanded = (nodes: TreeNode[]) => {
+        nodes.forEach(node => {
+          if (node.level < 2) {
+            initialExpanded.add(node.employee.id);
+          }
+          if (node.level < 2) {
+            markExpanded(node.children);
+          }
+        });
+      };
+      markExpanded(tree);
+      setExpandedNodes(initialExpanded);
     }
-    return {
-      ...node,
-      children: node.children.map(toggleNodeExpansion(nodeId))
-    };
+  }, [tree]);
+
+  const toggleNode = useCallback((nodeId: string) => {
+    setExpandedNodes(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
   }, []);
 
-  // Toggle node expansion
-  const toggleNode = useCallback((nodeId: string) => {
-    setTree(prev => 
-      prev.map(toggleNodeExpansion(nodeId))
-    );
-  }, [toggleNodeExpansion]);
-
-  // Handle employee click
   const handleEmployeeClick = (employee: Employee) => {
     setSelectedEmployee(employee);
     setIsModalOpen(true);
   };
 
-  // Handle keyboard navigation
-  const handleKeyDown = useCallback((event: React.KeyboardEvent, nodeId: string) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      toggleNode(nodeId);
-    }
-  }, [toggleNode]);
+  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.1, 2));
+  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.1, 0.5));
+  const handleResetZoom = () => setZoomLevel(1);
 
-  // Generate sample project names for demonstration
-  const getCurrentProject = (employee: Employee): string => {
-    const projects = [
-      'AI Platform', 'Data Engine', 'Mobile App', 'Web Portal', 
-      'Cloud Migration', 'Security Suite', 'Analytics Dashboard',
-      'API Gateway', 'ML Pipeline', 'DevOps Tools'
-    ];
-    const hash = employee.id.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-    return projects[hash % projects.length];
+  // Highlight matching employees in search
+  const shouldHighlight = (employee: Employee) => {
+    const query = searchQuery || localSearchQuery;
+    if (!query) return false;
+    const lowerQuery = query.toLowerCase();
+    return employee.name.toLowerCase().includes(lowerQuery) ||
+           employee.position?.toLowerCase().includes(lowerQuery) ||
+           employee.department?.toLowerCase().includes(lowerQuery);
   };
 
-  // Render a single tree node
-  const renderTreeNode = (node: TreeNode, depth: number = 0) => {
+  // Render a tree node
+  const renderTreeNode = useCallback((node: TreeNode, depth: number = 0): React.ReactNode => {
     const hasChildren = node.directReportsCount > 0;
-    const isExpanded = node.isExpanded;
-    const currentProject = getCurrentProject(node.employee);
+    const isExpanded = expandedNodes.has(node.employee.id);
+    const isHighlighted = shouldHighlight(node.employee);
+    
+    // Determine layout: horizontal if children have reportees, vertical if leaf nodes
+    const useHorizontalLayout = node.hasChildrenWithReportees && node.children.length > 1;
 
     return (
-      <div key={node.employee.id} className="flex flex-col items-center">
-        {/* Sleek Employee Card */}
+      <div 
+        key={node.employee.id} 
+        className="flex flex-col items-center relative flex-shrink-0"
+        style={{ marginTop: depth > 0 ? '24px' : '0' }}
+      >
+        {/* Employee Card */}
         <div 
           className={cn(
-            "relative bg-gradient-to-br from-card to-card/80 backdrop-blur-sm",
-            "border border-border/50 rounded-xl p-4 transition-all duration-300",
-            "hover:shadow-xl hover:shadow-primary/5 hover:border-primary/20",
-            "cursor-pointer group focus:outline-none focus:ring-2 focus:ring-primary/20",
-            "w-72 min-h-[140px] flex flex-col justify-between",
-            depth === 0 ? "ring-1 ring-primary/10 shadow-lg" : "shadow-md"
+            "relative group",
+            "bg-gradient-to-br from-background/95 via-background/90 to-background/95",
+            "backdrop-blur-xl border rounded-xl",
+            "p-3 transition-all duration-200",
+            "hover:shadow-lg hover:shadow-primary/10",
+            "cursor-pointer",
+            "w-[220px] min-w-[220px] flex flex-col gap-2",
+            isHighlighted ? "ring-2 ring-primary shadow-lg border-primary" : "border-border/60 shadow-sm",
+            depth === 0 ? "ring-1 ring-primary/20 shadow-md" : ""
           )}
           onClick={() => handleEmployeeClick(node.employee)}
-          onKeyDown={(e) => handleKeyDown(e, node.employee.id)}
           tabIndex={0}
           role="button"
           aria-expanded={isExpanded}
-          aria-label={`${node.employee.name}, ${node.employee.position}, ${node.directReportsCount} direct reports`}
         >
           {/* Expand/Collapse Button */}
           {hasChildren && (
@@ -472,10 +368,10 @@ export function InteractiveOrgChart({ employees }: InteractiveOrgChartProps) {
               variant="ghost"
               size="sm"
               className={cn(
-                "absolute -top-2 -right-2 h-7 w-7 p-0 rounded-full",
-                "bg-background border border-border shadow-lg hover:shadow-xl",
-                "transition-all duration-200 z-10",
-                "hover:bg-primary hover:text-primary-foreground"
+                "absolute -bottom-3 left-1/2 -translate-x-1/2 h-7 w-7 p-0 rounded-full z-20",
+                "bg-background border border-border shadow-md",
+                "hover:bg-primary hover:text-primary-foreground hover:border-primary",
+                "transition-all duration-200"
               )}
               onClick={(e) => {
                 e.stopPropagation();
@@ -486,83 +382,108 @@ export function InteractiveOrgChart({ employees }: InteractiveOrgChartProps) {
               {isExpanded ? (
                 <ChevronDown className="h-4 w-4" />
               ) : (
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-4 w-4 rotate-90" />
               )}
             </Button>
           )}
           
           {/* Employee Info */}
-          <div className="flex items-start gap-3">
-            {/* Avatar */}
+          <div className="flex items-center gap-3">
             <Avatar className={cn(
-              "ring-2 ring-background group-hover:ring-primary/30 transition-all duration-200",
-              depth === 0 ? "h-12 w-12" : "h-10 w-10"
+              "ring-2 ring-background/80 group-hover:ring-primary/30",
+              "shadow-md transition-all duration-200 flex-shrink-0",
+              "h-12 w-12"
             )}>
               <AvatarImage src={node.employee.photoUrl} alt={node.employee.name} />
-              <AvatarFallback className={cn(
-                "font-semibold bg-gradient-to-br from-primary/10 to-primary/20",
-                depth === 0 ? "text-sm" : "text-xs"
-              )}>
+              <AvatarFallback className="text-sm font-semibold bg-gradient-to-br from-primary/10 to-primary/20 text-foreground">
                 {node.employee.name.split(' ').map(n => n[0]).join('').toUpperCase()}
               </AvatarFallback>
             </Avatar>
 
-            {/* Details */}
             <div className="flex-1 min-w-0">
               <h3 className={cn(
-                "font-semibold truncate group-hover:text-primary transition-colors",
-                depth === 0 ? "text-base" : "text-sm"
+                "font-semibold truncate text-sm transition-colors",
+                "group-hover:text-primary"
               )}>
                 {node.employee.name}
               </h3>
               
-              <p className="text-xs text-muted-foreground font-medium truncate mb-2">
+              <p className="text-xs text-muted-foreground truncate">
                 {node.employee.position}
               </p>
 
-              {/* Department Badge */}
-              <Badge 
-                variant="secondary" 
-                className="text-xs mb-2 bg-gradient-to-r from-secondary/50 to-secondary/30"
-              >
-                {node.employee.department}
-              </Badge>
-
-              {/* Direct Reports Count */}
               {node.directReportsCount > 0 && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Users className="h-3 w-3" />
-                  <span>{node.directReportsCount} reports</span>
+                <div className="flex items-center gap-1 mt-1">
+                  <Users className="h-3 w-3 text-primary/60" />
+                  <span className="text-[10px] text-muted-foreground">{node.directReportsCount}</span>
                 </div>
               )}
             </div>
           </div>
-
-          {/* Bottom Project Info */}
-          <div className="mt-3 pt-3 border-t border-border/30">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Briefcase className="h-3 w-3" />
-              <span className="truncate">{currentProject}</span>
-            </div>
-          </div>
         </div>
 
-        {/* Vertical Connector Line */}
+        {/* Vertical Connector Line from Parent to Children - Always Visible */}
         {hasChildren && isExpanded && (
-          <div className="w-0.5 h-6 bg-gradient-to-b from-primary/40 to-primary/20 my-3"></div>
+          <div className="w-0.5 h-8 bg-gradient-to-b from-primary via-primary/80 to-primary/60 my-2 shadow-sm shadow-primary/30" />
         )}
 
-        {/* Children */}
+        {/* Children Container */}
         {isExpanded && node.children.length > 0 && (
-          <div className="flex gap-4 items-start mt-4 flex-wrap justify-center">
-            {node.children.map(child => renderTreeNode(child, depth + 1))}
+          <div className="relative mt-2 w-full">
+            {useHorizontalLayout ? (
+              // Horizontal layout for nodes with reportees
+              <div className="flex flex-row gap-6 justify-center items-start relative">
+                {/* Horizontal connector line */}
+                {node.children.length > 1 && (
+                  <div 
+                    className="absolute -top-8 left-1/2 -translate-x-1/2 h-0.5 bg-gradient-to-r from-primary via-primary/90 to-primary rounded-full shadow-md shadow-primary/30 z-0"
+                    style={{ 
+                      width: `${Math.max(220 * (node.children.length - 1) + 24 * (node.children.length - 1), 200)}px`,
+                      minWidth: '200px'
+                    }}
+                  />
+                )}
+                
+                {node.children.map((child, idx) => (
+                  <div 
+                    key={child.employee.id} 
+                    className="flex flex-col items-center relative flex-shrink-0"
+                  >
+                    {/* Connection point and vertical line */}
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 z-10">
+                      <div className="w-2 h-2 rounded-full bg-primary shadow-lg shadow-primary/50 border-2 border-background" />
+                      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-0.5 h-8 bg-gradient-to-b from-primary via-primary/80 to-primary/60 rounded-full shadow-sm shadow-primary/30" />
+                    </div>
+                    {renderTreeNode(child, depth + 1)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              // Vertical layout for leaf nodes
+              <div className="flex flex-col items-center gap-4 relative w-full">
+                {node.children.map((child, idx) => (
+                  <div key={child.employee.id} className="flex flex-col items-center relative w-full">
+                    {/* Vertical connector lines */}
+                    {idx === 0 && (
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-0.5 h-8 bg-gradient-to-b from-primary via-primary/80 to-primary/60 rounded-full shadow-sm shadow-primary/30" />
+                    )}
+                    {idx > 0 && (
+                      <>
+                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary shadow-md shadow-primary/40 border border-background z-10" />
+                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-gradient-to-b from-primary/60 to-primary/40" />
+                      </>
+                    )}
+                    {renderTreeNode(child, depth + 1)}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
     );
-  };
+  }, [expandedNodes, searchQuery, localSearchQuery, toggleNode]);
 
-  // Initialize tree on mount
   useEffect(() => {
     buildTree();
   }, [buildTree]);
@@ -571,8 +492,8 @@ export function InteractiveOrgChart({ employees }: InteractiveOrgChartProps) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="flex items-center gap-2">
-          <Loader2 className="h-6 w-6 animate-spin" />
-          <span>Building organization chart...</span>
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <span className="text-muted-foreground">Building organization chart...</span>
         </div>
       </div>
     );
@@ -610,24 +531,95 @@ export function InteractiveOrgChart({ employees }: InteractiveOrgChartProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Interactive Organization Chart</h2>
-          <p className="text-muted-foreground">
-            Click on any employee to view their details. Click expand/collapse buttons to show/hide team members.
+      {/* Header with Search and Zoom Controls */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex-1">
+          <h2 className="text-2xl font-bold bg-gradient-to-r from-primary via-primary/80 to-primary bg-clip-text text-transparent">
+            Organization Chart
+          </h2>
+          <p className="text-muted-foreground text-sm mt-1">
+            Click on any employee to view details. Expand/collapse to navigate.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Users className="h-4 w-4" />
-          <span>{employees.length} employees</span>
+        
+        <div className="flex items-center gap-2">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search employees..."
+              value={localSearchQuery}
+              onChange={(e) => setLocalSearchQuery(e.target.value)}
+              className="pl-9 pr-9 w-64"
+            />
+            {localSearchQuery && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+                onClick={() => setLocalSearchQuery('')}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+          
+          {/* Zoom Controls */}
+          <div className="flex items-center gap-1 border border-border/50 rounded-lg p-1 bg-background/50 backdrop-blur-sm">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleZoomOut}
+              disabled={zoomLevel <= 0.5}
+              className="h-8 w-8 p-0"
+              title="Zoom Out"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <div className="text-xs font-medium text-muted-foreground min-w-[3rem] text-center px-2">
+              {Math.round(zoomLevel * 100)}%
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleZoomIn}
+              disabled={zoomLevel >= 2}
+              className="h-8 w-8 p-0"
+              title="Zoom In"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleResetZoom}
+              className="h-8 w-8 p-0"
+              title="Reset Zoom"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Organization Chart Container */}
-      <div className="border border-border/50 rounded-xl bg-gradient-to-br from-card/50 to-card/30 backdrop-blur-sm overflow-hidden shadow-lg">
-        <div className="h-[700px] overflow-auto">
-          <div className="p-6">
-            <div className="flex flex-col items-center min-w-max space-y-6">
+      <div 
+        ref={containerRef}
+        className="relative border border-border/50 rounded-2xl bg-gradient-to-br from-background/95 via-background/90 to-background/95 backdrop-blur-xl overflow-hidden shadow-2xl"
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/5 pointer-events-none" />
+        
+        <div className="relative h-[700px] overflow-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+          <div 
+            className="p-8 flex justify-center"
+            style={{ 
+              transform: `scale(${zoomLevel})`,
+              transformOrigin: 'top center',
+              transition: 'transform 0.2s ease-out',
+              minWidth: '100%'
+            }}
+          >
+            <div className="flex flex-col items-center gap-6">
               {tree.map(node => renderTreeNode(node))}
             </div>
           </div>
