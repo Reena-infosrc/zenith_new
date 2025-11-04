@@ -10,7 +10,11 @@ import {
   Calendar,
   Briefcase,
   Eye,
-  Edit
+  Edit,
+  FileText,
+  MessageSquare,
+  CheckCircle,
+  Bell
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,6 +26,9 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { GoalSettingModal, Employee as GoalEmployee } from "./GoalSettingModal";
+import { ReviewForms } from "./ReviewForms";
+import { ContinuousFeedback } from "./ContinuousFeedback";
+import { ManagerSignOff } from "./ManagerSignOff";
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -233,8 +240,8 @@ export function ManagerPerformanceView() {
         </Card>
       </div>
 
-      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'my-team' | 'my-goals')} className="space-y-4">
-        <TabsList className="bg-muted/50 backdrop-blur-sm">
+      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="space-y-4">
+        <TabsList className="bg-muted/50 backdrop-blur-sm flex-wrap">
           <TabsTrigger value="my-team">
             <Users className="h-4 w-4 mr-2" />
             My Team
@@ -242,6 +249,18 @@ export function ManagerPerformanceView() {
           <TabsTrigger value="my-goals">
             <Target className="h-4 w-4 mr-2" />
             My Goals
+          </TabsTrigger>
+          <TabsTrigger value="reviews">
+            <FileText className="h-4 w-4 mr-2" />
+            Reviews
+          </TabsTrigger>
+          <TabsTrigger value="feedback">
+            <MessageSquare className="h-4 w-4 mr-2" />
+            Feedback
+          </TabsTrigger>
+          <TabsTrigger value="signoff">
+            <CheckCircle className="h-4 w-4 mr-2" />
+            Sign-Off
           </TabsTrigger>
         </TabsList>
 
@@ -647,6 +666,18 @@ export function ManagerPerformanceView() {
               </Card>
             </TabsContent>
           </Tabs>
+        </TabsContent>
+
+        <TabsContent value="reviews" className="space-y-4">
+          <ReviewForms />
+        </TabsContent>
+
+        <TabsContent value="feedback" className="space-y-4">
+          <ContinuousFeedback />
+        </TabsContent>
+
+        <TabsContent value="signoff" className="space-y-4">
+          <ManagerSignOff />
         </TabsContent>
       </Tabs>
 

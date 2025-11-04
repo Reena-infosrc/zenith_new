@@ -11,7 +11,13 @@ import {
   Calendar,
   Briefcase,
   X,
-  Save
+  Save,
+  FileText,
+  MessageSquare,
+  CheckCircle,
+  BarChart3,
+  History,
+  Bell
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +29,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { GoalSettingModal, Employee as GoalEmployee } from "./GoalSettingModal";
 import { Progress } from "@/components/ui/progress";
+import { PerformanceCycles } from "./PerformanceCycles";
+import { ReviewForms } from "./ReviewForms";
+import { ContinuousFeedback } from "./ContinuousFeedback";
+import { ManagerSignOff } from "./ManagerSignOff";
+import { PerformanceDashboard } from "./PerformanceDashboard";
 
 interface Employee {
   id: string;
@@ -193,11 +204,54 @@ export function AdminPerformanceView() {
         </Card>
       </div>
 
-      <Tabs defaultValue="employees" className="space-y-4">
-        <TabsList className="bg-muted/50 backdrop-blur-sm">
-          <TabsTrigger value="employees">Employee List</TabsTrigger>
+      <Tabs defaultValue="dashboard" className="space-y-4">
+        <TabsList className="bg-muted/50 backdrop-blur-sm flex-wrap">
+          <TabsTrigger value="dashboard">
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Dashboard
+          </TabsTrigger>
+          <TabsTrigger value="cycles">
+            <Calendar className="h-4 w-4 mr-2" />
+            Cycles
+          </TabsTrigger>
+          <TabsTrigger value="reviews">
+            <FileText className="h-4 w-4 mr-2" />
+            Reviews
+          </TabsTrigger>
+          <TabsTrigger value="signoff">
+            <CheckCircle className="h-4 w-4 mr-2" />
+            Sign-Off
+          </TabsTrigger>
+          <TabsTrigger value="feedback">
+            <MessageSquare className="h-4 w-4 mr-2" />
+            Feedback
+          </TabsTrigger>
+          <TabsTrigger value="employees">
+            <Users className="h-4 w-4 mr-2" />
+            Employees
+          </TabsTrigger>
           <TabsTrigger value="highlights">Goal Highlights</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dashboard" className="space-y-4">
+          <PerformanceDashboard />
+        </TabsContent>
+
+        <TabsContent value="cycles" className="space-y-4">
+          <PerformanceCycles />
+        </TabsContent>
+
+        <TabsContent value="reviews" className="space-y-4">
+          <ReviewForms />
+        </TabsContent>
+
+        <TabsContent value="signoff" className="space-y-4">
+          <ManagerSignOff />
+        </TabsContent>
+
+        <TabsContent value="feedback" className="space-y-4">
+          <ContinuousFeedback />
+        </TabsContent>
 
         <TabsContent value="employees" className="space-y-4">
           {/* Search and Filter */}
