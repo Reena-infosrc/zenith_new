@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   Users, 
   Target, 
@@ -34,6 +34,7 @@ import { ReviewForms } from "./ReviewForms";
 import { ContinuousFeedback } from "./ContinuousFeedback";
 import { ManagerSignOff } from "./ManagerSignOff";
 import { PerformanceDashboard } from "./PerformanceDashboard";
+import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 
 interface Employee {
   id: string;
@@ -78,6 +79,8 @@ export function AdminPerformanceView() {
   const [showEmployeeDetail, setShowEmployeeDetail] = useState(false);
   const [goalDraft, setGoalDraft] = useState<GoalDraft | null>(null);
   const [isDraftMode, setIsDraftMode] = useState(false);
+  const moduleRef = useRef<HTMLDivElement>(null);
+  const { preserveScroll } = usePreserveScroll();
 
   // Mock data - replace with API calls
   useEffect(() => {
@@ -137,8 +140,27 @@ export function AdminPerformanceView() {
 
   const departments = Array.from(new Set(employees.map(e => e.department)));
 
+  const handleTabClick = () => {
+    if (moduleRef.current) {
+      const moduleTop = moduleRef.current.getBoundingClientRect().top + window.scrollY;
+      const currentScroll = window.scrollY;
+      const targetScroll = moduleTop - 64; // Account for header height (top-16 = 64px)
+      
+      // Only scroll if we're not already at the top of the module
+      // Check if we're more than 50px away from the target position
+      if (Math.abs(currentScroll - targetScroll) > 50) {
+        // First time clicking - scroll to top smoothly
+        window.scrollTo({
+          top: targetScroll,
+          behavior: 'smooth'
+        });
+      }
+      // If already at top (within 50px), do nothing - no scroll needed
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div ref={moduleRef} className="space-y-6" data-performance-module>
       {/* Header Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
@@ -204,33 +226,35 @@ export function AdminPerformanceView() {
         </Card>
       </div>
 
-      <Tabs defaultValue="dashboard" className="space-y-4">
-        <TabsList className="bg-muted/50 backdrop-blur-sm flex-wrap">
-          <TabsTrigger value="dashboard">
+      <Tabs defaultValue="dashboard" className="space-y-4" onValueChange={() => {
+        preserveScroll();
+      }}>
+        <TabsList className="sticky top-16 z-40 bg-muted/50 backdrop-blur-sm flex-wrap">
+          <TabsTrigger value="dashboard" onClick={handleTabClick}>
             <BarChart3 className="h-4 w-4 mr-2" />
             Dashboard
           </TabsTrigger>
-          <TabsTrigger value="cycles">
+          <TabsTrigger value="cycles" onClick={handleTabClick}>
             <Calendar className="h-4 w-4 mr-2" />
             Cycles
           </TabsTrigger>
-          <TabsTrigger value="reviews">
+          <TabsTrigger value="reviews" onClick={handleTabClick}>
             <FileText className="h-4 w-4 mr-2" />
             Reviews
           </TabsTrigger>
-          <TabsTrigger value="signoff">
+          <TabsTrigger value="signoff" onClick={handleTabClick}>
             <CheckCircle className="h-4 w-4 mr-2" />
             Sign-Off
           </TabsTrigger>
-          <TabsTrigger value="feedback">
+          <TabsTrigger value="feedback" onClick={handleTabClick}>
             <MessageSquare className="h-4 w-4 mr-2" />
             Feedback
           </TabsTrigger>
-          <TabsTrigger value="employees">
+          <TabsTrigger value="employees" onClick={handleTabClick}>
             <Users className="h-4 w-4 mr-2" />
             Employees
           </TabsTrigger>
-          <TabsTrigger value="highlights">Goal Highlights</TabsTrigger>
+          <TabsTrigger value="highlights" onClick={handleTabClick}>Goal Highlights</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="space-y-4">

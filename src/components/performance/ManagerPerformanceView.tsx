@@ -29,6 +29,7 @@ import { GoalSettingModal, Employee as GoalEmployee } from "./GoalSettingModal";
 import { ReviewForms } from "./ReviewForms";
 import { ContinuousFeedback } from "./ContinuousFeedback";
 import { ManagerSignOff } from "./ManagerSignOff";
+import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -89,7 +90,8 @@ export function ManagerPerformanceView() {
   const [employeeGoals, setEmployeeGoals] = useState<Map<string, Goal[]>>(new Map());
   const [searchTerm, setSearchTerm] = useState("");
   const [showGoalModal, setShowGoalModal] = useState(false);
-  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals'>('my-team');
+  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'reviews' | 'feedback' | 'signoff'>('my-team');
+  const { preserveScroll } = usePreserveScroll();
 
   // Mock growth data for manager's own goals
   const growthData = [
@@ -240,7 +242,10 @@ export function ManagerPerformanceView() {
         </Card>
       </div>
 
-      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="space-y-4">
+      <Tabs value={viewMode} onValueChange={(v) => {
+        preserveScroll();
+        setViewMode(v as any);
+      }} className="space-y-4">
         <TabsList className="bg-muted/50 backdrop-blur-sm flex-wrap">
           <TabsTrigger value="my-team">
             <Users className="h-4 w-4 mr-2" />
@@ -397,7 +402,9 @@ export function ManagerPerformanceView() {
         </TabsContent>
 
         <TabsContent value="my-goals" className="space-y-4">
-          <Tabs defaultValue="overview" className="space-y-4">
+          <Tabs defaultValue="overview" className="space-y-4" onValueChange={() => {
+            preserveScroll();
+          }}>
             <TabsList className="bg-muted/50 backdrop-blur-sm">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="goals-timeline">Goals & Timeline</TabsTrigger>

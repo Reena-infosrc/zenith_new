@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 
 interface PerformanceCycle {
   id: string;
@@ -56,6 +57,7 @@ export function PerformanceCycles() {
     startDate: '',
     endDate: ''
   });
+  const { preserveScroll } = usePreserveScroll();
 
   // Mock data - replace with API calls
   useEffect(() => {
@@ -223,7 +225,9 @@ export function PerformanceCycles() {
       </Card>
 
       {/* Cycles List */}
-      <Tabs defaultValue="all" className="space-y-4">
+      <Tabs defaultValue="all" className="space-y-4" onValueChange={() => {
+        preserveScroll();
+      }}>
         <TabsList>
           <TabsTrigger value="all">All Cycles</TabsTrigger>
           <TabsTrigger value="active">Active</TabsTrigger>

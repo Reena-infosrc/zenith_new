@@ -23,6 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 
 interface Feedback {
   id: string;
@@ -55,6 +56,7 @@ export function ContinuousFeedback() {
     goalId: '',
     visibility: 'private' as 'private' | 'manager'
   });
+  const { preserveScroll } = usePreserveScroll();
 
   // Mock data
   useEffect(() => {
@@ -205,7 +207,9 @@ export function ContinuousFeedback() {
       </Card>
 
       {/* Feedback List */}
-      <Tabs defaultValue="received" className="space-y-4">
+      <Tabs defaultValue="received" className="space-y-4" onValueChange={() => {
+        preserveScroll();
+      }}>
         <TabsList>
           <TabsTrigger value="received">Received</TabsTrigger>
           <TabsTrigger value="given">Given</TabsTrigger>

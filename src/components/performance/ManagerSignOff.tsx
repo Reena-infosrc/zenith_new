@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 
 interface ReviewSubmission {
   id: string;
@@ -45,6 +46,7 @@ export function ManagerSignOff() {
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionType, setActionType] = useState<'approve' | 'reject' | null>(null);
   const [actionComment, setActionComment] = useState('');
+  const { preserveScroll } = usePreserveScroll();
 
   // Mock data
   useEffect(() => {
@@ -213,7 +215,9 @@ export function ManagerSignOff() {
       </div>
 
       {/* Submissions */}
-      <Tabs defaultValue="pending" className="space-y-4">
+      <Tabs defaultValue="pending" className="space-y-4" onValueChange={() => {
+        preserveScroll();
+      }}>
         <TabsList>
           <TabsTrigger value="pending">
             Pending ({pendingCount})

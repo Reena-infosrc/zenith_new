@@ -26,6 +26,7 @@ import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 
 interface ReviewQuestion {
   id: string;
@@ -70,6 +71,7 @@ export function ReviewForms() {
   const [forms, setForms] = useState<ReviewForm[]>([]);
   const [selectedForm, setSelectedForm] = useState<ReviewForm | null>(null);
   const [showFormModal, setShowFormModal] = useState(false);
+  const { preserveScroll } = usePreserveScroll();
   const [rubric, setRubric] = useState<Rubric>({
     id: 'default',
     name: 'Performance Rating Scale',
@@ -234,7 +236,9 @@ export function ReviewForms() {
         </div>
       </div>
 
-      <Tabs defaultValue="self" className="space-y-4">
+      <Tabs defaultValue="self" className="space-y-4" onValueChange={() => {
+        preserveScroll();
+      }}>
         <TabsList>
           <TabsTrigger value="self">
             <User className="h-4 w-4 mr-2" />

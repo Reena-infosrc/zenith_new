@@ -33,6 +33,7 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { cn } from "@/lib/utils";
+import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 
 interface PerformanceGoal {
   id: string;
@@ -58,6 +59,7 @@ interface GrowthData {
 }
 
 export function UserPerformanceView() {
+  const { preserveScroll } = usePreserveScroll();
   // Mock data - replace with API calls
   const goals: PerformanceGoal[] = [
     {
@@ -219,7 +221,9 @@ export function UserPerformanceView() {
         </Card>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs defaultValue="overview" className="space-y-4" onValueChange={() => {
+        preserveScroll();
+      }}>
         <TabsList className="bg-muted/50 backdrop-blur-sm">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="goals">Goals & Timeline</TabsTrigger>
