@@ -79,19 +79,19 @@ function EmployeeDetailModal({ employee, employees, isOpen, onClose }: EmployeeD
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <span className="text-sm font-medium">Department:</span>
+                    <span className="text-sm font-medium">Department:</span>
                   <p className="text-sm text-muted-foreground">{employee.department}</p>
                 </div>
                 <div>
-                  <span className="text-sm font-medium">Location:</span>
+                    <span className="text-sm font-medium">Location:</span>
                   <p className="text-sm text-muted-foreground">{employee.location || 'Not specified'}</p>
                 </div>
                 <div>
-                  <span className="text-sm font-medium">Employment Category:</span>
+                    <span className="text-sm font-medium">Employment Category:</span>
                   <Badge variant="secondary">{employee.employment_category || 'Not specified'}</Badge>
                 </div>
                 <div>
-                  <span className="text-sm font-medium">Status:</span>
+                    <span className="text-sm font-medium">Status:</span>
                   <Badge variant={employee.employee_status === 'Billable' ? 'default' : 'secondary'}>
                     {employee.employee_status || 'Not specified'}
                   </Badge>
@@ -108,47 +108,47 @@ function EmployeeDetailModal({ employee, employees, isOpen, onClose }: EmployeeD
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {reportingManager && (
-                <div className="space-y-2">
-                  <span className="text-sm font-medium">Reports to:</span>
+                  {reportingManager && (
+                    <div className="space-y-2">
+                        <span className="text-sm font-medium">Reports to:</span>
                   <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={reportingManager.photoUrl} alt={reportingManager.name} />
-                      <AvatarFallback className="text-xs">
-                        {reportingManager.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="text-sm font-medium">{reportingManager.name}</p>
-                      <p className="text-xs text-muted-foreground">{reportingManager.position}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {directReports.length > 0 && (
-                <div className="space-y-2">
-                  <span className="text-sm font-medium">Direct Reports ({directReports.length}):</span>
-                  <div className="space-y-2">
-                    {directReports.map(report => (
-                      <div key={report.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={report.photoUrl} alt={report.name} />
+                          <AvatarImage src={reportingManager.photoUrl} alt={reportingManager.name} />
                           <AvatarFallback className="text-xs">
-                            {report.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                            {reportingManager.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="text-sm font-medium">{report.name}</p>
-                          <p className="text-xs text-muted-foreground">{report.position}</p>
+                          <p className="text-sm font-medium">{reportingManager.name}</p>
+                          <p className="text-xs text-muted-foreground">{reportingManager.position}</p>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    </div>
+                  )}
+                  
+                  {directReports.length > 0 && (
+                    <div className="space-y-2">
+                        <span className="text-sm font-medium">Direct Reports ({directReports.length}):</span>
+                  <div className="space-y-2">
+                        {directReports.map(report => (
+                          <div key={report.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={report.photoUrl} alt={report.name} />
+                              <AvatarFallback className="text-xs">
+                                {report.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="text-sm font-medium">{report.name}</p>
+                              <p className="text-xs text-muted-foreground">{report.position}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
         </div>
       </DialogContent>
     </Dialog>
@@ -681,7 +681,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
                 }
               }}
               data-node-card
-              className={cn(
+          className={cn(
                 "relative group",
                 "bg-gradient-to-br from-background/95 via-background/90 to-background/95",
                 "backdrop-blur-xl border rounded-xl",
@@ -691,11 +691,11 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
                 "w-[220px] min-w-[220px] flex flex-col gap-2",
                 isHighlighted ? "ring-2 ring-primary shadow-lg border-primary" : "border-border/60 shadow-sm",
                 columnIndex === 0 ? "ring-1 ring-primary/20 shadow-md" : ""
-              )}
-              onClick={() => handleEmployeeClick(node.employee)}
-              tabIndex={0}
-              role="button"
-              aria-expanded={isExpanded}
+          )}
+          onClick={() => handleEmployeeClick(node.employee)}
+          tabIndex={0}
+          role="button"
+          aria-expanded={isExpanded}
             >
               {/* Employee Info */}
               <div className="flex items-center gap-3">
@@ -731,30 +731,30 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
                 </div>
               </div>
 
-              {/* Expand/Collapse Button */}
-              {hasChildren && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
+          {/* Expand/Collapse Button */}
+          {hasChildren && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
                     "absolute -right-3 top-1/2 -translate-y-1/2 h-7 w-7 p-0 rounded-full z-20",
                     "bg-background border border-border shadow-md",
                     "hover:bg-primary hover:text-primary-foreground hover:border-primary",
                     "transition-all duration-200"
-                  )}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleNode(node.employee.id);
-                  }}
-                  aria-label={isExpanded ? 'Collapse team' : 'Expand team'}
-                >
-                  {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 rotate-90" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
-                  )}
-                </Button>
               )}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleNode(node.employee.id);
+              }}
+              aria-label={isExpanded ? 'Collapse team' : 'Expand team'}
+            >
+              {isExpanded ? (
+                    <ChevronDown className="h-4 w-4 rotate-90" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </Button>
+          )}
             </div>
           </div>
         </div>
@@ -921,8 +921,8 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
             )}
           </div>
           
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-1 border border-border/50 rounded-lg p-1 bg-background/50 backdrop-blur-sm">
+          {/* Zoom Controls - Hidden */}
+          {/* <div className="flex items-center gap-1 border border-border/50 rounded-lg p-1 bg-background/50 backdrop-blur-sm">
             <Button
               variant="ghost"
               size="sm"
@@ -955,7 +955,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
             >
               <Maximize2 className="h-4 w-4" />
             </Button>
-          </div>
+          </div> */}
         </div>
       </div>
 
