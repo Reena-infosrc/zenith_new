@@ -227,7 +227,6 @@ export function UserPerformanceView() {
         <TabsList className="bg-muted/50 backdrop-blur-sm">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="goals">Goals & Timeline</TabsTrigger>
-          <TabsTrigger value="growth">Growth Analytics</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -307,7 +306,7 @@ export function UserPerformanceView() {
         </TabsContent>
 
         <TabsContent value="goals" className="space-y-4">
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {goals.map((goal) => (
               <Card
                 key={goal.id}
@@ -389,51 +388,6 @@ export function UserPerformanceView() {
               </Card>
             ))}
           </div>
-        </TabsContent>
-
-        <TabsContent value="growth" className="space-y-4">
-          <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5" />
-                Growth Timeline
-              </CardTitle>
-              <CardDescription>Track your performance journey</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={400}>
-                <RechartsLineChart data={growthData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                  <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="performance"
-                    stroke="#4facfe"
-                    strokeWidth={3}
-                    name="Performance Score"
-                    dot={{ fill: '#4facfe', r: 5 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="goalsCompleted"
-                    stroke="#42b983"
-                    strokeWidth={3}
-                    name="Goals Completed"
-                    dot={{ fill: '#42b983', r: 5 }}
-                  />
-                </RechartsLineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </div>

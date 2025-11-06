@@ -255,89 +255,104 @@ export function ReviewForms() {
         </TabsList>
 
         <TabsContent value="self" className="space-y-4">
-          {forms.filter(f => f.formType === 'self').map((form) => (
-            <Card
-              key={form.id}
-              className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all"
-            >
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold">{form.cycleName}</h3>
-                      {getFormTypeBadge(form.formType)}
-                      {getStatusBadge(form.status)}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Employee: {form.employeeName}
-                    </p>
-                    {form.submittedAt && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Submitted: {new Date(form.submittedAt).toLocaleDateString()}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {forms.filter(f => f.formType === 'self').map((form) => (
+              <Card
+                key={form.id}
+                className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all hover:shadow-xl"
+              >
+                <CardContent className="p-6">
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <h3 className="text-lg font-semibold">{form.cycleName}</h3>
+                      </div>
+                      <div className="flex items-center gap-2 mb-3 flex-wrap">
+                        {getFormTypeBadge(form.formType)}
+                        {getStatusBadge(form.status)}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Employee: {form.employeeName}
                       </p>
-                    )}
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setSelectedForm(form);
-                      setShowFormModal(true);
-                    }}
-                  >
-                    {form.status === 'draft' ? <Edit className="h-4 w-4 mr-2" /> : <FileText className="h-4 w-4 mr-2" />}
-                    {form.status === 'draft' ? 'Continue' : 'View'}
-                  </Button>
-                </div>
+                      {form.submittedAt && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Submitted: {new Date(form.submittedAt).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Progress</span>
-                    <span className="font-medium">
-                      {form.questions.filter(q => q.answer !== '' && q.answer !== 0).length} / {form.questions.length} questions
-                    </span>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Progress</span>
+                        <span className="font-medium">
+                          {form.questions.filter(q => q.answer !== '' && q.answer !== 0).length} / {form.questions.length} questions
+                        </span>
+                      </div>
+                      <Progress
+                        value={(form.questions.filter(q => q.answer !== '' && q.answer !== 0).length / form.questions.length) * 100}
+                        className="h-2"
+                      />
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => {
+                        setSelectedForm(form);
+                        setShowFormModal(true);
+                      }}
+                    >
+                      {form.status === 'draft' ? <Edit className="h-4 w-4 mr-2" /> : <FileText className="h-4 w-4 mr-2" />}
+                      {form.status === 'draft' ? 'Continue' : 'View'}
+                    </Button>
                   </div>
-                  <Progress
-                    value={(form.questions.filter(q => q.answer !== '' && q.answer !== 0).length / form.questions.length) * 100}
-                    className="h-2"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </TabsContent>
 
         <TabsContent value="manager" className="space-y-4">
-          {forms.filter(f => f.formType === 'manager').map((form) => (
-            <Card
-              key={form.id}
-              className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all"
-            >
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold">{form.cycleName}</h3>
-                      {getFormTypeBadge(form.formType)}
-                      {getStatusBadge(form.status)}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {forms.filter(f => f.formType === 'manager').map((form) => (
+              <Card
+                key={form.id}
+                className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all hover:shadow-xl"
+              >
+                <CardContent className="p-6">
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <h3 className="text-lg font-semibold">{form.cycleName}</h3>
+                      </div>
+                      <div className="flex items-center gap-2 mb-3 flex-wrap">
+                        {getFormTypeBadge(form.formType)}
+                        {getStatusBadge(form.status)}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Employee: {form.employeeName}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Reviewer: {form.reviewerName}
+                      </p>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      Employee: {form.employeeName} • Reviewer: {form.reviewerName}
-                    </p>
+
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => {
+                        setSelectedForm(form);
+                        setShowFormModal(true);
+                      }}
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      {form.status === 'draft' ? 'Complete' : 'View'}
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setSelectedForm(form);
-                      setShowFormModal(true);
-                    }}
-                  >
-                    <FileText className="h-4 w-4 mr-2" />
-                    {form.status === 'draft' ? 'Complete' : 'View'}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </TabsContent>
 
         <TabsContent value="peer" className="space-y-4">
