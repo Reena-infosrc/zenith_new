@@ -67,7 +67,16 @@ export function useFeatureFlags() {
     }
     
     try {
-      const response = await fetch(`${API_BASE_URL}/feature-flags/`);
+      const token = localStorage.getItem('auth_token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/feature-flags/`, { headers });
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -283,11 +292,18 @@ export function useFeatureFlags() {
   // Update feature flag status
   const updateFeatureFlag = async (flagId: string, status: FeatureFlagStatus): Promise<boolean> => {
     try {
+      const token = localStorage.getItem('auth_token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/feature-flags/${flagId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           status: status,
           updated_by: 'current_user' // This should be replaced with actual user ID

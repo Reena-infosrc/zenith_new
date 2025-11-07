@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import Dict, Any, Optional
 from ..services.bedrock_service import bedrock_service
+from ..security import get_current_active_user
 
 router = APIRouter(
     prefix="/api/ai",
@@ -11,7 +12,8 @@ router = APIRouter(
 @router.post("/chat")
 async def ai_chat(
     message: str = Body(..., embed=True),
-    context: Optional[str] = Body(None, embed=True)
+    context: Optional[str] = Body(None, embed=True),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """General AI chat endpoint"""
     try:
@@ -39,7 +41,8 @@ async def ai_chat(
 async def ai_leave_suggestion(
     employee_name: str = Body(..., embed=True),
     start_date: str = Body(..., embed=True),
-    end_date: str = Body(..., embed=True)
+    end_date: str = Body(..., embed=True),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Generate AI-powered leave suggestions"""
     try:
@@ -62,7 +65,8 @@ async def ai_leave_suggestion(
 @router.post("/recruitment-response")
 async def ai_recruitment_response(
     question: str = Body(..., embed=True),
-    job_info: Dict[str, Any] = Body(..., embed=True)
+    job_info: Dict[str, Any] = Body(..., embed=True),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Generate AI-powered recruitment responses"""
     try:
@@ -81,7 +85,8 @@ async def ai_recruitment_response(
 
 @router.post("/sentiment-analysis")
 async def ai_sentiment_analysis(
-    feedback_text: str = Body(..., embed=True)
+    feedback_text: str = Body(..., embed=True),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Analyze employee feedback sentiment using AI"""
     try:
@@ -99,7 +104,8 @@ async def ai_sentiment_analysis(
 
 @router.post("/performance-insights")
 async def ai_performance_insights(
-    employee_data: Dict[str, Any] = Body(..., embed=True)
+    employee_data: Dict[str, Any] = Body(..., embed=True),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Generate AI-powered performance insights"""
     try:
@@ -130,7 +136,8 @@ async def ai_performance_insights(
 @router.post("/hr-policy-query")
 async def ai_hr_policy_query(
     question: str = Body(..., embed=True),
-    policy_context: Optional[str] = Body(None, embed=True)
+    policy_context: Optional[str] = Body(None, embed=True),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Answer HR policy questions using AI"""
     try:

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 import datetime
 
 from ..database_dynamodb import get_employees_table, parse_dynamodb_item
+from ..security import get_current_active_user
 
 router = APIRouter(
     prefix="/api/employees-dashboard",
@@ -11,7 +12,7 @@ router = APIRouter(
 )
 
 @router.get("/")
-async def get_employees_dashboard():
+async def get_employees_dashboard(current_user: dict = Depends(get_current_active_user)):
     """Get comprehensive employee analytics data for dashboard visualization"""
     try:
         # Get all employees - use parallel queries for better performance

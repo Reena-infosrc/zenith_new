@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict
 from ..models.feature_flag import FeatureFlagCreate, FeatureFlagUpdate, FeatureFlagInDB, FeatureFlagStatus
 from ..database_dynamodb import get_feature_flags_table, parse_dynamodb_item
+from ..security import get_current_active_user
 import uuid
 from datetime import datetime
 
@@ -12,7 +13,7 @@ router = APIRouter(
 )
 
 @router.get("/", response_model=List[FeatureFlagInDB])
-async def get_all_feature_flags():
+async def get_all_feature_flags(current_user: dict = Depends(get_current_active_user)):
     """Get all feature flags"""
     try:
         table = await get_feature_flags_table()
@@ -32,7 +33,7 @@ async def get_all_feature_flags():
         )
 
 @router.get("/by-category/{category}", response_model=List[FeatureFlagInDB])
-async def get_feature_flags_by_category(category: str):
+async def get_feature_flags_by_category(category: str, current_user: dict = Depends(get_current_active_user)):
     """Get feature flags by category"""
     try:
         table = await get_feature_flags_table()
@@ -56,7 +57,7 @@ async def get_feature_flags_by_category(category: str):
         )
 
 @router.get("/by-module/{module}", response_model=List[FeatureFlagInDB])
-async def get_feature_flags_by_module(module: str):
+async def get_feature_flags_by_module(module: str, current_user: dict = Depends(get_current_active_user)):
     """Get feature flags by module"""
     try:
         table = await get_feature_flags_table()
@@ -81,7 +82,7 @@ async def get_feature_flags_by_module(module: str):
         )
 
 @router.get("/status", response_model=Dict[str, str])
-async def get_feature_flag_status():
+async def get_feature_flag_status(current_user: dict = Depends(get_current_active_user)):
     """Get all feature flags as a simple status map"""
     try:
         table = await get_feature_flags_table()
@@ -101,7 +102,7 @@ async def get_feature_flag_status():
         )
 
 @router.get("/{flag_id}", response_model=FeatureFlagInDB)
-async def get_feature_flag(flag_id: str):
+async def get_feature_flag(flag_id: str, current_user: dict = Depends(get_current_active_user)):
     """Get a specific feature flag by ID"""
     try:
         table = await get_feature_flags_table()
@@ -122,7 +123,7 @@ async def get_feature_flag(flag_id: str):
         )
 
 @router.post("/", response_model=FeatureFlagInDB)
-async def create_feature_flag(feature_flag: FeatureFlagCreate):
+async def create_feature_flag(feature_flag: FeatureFlagCreate, current_user: dict = Depends(get_current_active_user)):
     """Create a new feature flag"""
     try:
         table = await get_feature_flags_table()
@@ -156,7 +157,7 @@ async def create_feature_flag(feature_flag: FeatureFlagCreate):
         )
 
 @router.put("/{flag_id}", response_model=FeatureFlagInDB)
-async def update_feature_flag(flag_id: str, feature_flag_update: FeatureFlagUpdate):
+async def update_feature_flag(flag_id: str, feature_flag_update: FeatureFlagUpdate, current_user: dict = Depends(get_current_active_user)):
     """Update a feature flag"""
     try:
         table = await get_feature_flags_table()
@@ -224,7 +225,7 @@ async def update_feature_flag(flag_id: str, feature_flag_update: FeatureFlagUpda
         )
 
 @router.delete("/{flag_id}")
-async def delete_feature_flag(flag_id: str):
+async def delete_feature_flag(flag_id: str, current_user: dict = Depends(get_current_active_user)):
     """Delete a feature flag"""
     try:
         table = await get_feature_flags_table()

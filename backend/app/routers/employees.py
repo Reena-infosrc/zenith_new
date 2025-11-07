@@ -43,7 +43,7 @@ async def employees_health_check():
     }
 
 @router.get("/clients", tags=["employees"])
-async def get_unique_clients():
+async def get_unique_clients(current_user: dict = Depends(get_current_active_user)):
     """Get all unique client/account values from employees"""
     try:
         table = await get_employees_table()
@@ -76,7 +76,7 @@ async def get_unique_clients():
         )
 
 @router.get("/employee-statuses", tags=["employees"])
-async def get_unique_employee_statuses():
+async def get_unique_employee_statuses(current_user: dict = Depends(get_current_active_user)):
     """Get all unique employee_status values from employees"""
     try:
         table = await get_employees_table()
@@ -111,7 +111,8 @@ async def get_unique_employee_statuses():
 @router.get("/admins", response_model=List[Dict[str, Any]])
 async def get_admins(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000)
+    limit: int = Query(100, ge=1, le=1000),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Get all admins - simplified version without Pydantic models"""
     print(f"DEBUG: get_admins called")
@@ -153,7 +154,8 @@ async def get_admins(
 
 @router.post("/admins", response_model=Dict[str, Any])
 async def create_admin(
-    admin_data: Dict[str, Any]
+    admin_data: Dict[str, Any],
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Create a new admin - simplified version without Pydantic models"""
     print(f"DEBUG: create_admin called with data: {admin_data}")
@@ -199,7 +201,8 @@ async def create_admin(
 
 @router.get("/admins/{admin_id}", response_model=Dict[str, Any])
 async def get_admin(
-    admin_id: str
+    admin_id: str,
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Get a specific admin by ID - simplified version"""
     try:
@@ -227,7 +230,8 @@ async def get_admin(
 @router.put("/admins/{admin_id}", response_model=Dict[str, Any])
 async def update_admin(
     admin_id: str,
-    admin_data: Dict[str, Any]
+    admin_data: Dict[str, Any],
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Update an admin - simplified version"""
     try:
@@ -269,7 +273,8 @@ async def update_admin(
 
 @router.delete("/admins/{admin_id}")
 async def delete_admin(
-    admin_id: str
+    admin_id: str,
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Delete an admin - only accessible by admins"""
     try:
@@ -344,7 +349,8 @@ async def get_employees(
     account: Optional[str] = None,
     search: Optional[str] = None,
     sort_by: Optional[str] = Query(None, description="Sort by field: name, date_of_joining"),
-    sort_order: Optional[str] = Query("asc", description="Sort order: asc, desc")
+    sort_order: Optional[str] = Query("asc", description="Sort order: asc, desc"),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Get all employees with optional filtering from DynamoDB"""
     try:
@@ -465,7 +471,7 @@ async def get_employees(
         raise HTTPException(status_code=500, detail=f"Error fetching employees: {str(e)}")
 
 @router.get("/{employee_id}", response_model=EmployeeInDB)
-async def get_employee(employee_id: str):
+async def get_employee(employee_id: str, current_user: dict = Depends(get_current_active_user)):
     """Get a specific employee by ID"""
     try:
         table = await get_employees_table()
@@ -489,6 +495,7 @@ async def get_employee(employee_id: str):
 
 @router.post("/", response_model=EmployeeInDB, status_code=201)
 async def create_employee(
+    current_user: dict = Depends(get_current_active_user),
     employeeId: Optional[str] = Form(None),
     firstName: Optional[str] = Form(None),
     lastName: Optional[str] = Form(None),
@@ -633,7 +640,7 @@ async def create_employee(
         raise HTTPException(status_code=500, detail=f"Failed to create employee: {str(e)}")
 
 @router.put("/{employee_id}", response_model=EmployeeInDB)
-async def update_employee(employee_id: str, employee_update: EmployeeUpdate):
+async def update_employee(employee_id: str, employee_update: EmployeeUpdate, current_user: dict = Depends(get_current_active_user)):
     """Update an existing employee"""
     try:
         table = await get_employees_table()
@@ -676,7 +683,7 @@ async def update_employee(employee_id: str, employee_update: EmployeeUpdate):
         raise HTTPException(status_code=500, detail=f"Failed to update employee: {str(e)}")
 
 @router.post("/bulk-update-names", status_code=200)
-async def bulk_update_employee_names():
+async def bulk_update_employee_names(current_user: dict = Depends(get_current_active_user)):
     """Update all existing employee names to camel case format"""
     try:
         table = await get_employees_table()
@@ -722,7 +729,7 @@ async def bulk_update_employee_names():
         raise HTTPException(status_code=500, detail=f"Failed to update employee names: {str(e)}")
 
 @router.delete("/{employee_id}", status_code=204)
-async def delete_employee(employee_id: str):
+async def delete_employee(employee_id: str, current_user: dict = Depends(get_current_active_user)):
     """Delete an employee"""
     try:
         table = await get_employees_table()

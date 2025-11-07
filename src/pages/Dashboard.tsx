@@ -146,7 +146,16 @@ export default function Dashboard() {
         return;
       }
       
-      const response = await fetch(`${API_BASE_URL}/employees-dashboard/`);
+      const token = localStorage.getItem('auth_token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/employees-dashboard/`, { headers });
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

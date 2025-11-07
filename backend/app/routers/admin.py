@@ -66,9 +66,8 @@ async def test_admin_endpoint():
 @router.get("/", response_model=List[Admin])
 async def get_admins(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000)
-    # Temporarily remove authentication to test basic functionality
-    # current_user: dict = Depends(get_current_active_user)
+    limit: int = Query(100, ge=1, le=1000),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Get all admins - temporarily public for testing"""
     print(f"DEBUG: get_admins called")
@@ -110,9 +109,8 @@ async def get_admins(
 
 @router.post("/", response_model=Admin)
 async def create_admin(
-    admin_data: AdminCreate
-    # Temporarily remove authentication to test basic functionality
-    # current_user: dict = Depends(get_current_active_user)
+    admin_data: AdminCreate,
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Create a new admin - temporarily public for testing"""
     print(f"DEBUG: create_admin called with data: {admin_data}")
