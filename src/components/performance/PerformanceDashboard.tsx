@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { useEmployees } from "@/hooks/use-employees";
 import {
   BarChart,
   Bar,
@@ -55,6 +56,8 @@ interface TeamPerformance {
 }
 
 export function PerformanceDashboard() {
+  const { employees, fetchEmployees } = useEmployees();
+  
   const [stats, setStats] = useState<DashboardStats>({
     totalEmployees: 150,
     cycleCompletionRate: 72,
@@ -72,13 +75,7 @@ export function PerformanceDashboard() {
     { rating: 1, count: 0, percentage: 0 }
   ]);
 
-  const [teamPerformance, setTeamPerformance] = useState<TeamPerformance[]>([
-    { team: 'Engineering', completionRate: 85, averageRating: 4.2, employees: 45 },
-    { team: 'Product', completionRate: 78, averageRating: 4.0, employees: 25 },
-    { team: 'Sales', completionRate: 65, averageRating: 3.8, employees: 30 },
-    { team: 'Marketing', completionRate: 70, averageRating: 3.9, employees: 20 },
-    { team: 'Operations', completionRate: 60, averageRating: 3.5, employees: 30 }
-  ]);
+  const [teamPerformance, setTeamPerformance] = useState<TeamPerformance[]>([]);
 
   const [completionTrend, setCompletionTrend] = useState([
     { week: 'Week 1', completed: 20, pending: 130 },
@@ -90,6 +87,98 @@ export function PerformanceDashboard() {
   const [selectedCycle, setSelectedCycle] = useState('current');
 
   const COLORS = ['#4facfe', '#00f2fe', '#42b983', '#ffd93d', '#ff6b6b'];
+
+  // Fetch employees on mount
+  useEffect(() => {
+    fetchEmployees();
+  }, [fetchEmployees]);
+
+  // Calculate team performance by Director
+  useEffect(() => {
+    if (!employees || employees.length === 0) return;
+
+    // Find all directors (employees with "Director" in their position)
+    const directors = employees.filter(emp => {
+      const position = emp.position?.toLowerCase() || '';
+      return position.includes('director');
+    });
+
+    // Create a map for quick employee lookup
+    const employeeMap = new Map(employees.map(emp => [emp.id, emp]));
+
+    // Function to find the director an employee reports to (directly or indirectly)
+    const findDirector = (employeeId: string, visited: Set<string> = new Set()): string | null => {
+      if (visited.has(employeeId)) return null; // Prevent circular references
+      visited.add(employeeId);
+
+      const employee = employeeMap.get(employeeId);
+      if (!employee || !employee.reporting_to) return null;
+
+      const manager = employeeMap.get(employee.reporting_to);
+      if (!manager) return null;
+
+      // Check if manager is a director
+      const managerPosition = manager.position?.toLowerCase() || '';
+      if (managerPosition.includes('director')) {
+        return manager.id;
+      }
+
+      // Recursively check up the chain
+      return findDirector(manager.id, visited);
+    };
+
+    // Group employees by their director
+    const teamsByDirector = new Map<string, { director: typeof directors[0]; employees: typeof employees }>();
+
+    directors.forEach(director => {
+      teamsByDirector.set(director.id, {
+        director,
+        employees: []
+      });
+    });
+
+    // Assign employees to their directors
+    employees.forEach(emp => {
+      // Check if employee is a director themselves
+      const position = emp.position?.toLowerCase() || '';
+      if (position.includes('director')) {
+        // Don't add directors to other directors' teams
+        return;
+      }
+
+      // Find which director this employee reports to
+      const directorId = findDirector(emp.id);
+      if (directorId && teamsByDirector.has(directorId)) {
+        teamsByDirector.get(directorId)!.employees.push(emp);
+      }
+    });
+
+    // Calculate performance metrics for each director's team
+    const teamPerformanceData: TeamPerformance[] = Array.from(teamsByDirector.entries())
+      .map(([directorId, teamData]) => {
+        const teamMembers = teamData.employees;
+        const teamSize = teamMembers.length;
+
+        // Mock performance calculations - replace with actual data from performance reviews
+        // For now, using random values based on team size
+        const baseCompletionRate = Math.max(60, 100 - (teamSize * 0.5));
+        const baseRating = 3.5 + (Math.random() * 0.7); // Random rating between 3.5-4.2
+
+        return {
+          team: teamData.director.name,
+          completionRate: Math.round(baseCompletionRate),
+          averageRating: parseFloat(baseRating.toFixed(1)),
+          employees: teamSize
+        };
+      })
+      .filter(team => team.employees > 0) // Only show teams with members
+      .sort((a, b) => b.completionRate - a.completionRate); // Sort by completion rate
+
+    setTeamPerformance(teamPerformanceData.length > 0 ? teamPerformanceData : [
+      // Fallback if no directors found
+      { team: 'General Team', completionRate: 72, averageRating: 3.8, employees: employees.length }
+    ]);
+  }, [employees]);
 
   const handleExport = () => {
     // TODO: Export to CSV

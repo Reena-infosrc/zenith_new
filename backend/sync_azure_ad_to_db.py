@@ -320,7 +320,7 @@ def map_azure_user_to_employee(azure_user):
     
     return employee_data
 
-def sync_users(json_file_path, update_reporting_only: bool = False, update_location_only: bool = False):
+def sync_users(json_file_path, update_reporting_only: bool = False, update_location_only: bool = False, dry_run: bool = False, insert_only: bool = False):
     """Main function to sync users from JSON to DynamoDB"""
     
     # Load excluded users
@@ -340,6 +340,17 @@ def sync_users(json_file_path, update_reporting_only: bool = False, update_locat
     
     print(f"Found {len(azure_users)} users in JSON file")
     
+    # If dry run, analyze what would happen without making changes
+    if dry_run:
+        print("\n" + "="*60)
+        print("DRY RUN MODE - No changes will be made to the database")
+        print("="*60)
+    
+    if insert_only:
+        print("\n" + "="*60)
+        print("INSERT ONLY MODE - Existing records will NOT be updated")
+        print("="*60)
+    
     # Track stats
     skipped_count = 0
     added_count = 0
@@ -350,6 +361,7 @@ def sync_users(json_file_path, update_reporting_only: bool = False, update_locat
     skipped_location_remote = 0
     skipped_location_nochange = 0
     skipped_reporting_already_set = 0
+    skipped_existing_in_insert_only = 0
     
     # Process each user
     total = len(azure_users)
@@ -366,9 +378,16 @@ def sync_users(json_file_path, update_reporting_only: bool = False, update_locat
             print(f"  - Skipped (excluded): {user_principal_name or email}", flush=True)
             continue
         
-        # If the employee exists, update fields based on mode flags
+        # If the employee exists, handle based on mode flags
         if check_email_exists_case_insensitive(table, effective_email_lower):
             duplicate_count += 1
+            
+            # In insert-only mode, skip all existing records
+            if insert_only:
+                skipped_existing_in_insert_only += 1
+                print(f"  - Skipped (already exists - insert-only mode): {effective_email_lower}", flush=True)
+                continue
+            
             # reporting_to (skip if location-only)
             if not update_location_only:
                 manager_email = (
@@ -376,39 +395,71 @@ def sync_users(json_file_path, update_reporting_only: bool = False, update_locat
                 ).get('manager_email') or ''
                 manager_email_lower = manager_email.lower()
                 if manager_email_lower:
-                    updated = update_reporting_to_by_manager_email(
-                        table,
-                        effective_email_lower,
-                        manager_email_lower,
-                        skip_if_already_set=True
-                    )
-                    if updated:
-                        updated_reporting_count += 1
-                        print(f"  - Updated reporting_to -> manager_email={manager_email_lower}", flush=True)
+                    if not dry_run:
+                        updated = update_reporting_to_by_manager_email(
+                            table,
+                            effective_email_lower,
+                            manager_email_lower,
+                            skip_if_already_set=True
+                        )
+                        if updated:
+                            updated_reporting_count += 1
+                            print(f"  - Updated reporting_to -> manager_email={manager_email_lower}", flush=True)
+                        else:
+                            # Determine if skipped because already set
+                            existing = get_employee_by_email(table, effective_email_lower)
+                            if existing and existing.get('reporting_to'):
+                                skipped_reporting_already_set += 1
+                                print(f"  - Skipped (reporting_to already set)", flush=True)
+                            else:
+                                print(f"  - Skipped (manager not found or no change): manager_email={manager_email_lower}", flush=True)
                     else:
-                        # Determine if skipped because already set
+                        # Dry run: check what would happen
                         existing = get_employee_by_email(table, effective_email_lower)
                         if existing and existing.get('reporting_to'):
                             skipped_reporting_already_set += 1
-                            print(f"  - Skipped (reporting_to already set)", flush=True)
+                            print(f"  - Would skip (reporting_to already set)", flush=True)
                         else:
-                            print(f"  - Skipped (manager not found or no change): manager_email={manager_email_lower}", flush=True)
+                            manager_exists = get_employee_by_email(table, manager_email_lower)
+                            if manager_exists:
+                                updated_reporting_count += 1
+                                print(f"  - Would update reporting_to -> manager_email={manager_email_lower}", flush=True)
+                            else:
+                                print(f"  - Would skip (manager not found): manager_email={manager_email_lower}", flush=True)
                 else:
                     print(f"  - No manager_email found in JSON", flush=True)
 
             # Update location from teams mapping with priority, respecting remote skip
-            changed, reason = update_location_from_azure_teams(table, effective_email_lower, user)
-            if changed:
-                updated_location_count += 1
-                print(f"  - Updated location -> {reason}", flush=True)
-            else:
-                if reason == 'skip-remote':
-                    skipped_location_remote += 1
-                    print(f"  - Skipped location (already Remote)", flush=True)
-                elif reason in ('no-change', 'no-derived'):
-                    skipped_location_nochange += 1
+            if not dry_run:
+                changed, reason = update_location_from_azure_teams(table, effective_email_lower, user)
+                if changed:
+                    updated_location_count += 1
+                    print(f"  - Updated location -> {reason}", flush=True)
                 else:
-                    print(f"  - Skipped location ({reason})", flush=True)
+                    if reason == 'skip-remote':
+                        skipped_location_remote += 1
+                        print(f"  - Skipped location (already Remote)", flush=True)
+                    elif reason in ('no-change', 'no-derived'):
+                        skipped_location_nochange += 1
+                    else:
+                        print(f"  - Skipped location ({reason})", flush=True)
+            else:
+                # Dry run: check what would happen
+                existing = get_employee_by_email(table, effective_email_lower)
+                current_location = (existing.get('location') or '').strip() if existing else ''
+                if current_location == 'Remote':
+                    skipped_location_remote += 1
+                    print(f"  - Would skip location (already Remote)", flush=True)
+                else:
+                    derived = derive_location_from_teams(user)
+                    if not derived:
+                        derived = normalize_location_from_signals(user, current_location)
+                    if derived:
+                        updated_location_count += 1
+                        print(f"  - Would update location -> {derived}", flush=True)
+                    else:
+                        skipped_location_nochange += 1
+                        print(f"  - Would skip location (no derived location)", flush=True)
             # In reporting-only or location-only mode, do not attempt insert logic for existing users
             if update_reporting_only or update_location_only:
                 continue
@@ -423,24 +474,34 @@ def sync_users(json_file_path, update_reporting_only: bool = False, update_locat
         employee_data = map_azure_user_to_employee(user)
         employee_data['email'] = employee_data['email'].lower()  # Ensure lowercase
         
-        if insert_employee(table, employee_data):
-            print(f"Added: {employee_data['name']} ({employee_data['email']})")
+        if dry_run:
+            print(f"Would add: {employee_data['name']} ({employee_data['email']})")
             added_count += 1
         else:
-            print(f"Failed to add: {employee_data['name']}")
+            if insert_employee(table, employee_data):
+                print(f"Added: {employee_data['name']} ({employee_data['email']})")
+                added_count += 1
+            else:
+                print(f"Failed to add: {employee_data['name']}")
     
     # Summary
     print("\n" + "="*60)
-    print("Sync Summary:")
+    if dry_run:
+        print("DRY RUN Summary:")
+    else:
+        print("Sync Summary:")
     print(f"  Total users processed: {len(azure_users)}")
-    print(f"  New users added: {added_count}")
+    print(f"  New users {'would be ' if dry_run else ''}added: {added_count}")
     print(f"  Skipped (excluded): {excluded_count}")
     print(f"  Skipped (duplicates): {duplicate_count}")
-    print(f"  Updated reporting_to: {updated_reporting_count}")
-    print(f"  Skipped (reporting_to already set): {skipped_reporting_already_set}")
-    print(f"  Updated location: {updated_location_count}")
-    print(f"  Skipped location (already Remote): {skipped_location_remote}")
-    print(f"  Skipped location (no change/undetermined): {skipped_location_nochange}")
+    if insert_only:
+        print(f"  Skipped (existing - insert-only mode): {skipped_existing_in_insert_only}")
+    else:
+        print(f"  {'Would update' if dry_run else 'Updated'} reporting_to: {updated_reporting_count}")
+        print(f"  Skipped (reporting_to already set): {skipped_reporting_already_set}")
+        print(f"  {'Would update' if dry_run else 'Updated'} location: {updated_location_count}")
+        print(f"  Skipped location (already Remote): {skipped_location_remote}")
+        print(f"  Skipped location (no change/undetermined): {skipped_location_nochange}")
     print(f"  Total skipped: {skipped_count}")
     print("="*60)
 
@@ -449,6 +510,9 @@ if __name__ == "__main__":
     parser.add_argument("--json", dest="json_file", default="azure_ad_users.json", help="Path to azure_ad_users.json")
     parser.add_argument("--update-reporting-only", action="store_true", help="Only update reporting_to based on manager_email; do not insert new users")
     parser.add_argument("--update-location-only", action="store_true", help="Only update location from teams membership; do not insert or update reporting_to")
+    parser.add_argument("--insert-only", action="store_true", help="Only insert new records; do not update existing records")
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt and proceed with sync")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be done without making any changes")
     args = parser.parse_args()
 
     json_file = args.json_file
@@ -460,6 +524,44 @@ if __name__ == "__main__":
         print(f"Error: {json_file} not found")
         exit(1)
 
-    sync_users(json_file, update_reporting_only=args.update_reporting_only, update_location_only=args.update_location_only)
+    # Show what will happen
+    mode_description = []
+    if args.insert_only:
+        mode_description.append("INSERT ONLY (no updates)")
+    if args.update_reporting_only:
+        mode_description.append("UPDATE REPORTING ONLY")
+    if args.update_location_only:
+        mode_description.append("UPDATE LOCATION ONLY")
+    if args.dry_run:
+        mode_description.append("DRY RUN (no changes)")
+    if not mode_description:
+        mode_description.append("FULL SYNC (insert new + update existing)")
+
+    print(f"\nMode: {' | '.join(mode_description)}")
+    print(f"JSON file: {json_file}")
+    print(f"Table: zenith-hr-employees")
+    print(f"Region: {region}")
+    
+    # Confirmation prompt (unless --yes flag is used or dry-run)
+    if not args.yes and not args.dry_run:
+        print("\n" + "="*60)
+        print("⚠️  WARNING: This will modify the DynamoDB database!")
+        print("="*60)
+        response = input("\nDo you want to proceed with the sync? (yes/no): ").strip().lower()
+        
+        if response not in ['yes', 'y']:
+            print("\nSync cancelled by user.")
+            exit(0)
+        print("\nProceeding with sync...\n")
+    elif args.dry_run:
+        print("\nRunning in DRY RUN mode - no changes will be made.\n")
+
+    sync_users(
+        json_file, 
+        update_reporting_only=args.update_reporting_only, 
+        update_location_only=args.update_location_only,
+        dry_run=args.dry_run,
+        insert_only=args.insert_only
+    )
 
     print("\nSync complete!")

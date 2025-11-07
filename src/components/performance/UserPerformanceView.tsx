@@ -322,15 +322,20 @@ export function UserPerformanceView() {
                       <div className="flex items-center gap-3 mt-2">
                         <Badge variant="outline">{goal.category}</Badge>
                         {getStatusBadge(goal.status)}
-                        <span className="text-sm text-muted-foreground">
-                          <Calendar className="h-3 w-3 inline mr-1" />
-                          Due: {new Date(goal.targetDate).toLocaleDateString()}
-                        </span>
                       </div>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* Due Date - Highlighted and above progress */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg">
+                    <Calendar className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-semibold text-primary">
+                      Due: {new Date(goal.targetDate).toLocaleDateString()}
+                    </span>
+                  </div>
+                  
+                  {/* Progress Section */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium">Progress</span>

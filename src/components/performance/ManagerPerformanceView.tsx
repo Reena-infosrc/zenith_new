@@ -589,10 +589,6 @@ export function ManagerPerformanceView() {
                               </Badge>
                             )}
                             <span className="text-sm text-muted-foreground">
-                              <Calendar className="h-3 w-3 inline mr-1" />
-                              Due: {new Date(goal.targetDate).toLocaleDateString()}
-                            </span>
-                            <span className="text-sm text-muted-foreground">
                               Set by: {goal.setBy}
                             </span>
                           </div>
@@ -600,16 +596,27 @@ export function ManagerPerformanceView() {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium">Progress</span>
-                          <span className="text-sm font-semibold text-primary">{goal.completion}%</span>
+                      <div className="space-y-4">
+                        {/* Due Date - Highlighted and above progress */}
+                        <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg">
+                          <Calendar className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold text-primary">
+                            Due: {new Date(goal.targetDate).toLocaleDateString()}
+                          </span>
                         </div>
-                        <div className="w-full bg-muted rounded-full h-3">
-                          <div
-                            className="bg-gradient-to-r from-primary to-primary/80 h-3 rounded-full transition-all duration-500"
-                            style={{ width: `${goal.completion}%` }}
-                          />
+                        
+                        {/* Progress Section */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium">Progress</span>
+                            <span className="text-sm font-semibold text-primary">{goal.completion}%</span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-3">
+                            <div
+                              className="bg-gradient-to-r from-primary to-primary/80 h-3 rounded-full transition-all duration-500"
+                              style={{ width: `${goal.completion}%` }}
+                            />
+                          </div>
                         </div>
                       </div>
                     </CardContent>
