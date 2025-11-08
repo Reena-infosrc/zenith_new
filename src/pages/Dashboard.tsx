@@ -81,6 +81,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
   const [filterValue, setFilterValue] = useState<string>("all");
+  const [selectedLocation, setSelectedLocation] = useState<string>("all"); // All, India, USA
   const [selectedDataPoint, setSelectedDataPoint] = useState<ChartDataPoint | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
@@ -195,15 +196,179 @@ export default function Dashboard() {
     }
   };
 
+  // Filter employees by location
+  const getLocationFilteredEmployees = (employees: Employee[]): Employee[] => {
+    if (selectedLocation === "all") {
+      return employees;
+    }
+    
+    // Debug: Log unique locations when filtering
+    if (selectedLocation !== "all" && employees.length > 0) {
+      const uniqueLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
+      console.log(`[Dashboard] Filtering by ${selectedLocation}. Available locations:`, uniqueLocations);
+    }
+    
+    const filtered = employees.filter(emp => {
+      const location = (emp.location?.toLowerCase() || "").trim();
+      
+      if (selectedLocation === "india") {
+        // India locations: Chennai, Hyderabad, Remote, or any location containing "india"
+        // Also check for common Indian city names
+        const indiaLocations = ["chennai", "hyderabad", "remote", "india"];
+        const indiaKeywords = ["india", "chennai", "hyderabad", "bangalore", "mumbai", "delhi", "pune", "kolkata", "noida", "gurgaon"];
+        
+        // Check if location matches any India city or contains India keywords
+        const matches = indiaLocations.includes(location) || 
+               indiaKeywords.some(keyword => location.includes(keyword)) ||
+               location.includes("india");
+        
+        return matches;
+      } else if (selectedLocation === "usa") {
+        // USA locations: USA, US, United States, or any US state/city
+        const usaLocations = ["usa", "us", "united states"];
+        const usaKeywords = ["usa", "us", "united states", "texas", "georgia", "california", "new york", "new jersey", "michigan", "houston", "rochester", "springfield", "livonia", "cumming"];
+        
+        // Check if location matches USA or contains USA keywords
+        // Exclude India locations from USA
+        const isIndiaLocation = ["chennai", "hyderabad", "remote", "india", "bangalore", "mumbai", "delhi"].some(keyword => location.includes(keyword));
+        if (isIndiaLocation) return false;
+        
+        return usaLocations.includes(location) || 
+               usaKeywords.some(keyword => location.includes(keyword));
+      }
+      return true;
+    });
+    
+    console.log(`[Dashboard] Filtered ${filtered.length} employees for location: ${selectedLocation}`);
+    return filtered;
+  };
+
+  // Get filtered dashboard data based on location
+  const getFilteredDashboardData = (): DashboardData | null => {
+    if (!dashboardData) return null;
+    
+    const locationFilteredEmployees = getLocationFilteredEmployees(dashboardData.employees);
+    
+    // Recalculate all analytics based on filtered employees
+    const by_account: { [key: string]: number } = {};
+    const by_location: { [key: string]: number } = {};
+    const by_employee_status: { [key: string]: number } = {};
+    const by_employment_category: { [key: string]: number } = {};
+    const by_is_leader: { [key: string]: number } = {};
+    const by_expertise: { [key: string]: number } = {};
+    const by_department: { [key: string]: number } = {};
+    const by_gender: { [key: string]: number } = {};
+    const by_status: { [key: string]: number } = {};
+    
+    locationFilteredEmployees.forEach(emp => {
+      // Only count active employees
+      const empStatus = emp.status || "active";
+      if (empStatus === "inactive") return;
+      
+      // Account
+      const account = emp.account || "Unknown";
+      by_account[account] = (by_account[account] || 0) + 1;
+      
+      // Location
+      const location = emp.location || "Unknown";
+      const normalizedLocation = location.toLowerCase().trim();
+      if (normalizedLocation.startsWith('remote -') || normalizedLocation === 'remote') {
+        by_location['Remote'] = (by_location['Remote'] || 0) + 1;
+      } else {
+        by_location[location] = (by_location[location] || 0) + 1;
+      }
+      
+      // Employee status
+      const empStatusType = emp.employee_status || "Unknown";
+      by_employee_status[empStatusType] = (by_employee_status[empStatusType] || 0) + 1;
+      
+      // Employment category
+      const category = emp.employment_category || "Unknown";
+      by_employment_category[category] = (by_employment_category[category] || 0) + 1;
+      
+      // Is leader
+      const isLeader = emp.is_leader || "No";
+      by_is_leader[isLeader] = (by_is_leader[isLeader] || 0) + 1;
+      
+      // Expertise
+      const expertise = emp.expertise || "Unknown";
+      by_expertise[expertise] = (by_expertise[expertise] || 0) + 1;
+      
+      // Department
+      const department = emp.department || "Unknown";
+      by_department[department] = (by_department[department] || 0) + 1;
+      
+      // Gender
+      const gender = emp.gender || "Unknown";
+      by_gender[gender] = (by_gender[gender] || 0) + 1;
+      
+      // Status
+      by_status[empStatus] = (by_status[empStatus] || 0) + 1;
+    });
+    
+    // Calculate monthly headcount for filtered employees
+    const monthly_headcount = [];
+    const current_year = new Date().getFullYear();
+    const now = new Date();
+    
+    for (let i = 11; i >= 0; i--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
+      
+      let count = 0;
+      for (const emp of locationFilteredEmployees) {
+        const empStatus = emp.status || "active";
+        if (empStatus === "inactive") continue;
+        
+        const join_date_str = emp.date_of_joining || emp.created_at;
+        if (join_date_str) {
+          try {
+            const join_date = new Date(join_date_str);
+            if (join_date <= monthEnd) {
+              count += 1;
+            }
+          } catch {
+            count += 1;
+          }
+        }
+      }
+      
+      monthly_headcount.push({
+        month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
+        count,
+        month_number: targetDate.getMonth() + 1
+      });
+    }
+    
+    return {
+      total_employees: locationFilteredEmployees.filter(emp => (emp.status || "active") !== "inactive").length,
+      monthly_headcount,
+      by_account,
+      by_location,
+      by_employee_status,
+      by_employment_category,
+      by_is_leader,
+      by_expertise,
+      by_department,
+      by_gender,
+      by_status,
+      employees: locationFilteredEmployees
+    };
+  };
+
   // Apply filters to data
   useEffect(() => {
     if (dashboardData) {
       applyFilters();
     }
-  }, [dashboardData, selectedFilter, filterValue]);
+  }, [dashboardData, selectedFilter, filterValue, selectedLocation]);
 
   const applyFilters = () => {
     if (!dashboardData) return;
+
+    // Get location-filtered data
+    const filteredData = getFilteredDashboardData();
+    if (!filteredData) return;
 
     // Calculate monthly headcount data for multi-line chart
     const monthly_headcount = [];
@@ -211,7 +376,7 @@ export default function Dashboard() {
     
     // Get all unique categories for the selected filter
     const categories = new Set<string>();
-    dashboardData.employees.forEach(emp => {
+    filteredData.employees.forEach(emp => {
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
         categories.add(fieldValue);
@@ -229,7 +394,10 @@ export default function Dashboard() {
         const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
         
         let count = 0;
-        for (const emp of dashboardData.employees) {
+        for (const emp of filteredData.employees) {
+          const empStatus = emp.status || "active";
+          if (empStatus === "inactive") continue;
+          
           const join_date_str = emp.date_of_joining || emp.created_at;
           if (join_date_str) {
             try {
@@ -247,7 +415,7 @@ export default function Dashboard() {
           month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
           count,
           month_number: targetDate.getMonth() + 1,
-          employees: dashboardData.employees
+          employees: filteredData.employees
         });
       }
     } else {
@@ -270,7 +438,10 @@ export default function Dashboard() {
           let count = 0;
           const categoryEmployees: Employee[] = [];
           
-          for (const emp of dashboardData.employees) {
+          for (const emp of filteredData.employees) {
+            const empStatus = emp.status || "active";
+            if (empStatus === "inactive") continue;
+            
             const fieldValue = emp[selectedFilter as keyof Employee];
             if (fieldValue === category) {
               const join_date_str = emp.date_of_joining || emp.created_at;
@@ -302,7 +473,8 @@ export default function Dashboard() {
 
   // Calculate monthly new joiners for the last 12 months
   const getMonthlyNewJoinersData = () => {
-    if (!dashboardData) return [];
+    const filteredData = getFilteredDashboardData();
+    if (!filteredData) return [];
 
     const now = new Date();
     const monthlyData = [];
@@ -313,7 +485,10 @@ export default function Dashboard() {
       const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
       const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
       
-      const newJoiners = dashboardData.employees.filter(emp => {
+      const newJoiners = filteredData.employees.filter(emp => {
+        const empStatus = emp.status || "active";
+        if (empStatus === "inactive") return false;
+        
         const joinDateStr = emp.date_of_joining || emp.created_at;
         if (!joinDateStr) return false;
         
@@ -340,12 +515,16 @@ export default function Dashboard() {
 
   // Get categories for the selected filter
   const getChartCategories = () => {
-    if (!dashboardData || selectedFilter === "all") {
+    const filteredData = getFilteredDashboardData();
+    if (!filteredData || selectedFilter === "all") {
       return [];
     }
 
     const categories = new Set<string>();
-    dashboardData.employees.forEach(emp => {
+    filteredData.employees.forEach(emp => {
+      const empStatus = emp.status || "active";
+      if (empStatus === "inactive") return;
+      
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
@@ -376,7 +555,8 @@ export default function Dashboard() {
 
   // Generate stacked column data for monthly hires by category
   const getStackedColumnData = () => {
-    if (!dashboardData || selectedFilter === "all") {
+    const filteredData = getFilteredDashboardData();
+    if (!filteredData || selectedFilter === "all") {
       return [];
     }
 
@@ -384,7 +564,10 @@ export default function Dashboard() {
     const categories = new Set<string>();
     
     // Get all unique categories for the selected filter
-    dashboardData.employees.forEach(emp => {
+    filteredData.employees.forEach(emp => {
+      const empStatus = emp.status || "active";
+      if (empStatus === "inactive") return;
+      
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
@@ -422,7 +605,10 @@ export default function Dashboard() {
         let hires = 0;
         const categoryEmployees: Employee[] = [];
         
-        for (const emp of dashboardData.employees) {
+        for (const emp of filteredData.employees) {
+          const empStatus = emp.status || "active";
+          if (empStatus === "inactive") continue;
+          
           const fieldValue = emp[selectedFilter as keyof Employee];
           
           // Handle consolidated remote locations
@@ -474,11 +660,15 @@ export default function Dashboard() {
 
   // Get filtered employees based on selected filter
   const getFilteredEmployees = () => {
-    if (!dashboardData || selectedFilter === "all") {
-      return dashboardData?.employees || [];
+    const filteredData = getFilteredDashboardData();
+    if (!filteredData || selectedFilter === "all") {
+      return filteredData?.employees || [];
     }
 
-    return dashboardData.employees.filter(emp => {
+    return filteredData.employees.filter(emp => {
+      const empStatus = emp.status || "active";
+      if (empStatus === "inactive") return false;
+      
       const fieldValue = emp[selectedFilter as keyof Employee];
       return fieldValue && fieldValue !== "Unknown";
     });
@@ -486,7 +676,8 @@ export default function Dashboard() {
 
   // Get category distribution for filtered data
   const getCategoryDistribution = () => {
-    if (!dashboardData || selectedFilter === "all") {
+    const filteredData = getFilteredDashboardData();
+    if (!filteredData || selectedFilter === "all") {
       return null;
     }
 
@@ -494,6 +685,9 @@ export default function Dashboard() {
     const distribution: { [key: string]: number } = {};
 
     filteredEmployees.forEach(emp => {
+      const empStatus = emp.status || "active";
+      if (empStatus === "inactive") return;
+      
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
@@ -670,7 +864,50 @@ export default function Dashboard() {
               </Button>
             </div>
             <h1 className="text-3xl font-bold mb-2">Employee Analytics Dashboard</h1>
-            <p className="text-muted-foreground">Comprehensive insights into your workforce data</p>
+            <p className="text-muted-foreground mb-4">Comprehensive insights into your workforce data</p>
+            
+            {/* Location Filter Buttons */}
+            <div className="flex items-center gap-3 mb-6">
+              <span className="text-sm font-medium text-muted-foreground">Filter by Location:</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={selectedLocation === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedLocation("all")}
+                  className={`transition-all duration-200 ${
+                    selectedLocation === "all"
+                      ? "bg-primary text-primary-foreground shadow-md"
+                      : "hover:bg-accent hover:text-accent-foreground"
+                  }`}
+                >
+                  All
+                </Button>
+                <Button
+                  variant={selectedLocation === "india" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedLocation("india")}
+                  className={`transition-all duration-200 ${
+                    selectedLocation === "india"
+                      ? "bg-primary text-primary-foreground shadow-md"
+                      : "hover:bg-accent hover:text-accent-foreground"
+                  }`}
+                >
+                  India
+                </Button>
+                <Button
+                  variant={selectedLocation === "usa" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedLocation("usa")}
+                  className={`transition-all duration-200 ${
+                    selectedLocation === "usa"
+                      ? "bg-primary text-primary-foreground shadow-md"
+                      : "hover:bg-accent hover:text-accent-foreground"
+                  }`}
+                >
+                  USA
+                </Button>
+              </div>
+            </div>
           </div>
 
           {/* Filters */}
@@ -702,61 +939,68 @@ export default function Dashboard() {
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Employees</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{dashboardData.total_employees}</div>
-                <p className="text-xs text-muted-foreground">
-                  Active workforce
-                </p>
-              </CardContent>
-            </Card>
+          {(() => {
+            const filteredData = getFilteredDashboardData();
+            if (!filteredData) return null;
+            
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Total Employees</CardTitle>
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{filteredData.total_employees}</div>
+                    <p className="text-xs text-muted-foreground">
+                      Active workforce
+                    </p>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Leaders</CardTitle>
-                <UserCheck className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{dashboardData.by_is_leader.Yes || 0}</div>
-                <p className="text-xs text-muted-foreground">
-                  {dashboardData.total_employees > 0 ? ((dashboardData.by_is_leader.Yes || 0) / dashboardData.total_employees * 100).toFixed(1) : 0}% of workforce
-                </p>
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Leaders</CardTitle>
+                    <UserCheck className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{filteredData.by_is_leader.Yes || 0}</div>
+                    <p className="text-xs text-muted-foreground">
+                      {filteredData.total_employees > 0 ? ((filteredData.by_is_leader.Yes || 0) / filteredData.total_employees * 100).toFixed(1) : 0}% of workforce
+                    </p>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Locations</CardTitle>
-                <MapPin className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {Object.keys(dashboardData.by_location).length}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Different locations
-                </p>
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Locations</CardTitle>
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {Object.keys(filteredData.by_location).length}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Different locations
+                    </p>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Departments</CardTitle>
-                <Building className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{Object.keys(dashboardData.by_department).length}</div>
-                <p className="text-xs text-muted-foreground">
-                  Active departments
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Departments</CardTitle>
+                    <Building className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{Object.keys(filteredData.by_department).length}</div>
+                    <p className="text-xs text-muted-foreground">
+                      Active departments
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })()}
 
           {/* New Joiners Chart - Last 12 Months (Only for All Employees) */}
           {selectedFilter === "all" && (
@@ -964,149 +1208,154 @@ export default function Dashboard() {
           )}
 
           {/* Charts Grid - Only show when no filter is applied */}
-          {selectedFilter === "all" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            {/* Account Distribution */}
-            {dashboardData.by_account && (
-            <Card>
-              <CardHeader>
-                <CardTitle>By Account</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={prepareChartData(dashboardData.by_account)}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="value" fill="#8884d8" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            )}
+          {selectedFilter === "all" && (() => {
+            const filteredData = getFilteredDashboardData();
+            if (!filteredData) return null;
+            
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                {/* Account Distribution */}
+                {filteredData.by_account && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>By Account</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={prepareChartData(filteredData.by_account)}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
+                          <YAxis />
+                          <Tooltip />
+                          <Bar dataKey="value" fill="#8884d8" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+                )}
 
-            {/* Location Distribution */}
-            {dashboardData.by_location && (
-            <Card>
-              <CardHeader>
-                <CardTitle>By Location</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={prepareChartData(dashboardData.by_location)}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="value" fill="#82ca9d" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            )}
+                {/* Location Distribution */}
+                {filteredData.by_location && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>By Location</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={prepareChartData(filteredData.by_location)}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
+                          <YAxis />
+                          <Tooltip />
+                          <Bar dataKey="value" fill="#82ca9d" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+                )}
 
-            {/* Employment Status */}
-            {dashboardData.by_employee_status && (
-            <Card>
-              <CardHeader>
-                <CardTitle>By Employment Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={prepareChartData(dashboardData.by_employee_status)}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {prepareChartData(dashboardData.by_employee_status).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            )}
+                {/* Employment Status */}
+                {filteredData.by_employee_status && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>By Employment Status</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={prepareChartData(filteredData.by_employee_status)}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            outerRadius={80}
+                            fill="#8884d8"
+                            dataKey="value"
+                          >
+                            {prepareChartData(filteredData.by_employee_status).map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+                )}
 
-            {/* By Gender */}
-            {dashboardData.by_gender && (
-            <Card>
-              <CardHeader>
-                <CardTitle>By Gender</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={prepareChartData(dashboardData.by_gender)}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {prepareChartData(dashboardData.by_gender).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            )}
+                {/* By Gender */}
+                {filteredData.by_gender && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>By Gender</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={prepareChartData(filteredData.by_gender)}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            outerRadius={80}
+                            fill="#8884d8"
+                            dataKey="value"
+                          >
+                            {prepareChartData(filteredData.by_gender).map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+                )}
 
-            {/* By Status */}
-            {dashboardData.by_status && (
-            <Card>
-              <CardHeader>
-                <CardTitle>By Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={prepareChartData(dashboardData.by_status)}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {prepareChartData(dashboardData.by_status).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-            )}
-          </div>
-          )}
+                {/* By Status */}
+                {filteredData.by_status && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>By Status</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={prepareChartData(filteredData.by_status)}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            outerRadius={80}
+                            fill="#8884d8"
+                            dataKey="value"
+                          >
+                            {prepareChartData(filteredData.by_status).map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Employee Modal */}
           <Dialog open={showModal} onOpenChange={setShowModal}>

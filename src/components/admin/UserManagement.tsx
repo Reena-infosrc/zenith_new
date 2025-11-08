@@ -211,10 +211,13 @@ export function UserManagement({ onClose }: UserManagementProps) {
       return false;
     }
     
-    // Filter by search term
-    return emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           emp.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           emp.employee_id.toLowerCase().includes(searchTerm.toLowerCase());
+    // Filter by search term - handle null/undefined values
+    if (!searchTerm) return true;
+    
+    const searchLower = searchTerm.toLowerCase();
+    return (emp.name?.toLowerCase() || '').includes(searchLower) ||
+           (emp.email?.toLowerCase() || '').includes(searchLower) ||
+           (emp.employee_id?.toLowerCase() || '').includes(searchLower);
   });
 
   if (loading) {
