@@ -248,10 +248,6 @@ export function ReviewForms() {
             <Users className="h-4 w-4 mr-2" />
             Manager Reviews
           </TabsTrigger>
-          <TabsTrigger value="peer">
-            <Users className="h-4 w-4 mr-2" />
-            Peer Reviews
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="self" className="space-y-4">
@@ -353,14 +349,6 @@ export function ReviewForms() {
               </Card>
             ))}
           </div>
-        </TabsContent>
-
-        <TabsContent value="peer" className="space-y-4">
-          <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50">
-            <CardContent className="p-6 text-center">
-              <p className="text-muted-foreground">No peer reviews assigned</p>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
 

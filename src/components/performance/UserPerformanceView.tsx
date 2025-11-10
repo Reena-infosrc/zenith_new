@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   TrendingUp,
   Target,
@@ -11,12 +11,29 @@ import {
   PieChart,
   ArrowUpRight,
   ArrowDownRight,
-  Sparkles
+  Sparkles,
+  Edit,
+  Upload,
+  X,
+  FileText,
+  Send,
+  RefreshCw,
+  Plus
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { useGoals, Goal, Milestone as APIMilestone } from "@/hooks/use-goals";
+import { useEmployees } from "@/hooks/use-employees";
+import { GoalCard } from "./GoalCard";
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -41,8 +58,10 @@ interface PerformanceGoal {
   category: string;
   completion: number;
   targetDate: string;
-  status: 'in_progress' | 'completed' | 'pending';
+  status: 'in_progress' | 'completed' | 'pending' | 'pending_manager_approval' | 'manager_reopened';
   milestones: Milestone[];
+  managerApproved?: boolean;
+  managerReopened?: boolean;
 }
 
 interface Milestone {
@@ -50,7 +69,39 @@ interface Milestone {
   title: string;
   completed: boolean;
   dueDate: string;
+  evidence?: string; // URL or file path for evidence
+  completedDate?: string;
+  managerApproved?: boolean;
+  managerReopened?: boolean;
+  managerComment?: string;
+  userComment?: string; // User's comment when completing/reopening
 }
+
+// Helper to convert API Goal to PerformanceGoal
+const convertGoalToPerformanceGoal = (goal: Goal): PerformanceGoal => {
+  return {
+    id: goal.id,
+    title: goal.title,
+    category: goal.category,
+    completion: goal.completion,
+    targetDate: goal.targetDate,
+    status: goal.status,
+    milestones: (goal.milestones || []).map(m => ({
+      id: m.id,
+      title: m.title,
+      completed: m.completed,
+      dueDate: m.dueDate,
+      evidence: m.evidence,
+      completedDate: m.completedDate,
+      managerApproved: m.managerApproved,
+      managerReopened: m.managerReopened,
+      managerComment: m.managerComment,
+      userComment: m.userComment
+    })),
+    managerApproved: goal.managerApproved,
+    managerReopened: goal.managerReopened
+  };
+};
 
 interface GrowthData {
   month: string;
@@ -60,50 +111,74 @@ interface GrowthData {
 
 export function UserPerformanceView() {
   const { preserveScroll } = usePreserveScroll();
-  // Mock data - replace with API calls
-  const goals: PerformanceGoal[] = [
-    {
-      id: "1",
-      title: "Master React Performance Optimization",
-      category: "Technical Skills",
-      completion: 75,
-      targetDate: "2024-06-30",
-      status: "in_progress",
-      milestones: [
-        { id: "1", title: "Complete React optimization course", completed: true, dueDate: "2024-04-30" },
-        { id: "2", title: "Implement performance best practices", completed: true, dueDate: "2024-05-15" },
-        { id: "3", title: "Code review and optimization", completed: false, dueDate: "2024-06-15" },
-        { id: "4", title: "Final assessment", completed: false, dueDate: "2024-06-30" }
-      ]
-    },
-    {
-      id: "2",
-      title: "Lead Cross-functional Project",
-      category: "Leadership",
-      completion: 45,
-      targetDate: "2024-07-31",
-      status: "in_progress",
-      milestones: [
-        { id: "1", title: "Project kickoff meeting", completed: true, dueDate: "2024-04-01" },
-        { id: "2", title: "Team alignment session", completed: true, dueDate: "2024-04-15" },
-        { id: "3", title: "Mid-project review", completed: false, dueDate: "2024-06-15" },
-        { id: "4", title: "Project delivery", completed: false, dueDate: "2024-07-31" }
-      ]
-    },
-    {
-      id: "3",
-      title: "AWS Solutions Architect Certification",
-      category: "Certification",
-      completion: 100,
-      targetDate: "2024-05-01",
-      status: "completed",
-      milestones: [
-        { id: "1", title: "Study materials review", completed: true, dueDate: "2024-03-01" },
-        { id: "2", title: "Practice exams", completed: true, dueDate: "2024-04-01" },
-        { id: "3", title: "Certification exam", completed: true, dueDate: "2024-05-01" }
-      ]
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const { getEmployeeGoals, createMilestone, updateMilestone, deleteMilestone, loading: goalsLoading } = useGoals();
+  const { employees } = useEmployees();
+  
+  const [goals, setGoals] = useState<PerformanceGoal[]>([]);
+  const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  
+  const [selectedMilestone, setSelectedMilestone] = useState<{ goalId: string; milestone: Milestone } | null>(null);
+  const [showMilestoneDialog, setShowMilestoneDialog] = useState(false);
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidenceFileName, setEvidenceFileName] = useState<string>("");
+  const [milestoneComment, setMilestoneComment] = useState<string>("");
+  
+  // Add milestone states
+  const [showAddMilestoneDialog, setShowAddMilestoneDialog] = useState(false);
+  const [selectedGoalForMilestone, setSelectedGoalForMilestone] = useState<string | null>(null);
+  const [newMilestoneTitle, setNewMilestoneTitle] = useState<string>("");
+  const [newMilestoneDueDate, setNewMilestoneDueDate] = useState<string>("");
+
+  // Get current user's employee ID
+  useEffect(() => {
+    const fetchEmployeeId = async () => {
+      if (!user?.email) return;
+      
+      try {
+        // Find employee by email from cached employees
+        const employee = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
+        if (employee) {
+          setCurrentEmployeeId(employee.id);
+        }
+      } catch (error) {
+        console.error("Error fetching employee ID:", error);
+      }
+    };
+
+    if (user?.email && employees.length > 0) {
+      fetchEmployeeId();
     }
-  ];
+  }, [user?.email, employees]);
+
+  // Fetch goals when employee ID is available
+  useEffect(() => {
+    const fetchGoals = async () => {
+      if (!currentEmployeeId) return;
+      
+      try {
+        setLoading(true);
+        const apiGoals = await getEmployeeGoals(currentEmployeeId);
+        const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
+        setGoals(convertedGoals);
+      } catch (error) {
+        console.error("Error fetching goals:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load goals",
+          variant: "destructive"
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (currentEmployeeId) {
+      fetchGoals();
+    }
+  }, [currentEmployeeId, getEmployeeGoals, toast]);
 
   const growthData: GrowthData[] = [
     { month: "Jan", performance: 65, goalsCompleted: 1 },
@@ -133,6 +208,10 @@ export function UserPerformanceView() {
         return <Badge className="bg-green-500/10 text-green-600 border-green-500/20"><CheckCircle2 className="h-3 w-3 mr-1" />Completed</Badge>;
       case 'in_progress':
         return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20"><Clock className="h-3 w-3 mr-1" />In Progress</Badge>;
+      case 'pending_manager_approval':
+        return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20"><Send className="h-3 w-3 mr-1" />Pending Approval</Badge>;
+      case 'manager_reopened':
+        return <Badge className="bg-orange-500/10 text-orange-600 border-orange-500/20"><RefreshCw className="h-3 w-3 mr-1" />Reopened</Badge>;
       default:
         return <Badge variant="outline">Pending</Badge>;
     }
@@ -148,6 +227,186 @@ export function UserPerformanceView() {
         return <Award className="h-4 w-4" />;
       default:
         return <Target className="h-4 w-4" />;
+    }
+  };
+
+  // Handle milestone edit
+  const handleMilestoneClick = (goalId: string, milestone: Milestone) => {
+    setSelectedMilestone({ goalId, milestone });
+    setShowMilestoneDialog(true);
+    setEvidenceFile(null);
+    setEvidenceFileName("");
+    setMilestoneComment(milestone.userComment || "");
+  };
+
+  // Handle milestone completion
+  const handleCompleteMilestone = async () => {
+    if (!selectedMilestone) return;
+
+    // Validate comment is provided
+    if (!milestoneComment.trim()) {
+      toast({
+        title: "Comment Required",
+        description: "Please provide a comment before completing the milestone.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const { goalId, milestone } = selectedMilestone;
+    
+    try {
+      // Update milestone via API
+      const updatedMilestone = await updateMilestone(goalId, milestone.id, {
+        completed: true,
+        completedDate: new Date().toISOString(),
+        evidence: evidenceFile ? evidenceFileName : milestone.evidence,
+        userComment: milestoneComment.trim()
+      });
+
+      if (updatedMilestone) {
+        // Refresh goals to get updated data
+        if (currentEmployeeId) {
+          const apiGoals = await getEmployeeGoals(currentEmployeeId);
+          const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
+          setGoals(convertedGoals);
+        }
+
+        setShowMilestoneDialog(false);
+        setSelectedMilestone(null);
+        setEvidenceFile(null);
+        setEvidenceFileName("");
+        setMilestoneComment("");
+      }
+    } catch (error) {
+      console.error("Error completing milestone:", error);
+    }
+  };
+
+  // Handle milestone reopening/uncompleting
+  const handleReopenMilestone = async () => {
+    if (!selectedMilestone) return;
+
+    // Validate comment is provided
+    if (!milestoneComment.trim()) {
+      toast({
+        title: "Comment Required",
+        description: "Please provide a comment explaining why you're reopening this milestone.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const { goalId, milestone } = selectedMilestone;
+    
+    try {
+      // Update milestone via API
+      const updatedMilestone = await updateMilestone(goalId, milestone.id, {
+        completed: false,
+        completedDate: undefined,
+        userComment: milestoneComment.trim()
+      });
+
+      if (updatedMilestone) {
+        // Refresh goals to get updated data
+        if (currentEmployeeId) {
+          const apiGoals = await getEmployeeGoals(currentEmployeeId);
+          const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
+          setGoals(convertedGoals);
+        }
+
+        setShowMilestoneDialog(false);
+        setSelectedMilestone(null);
+        setEvidenceFile(null);
+        setEvidenceFileName("");
+        setMilestoneComment("");
+      }
+    } catch (error) {
+      console.error("Error reopening milestone:", error);
+    }
+  };
+
+  // Handle file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setEvidenceFile(file);
+      setEvidenceFileName(file.name);
+    }
+  };
+
+  // Check if all milestones are completed for a goal
+  const areAllMilestonesCompleted = (goal: PerformanceGoal) => {
+    return goal.milestones.length > 0 && goal.milestones.every(m => m.completed);
+  };
+
+  // Handle add milestone button click
+  const handleAddMilestoneClick = (goalId: string) => {
+    setSelectedGoalForMilestone(goalId);
+    setNewMilestoneTitle("");
+    setNewMilestoneDueDate("");
+    setShowAddMilestoneDialog(true);
+  };
+
+  // Handle adding a new milestone
+  const handleAddMilestone = async () => {
+    if (!selectedGoalForMilestone) return;
+
+    // Validate inputs
+    if (!newMilestoneTitle.trim()) {
+      toast({
+        title: "Title Required",
+        description: "Please provide a title for the milestone.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!newMilestoneDueDate) {
+      toast({
+        title: "Due Date Required",
+        description: "Please select a due date for the milestone.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate due date is not before today (optional validation)
+    const selectedDate = new Date(newMilestoneDueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (selectedDate < today) {
+      toast({
+        title: "Invalid Date",
+        description: "Due date cannot be in the past.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      // Create milestone via API
+      const newMilestone = await createMilestone(selectedGoalForMilestone, {
+        title: newMilestoneTitle.trim(),
+        dueDate: newMilestoneDueDate
+      });
+
+      if (newMilestone) {
+        // Refresh goals to get updated data
+        if (currentEmployeeId) {
+          const apiGoals = await getEmployeeGoals(currentEmployeeId);
+          const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
+          setGoals(convertedGoals);
+        }
+
+        setShowAddMilestoneDialog(false);
+        setSelectedGoalForMilestone(null);
+        setNewMilestoneTitle("");
+        setNewMilestoneDueDate("");
+      }
+    } catch (error) {
+      console.error("Error adding milestone:", error);
     }
   };
 
@@ -306,95 +565,245 @@ export function UserPerformanceView() {
         </TabsContent>
 
         <TabsContent value="goals" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {goals.map((goal) => (
-              <Card
-                key={goal.id}
-                className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all duration-300"
-              >
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        {getCategoryIcon(goal.category)}
-                        <CardTitle className="text-xl">{goal.title}</CardTitle>
-                      </div>
-                      <div className="flex items-center gap-3 mt-2">
-                        <Badge variant="outline">{goal.category}</Badge>
-                        {getStatusBadge(goal.status)}
-                      </div>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Due Date - Highlighted and above progress */}
-                  <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-lg">
-                    <Calendar className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-semibold text-primary">
-                      Due: {new Date(goal.targetDate).toLocaleDateString()}
-                    </span>
-                  </div>
-                  
-                  {/* Progress Section */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">Progress</span>
-                      <span className="text-sm font-semibold text-primary">{goal.completion}%</span>
-                    </div>
-                    <Progress value={goal.completion} className="h-3" />
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-semibold mb-3">Milestones</h4>
-                    <div className="space-y-2">
-                      {goal.milestones.map((milestone, idx) => (
-                        <div
-                          key={milestone.id}
-                          className={cn(
-                            "flex items-center gap-3 p-3 rounded-lg border",
-                            milestone.completed
-                              ? "bg-green-500/10 border-green-500/20"
-                              : "bg-muted/30 border-border"
-                          )}
-                        >
-                          <div className={cn(
-                            "h-6 w-6 rounded-full flex items-center justify-center flex-shrink-0",
-                            milestone.completed
-                              ? "bg-green-500 text-white"
-                              : "bg-muted border-2 border-border"
-                          )}>
-                            {milestone.completed ? (
-                              <CheckCircle2 className="h-4 w-4" />
-                            ) : (
-                              <span className="text-xs font-semibold">{idx + 1}</span>
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <p className={cn(
-                              "text-sm font-medium",
-                              milestone.completed && "line-through text-muted-foreground"
-                            )}>
-                              {milestone.title}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Due: {new Date(milestone.dueDate).toLocaleDateString()}
-                            </p>
-                          </div>
-                          {milestone.completed && (
-                            <Badge className="bg-green-500/10 text-green-600 border-green-500/20">
-                              Completed
-                            </Badge>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {loading ? (
+            <div className="flex items-center justify-center p-12">
+              <div className="text-center">
+                <Clock className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
+                <p className="text-muted-foreground">Loading goals...</p>
+              </div>
+            </div>
+          ) : goals.length === 0 ? (
+            <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+              <CardContent className="p-12 text-center">
+                <Target className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <p className="text-muted-foreground">No goals set for you yet</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {goals.map((goal) => (
+                <GoalCard
+                  key={goal.id}
+                  goal={goal}
+                  onMilestoneClick={handleMilestoneClick}
+                  onAddMilestone={handleAddMilestoneClick}
+                />
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
+
+      {/* Milestone Edit Dialog */}
+      <Dialog open={showMilestoneDialog} onOpenChange={setShowMilestoneDialog}>
+        <DialogContent className="max-w-2xl">
+          {selectedMilestone && (
+            <div className="space-y-4 py-4">
+              <div>
+                <Label className="text-base font-semibold">Milestone</Label>
+                <p className="text-sm text-muted-foreground mt-1">{selectedMilestone.milestone.title}</p>
+              </div>
+              
+              <div>
+                <Label>Due Date</Label>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {new Date(selectedMilestone.milestone.dueDate).toLocaleDateString()}
+                </p>
+              </div>
+
+              {selectedMilestone.milestone.completed && (
+                <div>
+                  <Label>Completed Date</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {selectedMilestone.milestone.completedDate 
+                      ? new Date(selectedMilestone.milestone.completedDate).toLocaleDateString()
+                      : "N/A"}
+                  </p>
+                </div>
+              )}
+
+              {selectedMilestone.milestone.completed && selectedMilestone.milestone.evidence && (
+                <div>
+                  <Label>Evidence</Label>
+                  <div className="flex items-center gap-2 mt-2 p-2 bg-muted rounded-md">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">{selectedMilestone.milestone.evidence}</span>
+                  </div>
+                </div>
+              )}
+
+              {!selectedMilestone.milestone.completed && (
+                <>
+                  <div>
+                    <Label htmlFor="evidence">Attach Evidence (Optional)</Label>
+                    <div className="mt-2">
+                      <Input
+                        id="evidence"
+                        type="file"
+                        onChange={handleFileSelect}
+                        className="cursor-pointer"
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Supported formats: PDF, DOC, DOCX, JPG, PNG
+                      </p>
+                      {evidenceFileName && (
+                        <div className="flex items-center gap-2 mt-2 p-2 bg-muted rounded-md">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm flex-1">{evidenceFileName}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEvidenceFile(null);
+                              setEvidenceFileName("");
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {selectedMilestone.milestone.managerComment && (
+                <div>
+                  <Label>Manager Comment</Label>
+                  <div className="mt-2 p-3 bg-muted rounded-md">
+                    <p className="text-sm">{selectedMilestone.milestone.managerComment}</p>
+                  </div>
+                </div>
+              )}
+
+              {selectedMilestone.milestone.completed && selectedMilestone.milestone.userComment && (
+                <div>
+                  <Label>Your Previous Comment</Label>
+                  <div className="mt-2 p-3 bg-muted rounded-md">
+                    <p className="text-sm">{selectedMilestone.milestone.userComment}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Comments field - required for both completion and reopening */}
+              <div>
+                <Label htmlFor="milestone-comment">
+                  {selectedMilestone.milestone.completed ? "Comment (Required)" : "Comment (Required)"}
+                  <span className="text-destructive ml-1">*</span>
+                </Label>
+                <Textarea
+                  id="milestone-comment"
+                  value={milestoneComment}
+                  onChange={(e) => setMilestoneComment(e.target.value)}
+                  placeholder={
+                    selectedMilestone.milestone.completed
+                      ? "Explain why you're reopening this milestone..."
+                      : "Add a comment about completing this milestone..."
+                  }
+                  className="mt-2 min-h-[100px]"
+                  required
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {selectedMilestone.milestone.completed
+                    ? "Please provide a reason for reopening this milestone."
+                    : "Please provide a comment before completing this milestone."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowMilestoneDialog(false);
+              setSelectedMilestone(null);
+              setEvidenceFile(null);
+              setEvidenceFileName("");
+              setMilestoneComment("");
+            }}>
+              Cancel
+            </Button>
+            {selectedMilestone?.milestone.completed ? (
+              <Button 
+                variant="outline"
+                className="border-orange-500/20 text-orange-600 hover:bg-orange-500/10"
+                onClick={handleReopenMilestone}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Reopen Milestone
+              </Button>
+            ) : (
+              <Button onClick={handleCompleteMilestone}>
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Mark as Completed
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Milestone Dialog */}
+      <Dialog open={showAddMilestoneDialog} onOpenChange={setShowAddMilestoneDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add New Milestone</DialogTitle>
+            <DialogDescription>
+              Add a new milestone to track progress towards your goal
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div>
+              <Label htmlFor="milestone-title">
+                Milestone Title
+                <span className="text-destructive ml-1">*</span>
+              </Label>
+              <Input
+                id="milestone-title"
+                value={newMilestoneTitle}
+                onChange={(e) => setNewMilestoneTitle(e.target.value)}
+                placeholder="e.g., Complete training course"
+                className="mt-2"
+                required
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="milestone-due-date">
+                Due Date
+                <span className="text-destructive ml-1">*</span>
+              </Label>
+              <Input
+                id="milestone-due-date"
+                type="date"
+                value={newMilestoneDueDate}
+                onChange={(e) => setNewMilestoneDueDate(e.target.value)}
+                className="mt-2"
+                min={new Date().toISOString().split('T')[0]}
+                required
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Select a due date for this milestone
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowAddMilestoneDialog(false);
+              setSelectedGoalForMilestone(null);
+              setNewMilestoneTitle("");
+              setNewMilestoneDueDate("");
+            }}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddMilestone}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Milestone
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

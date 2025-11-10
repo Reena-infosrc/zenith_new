@@ -408,10 +408,21 @@ def format_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
 def parse_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Parse item from DynamoDB storage"""
     parsed_item = {}
+    # Fields that should remain as strings (not converted to datetime)
+    string_date_fields = ['created_at', 'updated_at', 'targetDate', 'dueDate', 'completedDate']
+    
     for key, value in item.items():
-        # Keep created_at and updated_at as strings for Pydantic compatibility
-        if isinstance(value, str) and (key in ['created_at', 'updated_at']):
-            parsed_item[key] = value
+        # Keep specific date fields as strings for Pydantic compatibility
+        if key in string_date_fields:
+            if isinstance(value, datetime):
+                # Convert datetime to ISO string for date fields that should be strings
+                parsed_item[key] = value.isoformat()
+            elif isinstance(value, str):
+                # Keep as string
+                parsed_item[key] = value
+            else:
+                # Convert to string if it's something else
+                parsed_item[key] = str(value)
         elif isinstance(value, str) and ('date' in key.lower() or 'time' in key.lower()):
             try:
                 # Try to parse as datetime for other date fields
@@ -419,7 +430,7 @@ def parse_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
             except:
                 parsed_item[key] = value
         elif isinstance(value, datetime):
-            # Handle datetime objects directly
+            # Handle datetime objects directly - convert to ISO string
             parsed_item[key] = value.isoformat()
         elif isinstance(value, Decimal):
             # Convert Decimal back to float for API compatibility

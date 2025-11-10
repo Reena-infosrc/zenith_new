@@ -12,6 +12,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useGoals } from "@/hooks/use-goals";
+import { useToast } from "@/hooks/use-toast";
 
 export interface Employee {
   id: string;
@@ -32,10 +34,13 @@ interface GoalSettingModalProps {
 }
 
 export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: GoalSettingModalProps) {
+  const { createGoal, loading: creatingGoal } = useGoals();
+  const { toast } = useToast();
+  
   const [formData, setFormData] = useState({
     title: "",
     description: "",
-    category: "technical",
+    category: "Technical Skills",
     targetDate: "",
     notes: ""
   });
@@ -76,6 +81,51 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
       category: suggestion.category
     });
     setShowSuggestions(false);
+  };
+
+  const handleCreateGoal = async () => {
+    if (!formData.title.trim() || !formData.targetDate) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields (Title and Target Date).",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const goalData = {
+        employeeId: employee.id,
+        title: formData.title.trim(),
+        description: formData.description || formData.notes || undefined,
+        category: formData.category,
+        targetDate: formData.targetDate,
+        milestones: [] // Can be added later
+      };
+
+      const createdGoal = await createGoal(goalData);
+      
+      if (createdGoal) {
+        // Reset form
+        setFormData({
+          title: "",
+          description: "",
+          category: "Technical Skills",
+          targetDate: "",
+          notes: ""
+        });
+        setIsDraft(false);
+        onClose();
+        
+        // Call callback if provided
+        if (onAISuggestions) {
+          onAISuggestions();
+        }
+      }
+    } catch (error) {
+      console.error("Error creating goal:", error);
+      // Error toast is handled by useGoals hook
+    }
   };
 
   if (!open) return null;
@@ -238,25 +288,24 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
               </Button>
               {isDraft ? (
                 <Button
-                  onClick={() => {
-                    // TODO: Save draft
-                    onClose();
+                  onClick={async () => {
+                    // For now, treat draft same as published (can be enhanced later)
+                    await handleCreateGoal();
                   }}
+                  disabled={creatingGoal || !formData.title || !formData.targetDate}
                   className="bg-blue-500 hover:bg-blue-600"
                 >
                   <Save className="h-4 w-4 mr-2" />
-                  Save Draft
+                  {creatingGoal ? "Saving..." : "Save Draft"}
                 </Button>
               ) : (
                 <Button
-                  onClick={() => {
-                    // TODO: Publish goal
-                    onClose();
-                  }}
+                  onClick={handleCreateGoal}
+                  disabled={creatingGoal || !formData.title || !formData.targetDate}
                   className="bg-gradient-to-r from-primary to-primary/80"
                 >
                   <Send className="h-4 w-4 mr-2" />
-                  Publish Goal
+                  {creatingGoal ? "Publishing..." : "Publish Goal"}
                 </Button>
               )}
             </div>
