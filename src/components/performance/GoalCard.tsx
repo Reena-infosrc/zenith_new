@@ -1,4 +1,4 @@
-import { Target, Calendar, Plus, CheckCircle2, Clock, Send, RefreshCw, Award, FileText } from "lucide-react";
+import { Target, Calendar, Plus, CheckCircle2, Clock, Send, RefreshCw, Award, FileText, Edit, Briefcase } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ export interface GoalCardProps {
     targetDate: string;
     status: 'in_progress' | 'completed' | 'pending' | 'pending_manager_approval' | 'manager_reopened';
     completion: number;
+    weightage?: number;
     milestones?: Milestone[];
     managerApproved?: boolean;
     managerReopened?: boolean;
@@ -34,21 +35,22 @@ export interface GoalCardProps {
   };
   onMilestoneClick?: (goalId: string, milestone: Milestone) => void;
   onAddMilestone?: (goalId: string) => void;
+  onEditGoal?: (goalId: string) => void;
   showSetBy?: boolean; // Show "Set by" text for manager view
 }
 
 const getCategoryIcon = (category: string) => {
-  switch (category.toLowerCase()) {
-    case 'technical skills':
-    case 'technical':
-      return <Target className="h-4 w-4" />;
-    case 'leadership':
-      return <Award className="h-4 w-4" />;
-    case 'certification':
-      return <Award className="h-4 w-4" />;
-    default:
-      return <Target className="h-4 w-4" />;
+  const cat = category.toLowerCase();
+  if (cat.includes('business') || cat.includes('project')) {
+    return <Briefcase className="h-4 w-4" />;
   }
+  if (cat.includes('functional') || cat.includes('behavioral') || cat.includes('competency')) {
+    return <Target className="h-4 w-4" />;
+  }
+  if (cat.includes('innovation') || cat.includes('initiative') || cat.includes('collaboration')) {
+    return <Award className="h-4 w-4" />;
+  }
+  return <Target className="h-4 w-4" />;
 };
 
 const getStatusBadge = (status: string) => {
@@ -71,24 +73,43 @@ const areAllMilestonesCompleted = (goal: GoalCardProps['goal']): boolean => {
   return goal.milestones.every(m => m.completed);
 };
 
-export function GoalCard({ goal, onMilestoneClick, onAddMilestone, showSetBy = false }: GoalCardProps) {
+export function GoalCard({ goal, onMilestoneClick, onAddMilestone, onEditGoal, showSetBy = false }: GoalCardProps) {
   return (
     <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all duration-300">
       <CardHeader>
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              {getCategoryIcon(goal.category)}
-              <CardTitle className="text-xl">{goal.title}</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start gap-2 mb-2">
+              <div className="flex-shrink-0 mt-0.5">
+                {getCategoryIcon(goal.category)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <CardTitle className="text-xl break-words">{goal.title}</CardTitle>
+              </div>
+              {onEditGoal && (
+                <div className="flex-shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditGoal(goal.id);
+                    }}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
             </div>
             {goal.description && (
-              <p className="text-sm text-muted-foreground mb-2">{goal.description}</p>
+              <p className="text-sm text-muted-foreground mb-2 break-words">{goal.description}</p>
             )}
-            <div className="flex items-center gap-3 mt-2">
-              <Badge variant="outline">{goal.category}</Badge>
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
+              <Badge variant="outline" className="break-words">{goal.category}</Badge>
               {getStatusBadge(goal.status)}
               {showSetBy && goal.setBy && (
-                <span className="text-sm text-muted-foreground">Set by: {goal.setBy}</span>
+                <span className="text-sm text-muted-foreground whitespace-nowrap">Set by: {goal.setBy}</span>
               )}
             </div>
           </div>
@@ -156,9 +177,9 @@ export function GoalCard({ goal, onMilestoneClick, onAddMilestone, showSetBy = f
                       <span className="text-xs font-semibold">{idx + 1}</span>
                     )}
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className={cn(
-                      "text-sm font-medium",
+                      "text-sm font-medium break-words",
                       milestone.completed && "line-through text-muted-foreground"
                     )}>
                       {milestone.title}

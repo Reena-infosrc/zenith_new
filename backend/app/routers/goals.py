@@ -139,6 +139,7 @@ async def create_goal(
             "targetDate": goal.targetDate,
             "status": "in_progress",
             "completion": 0.0,
+            "weightage": goal.weightage,  # Include weightage if provided
             "milestones": milestones,
             "createdBy": manager_employee_id,
             "managerApproved": None,

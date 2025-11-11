@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { apiCache, CACHE_KEYS } from '@/utils/api-cache';
 import { API_BASE_URL } from '@/config/api';
 
@@ -144,6 +144,54 @@ export function FeatureFlagsProvider({ children }: { children: React.ReactNode }
     apiCache.clear();
     await fetchFeatureFlags();
   };
+
+  // Refresh from cache without clearing (useful after login when cache is populated)
+  const refreshFromCache = useCallback((): void => {
+    const cachedData = apiCache.get(CACHE_KEYS.FEATURE_FLAGS);
+    if (cachedData) {
+      setFeatureFlags(cachedData);
+      
+      // Create status map for quick lookups
+      const statusMap: Record<string, FeatureFlagStatus> = {};
+      cachedData.forEach((flag: FeatureFlag) => {
+        statusMap[flag.name] = flag.status;
+      });
+      setFeatureFlagStatus(statusMap);
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Listen for custom event to refresh from cache (triggered after login)
+  useEffect(() => {
+    const handleCacheUpdate = () => {
+      refreshFromCache();
+    };
+
+    window.addEventListener('feature-flags-cache-updated', handleCacheUpdate);
+    return () => {
+      window.removeEventListener('feature-flags-cache-updated', handleCacheUpdate);
+    };
+  }, [refreshFromCache]);
+
+  // Also check cache periodically in case it was updated (fallback)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const cachedData = apiCache.get(CACHE_KEYS.FEATURE_FLAGS);
+      if (cachedData && featureFlags.length === 0) {
+        // Only refresh if we don't have flags yet
+        refreshFromCache();
+      }
+    }, 1000); // Check every second for first 5 seconds after mount
+
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+    }, 5000);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [featureFlags.length, refreshFromCache]);
 
   const value: FeatureFlagsContextType = {
     featureFlags,

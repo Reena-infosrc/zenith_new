@@ -120,41 +120,41 @@ export function TeamMemberGoalsCard({
 
   const renderFront = () => (
     <div
-      className="flex h-full flex-col gap-4 p-6"
+      className="flex h-full flex-col gap-4 p-6 min-w-0 overflow-hidden"
       role="button"
       tabIndex={0}
       onKeyDown={handleFrontKeyDown}
       onClick={() => handleFlip()}
     >
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-primary/20 bg-primary/10 text-lg font-semibold text-primary">
+            <div className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-full border-2 border-primary/20 bg-primary/10 text-lg font-semibold text-primary">
               {employee.name
                 .split(" ")
                 .map((n) => n[0])
                 .join("")}
             </div>
-            <div>
-              <h3 className="text-lg font-semibold">{employee.name}</h3>
-              <p className="text-sm text-muted-foreground">{employee.position}</p>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-lg font-semibold break-words">{employee.name}</h3>
+              <p className="text-sm text-muted-foreground break-words">{employee.position}</p>
             </div>
           </div>
         </div>
       </div>
 
       <div className="space-y-3">
-        <div className="flex items-center gap-2 text-sm">
-          <Briefcase className="h-4 w-4 text-muted-foreground" />
-          <span className="text-muted-foreground">{employee.department}</span>
+        <div className="flex items-center gap-2 text-sm min-w-0">
+          <Briefcase className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          <span className="text-muted-foreground break-words min-w-0">{employee.department}</span>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <Calendar className="h-4 w-4 text-muted-foreground" />
-          <span className="text-muted-foreground">{experienceLabel}</span>
+        <div className="flex items-center gap-2 text-sm min-w-0">
+          <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+          <span className="text-muted-foreground break-words min-w-0">{experienceLabel}</span>
         </div>
         <div className="flex flex-wrap gap-1">
           {employee.skills.slice(0, 3).map((skill, idx) => (
-            <Badge key={idx} variant="secondary" className="text-xs">
+            <Badge key={idx} variant="secondary" className="text-xs break-words">
               {skill}
             </Badge>
           ))}
@@ -168,29 +168,29 @@ export function TeamMemberGoalsCard({
 
       <div className="space-y-4">
         <div className="rounded-lg border border-border/50 p-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Goals Status</span>
-            <div className="flex gap-2">
+          <div className="flex items-center justify-between text-sm gap-2 min-w-0">
+            <span className="text-muted-foreground flex-shrink-0">Goals Status</span>
+            <div className="flex gap-2 flex-wrap justify-end min-w-0">
               {summary.total > 0 ? (
                 <>
                   {summary.active > 0 && (
-                    <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20">
+                    <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20 whitespace-nowrap">
                       {summary.active} Active
                     </Badge>
                   )}
                   {summary.completed > 0 && (
-                    <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/20">
+                    <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/20 whitespace-nowrap">
                       {summary.completed} Completed
                     </Badge>
                   )}
                   {summary.total > 0 && summary.active === 0 && summary.completed === 0 && (
-                    <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/20">
+                    <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/20 whitespace-nowrap">
                       {summary.total} Goal{summary.total !== 1 ? "s" : ""}
                     </Badge>
                   )}
                 </>
               ) : (
-                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/20">
+                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/20 whitespace-nowrap">
                   No Goals
                 </Badge>
               )}
@@ -198,9 +198,9 @@ export function TeamMemberGoalsCard({
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
-            className="flex-1 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
+            className="flex-1 min-w-0 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
             onClick={(e) => {
               e.stopPropagation();
               handleFlip();
@@ -208,22 +208,22 @@ export function TeamMemberGoalsCard({
             disabled={isFetching}
           >
             {isFetching ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
             ) : (
-              <Eye className="h-4 w-4" />
+              <Eye className="h-4 w-4 flex-shrink-0" />
             )}
-            <span className="ml-2">{isFlipped ? "Hide Goals" : summary.total > 0 ? `View Goals (${summary.total})` : "View Goals"}</span>
+            <span className="ml-2 truncate">{isFlipped ? "Hide Goals" : summary.total > 0 ? `View Goals (${summary.total})` : "View Goals"}</span>
           </Button>
           <Button
             variant="outline"
-            className="h-10"
+            className="h-10 flex-shrink-0"
             onClick={(e) => {
               e.stopPropagation();
               onSetGoals();
             }}
           >
-            <Target className="h-4 w-4 mr-2" />
-            Set Goals
+            <Target className="h-4 w-4 mr-2 flex-shrink-0" />
+            <span className="whitespace-nowrap">Set Goals</span>
           </Button>
         </div>
       </div>
@@ -231,12 +231,12 @@ export function TeamMemberGoalsCard({
   );
 
   const renderBack = () => (
-    <div className="flex h-full flex-col gap-4 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex h-full flex-col gap-4 p-6 min-w-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 min-w-0">
         <Button
           variant="outline"
           size="icon"
-          className="h-9 w-9 rounded-full border-border/60 text-muted-foreground hover:bg-primary/5"
+          className="h-9 w-9 rounded-full border-border/60 text-muted-foreground hover:bg-primary/5 flex-shrink-0"
           onClick={(e) => {
             e.stopPropagation();
             handleFlip();
@@ -244,8 +244,8 @@ export function TeamMemberGoalsCard({
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <div className="flex items-center gap-3">
-          <div className="relative flex h-14 w-14 items-center justify-center">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="relative flex h-14 w-14 items-center justify-center flex-shrink-0">
             <div
               className="absolute inset-0 rounded-full"
               style={{
@@ -260,9 +260,9 @@ export function TeamMemberGoalsCard({
               </span>
             </div>
           </div>
-          <div>
-            <h4 className="font-semibold">Team Goals</h4>
-            <p className="text-xs text-muted-foreground">Overview of active goals & milestones</p>
+          <div className="min-w-0 flex-1">
+            <h4 className="font-semibold break-words">Team Goals</h4>
+            <p className="text-xs text-muted-foreground break-words">Overview of active goals & milestones</p>
           </div>
         </div>
       </div>
@@ -309,12 +309,12 @@ export function TeamMemberGoalsCard({
                   )}
                   aria-expanded={isExpanded}
                 >
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold text-foreground">
+                  <div className="flex flex-col gap-2 min-w-0">
+                    <div className="flex items-center justify-between gap-3 min-w-0">
+                      <span className="text-sm font-semibold text-foreground break-words flex-1 min-w-0">
                         {goal.title}
                       </span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary flex-shrink-0 whitespace-nowrap">
                         {goal.completion}%
                       </span>
                     </div>
@@ -339,6 +339,7 @@ export function TeamMemberGoalsCard({
                       goal={goal}
                       onMilestoneClick={onMilestoneClick}
                       onAddMilestone={onAddMilestone}
+                      onEditGoal={onEditGoal}
                     />
                   </div>
                 </div>

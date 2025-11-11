@@ -37,6 +37,7 @@ class GoalBase(BaseModel):
     targetDate: str  # ISO format date string
     status: str = "in_progress"  # in_progress, completed, pending, pending_manager_approval, manager_reopened
     completion: float = 0.0  # percentage
+    weightage: Optional[int] = None  # Percentage weightage (10, 20, 30, ..., 100)
     milestones: Optional[List[MilestoneBase]] = []
     createdBy: Optional[str] = None  # Manager/Admin ID who created the goal
     managerApproved: Optional[bool] = None
@@ -50,6 +51,7 @@ class GoalCreate(BaseModel):
     description: Optional[str] = None
     category: str
     targetDate: str  # ISO format date string
+    weightage: Optional[int] = Field(None, ge=10, le=100)  # Percentage weightage (10-100, increments of 10)
     milestones: Optional[List[MilestoneCreate]] = []
 
 class GoalUpdate(BaseModel):
@@ -59,6 +61,7 @@ class GoalUpdate(BaseModel):
     targetDate: Optional[str] = None
     status: Optional[str] = None
     completion: Optional[float] = None
+    weightage: Optional[int] = Field(None, ge=10, le=100)  # Percentage weightage (10-100, increments of 10)
     milestones: Optional[List[MilestoneBase]] = None
     managerApproved: Optional[bool] = None
     managerReopened: Optional[bool] = None

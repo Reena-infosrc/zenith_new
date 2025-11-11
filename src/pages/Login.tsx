@@ -255,6 +255,12 @@ export default function Login() {
           employees: results[1].status === 'fulfilled' ? '✅' : '❌',
           dashboard: results[2].status === 'fulfilled' ? '✅' : '❌'
         });
+        
+        // Trigger event to notify FeatureFlagsContext that cache has been updated
+        if (results[0].status === 'fulfilled' && results[0].value) {
+          window.dispatchEvent(new CustomEvent('feature-flags-cache-updated'));
+        }
+        
         return results;
       } catch (error) {
         console.warn("⚠️ Some API pre-fetch calls failed:", error);

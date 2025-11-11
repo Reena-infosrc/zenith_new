@@ -40,8 +40,9 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
   const [formData, setFormData] = useState({
     title: "",
     description: "",
-    category: "Technical Skills",
+    category: "Business/Project Goals",
     targetDate: "",
+    weightage: 10, // Default weightage
     notes: ""
   });
   const [isDraft, setIsDraft] = useState(false);
@@ -59,13 +60,13 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
         {
           title: `Master ${employee.skills[0] || 'Advanced'} Concepts`,
           description: `Based on ${employee.yearsOfExperience} years of experience, focus on advanced patterns and best practices.`,
-          category: "technical",
+          category: "Business/Project Goals",
           reasoning: "Aligns with current skill level and growth path"
         },
         {
           title: "Lead Technical Project",
           description: `With ${employee.yearsOfExperience} years of experience, leading a project will develop leadership skills.`,
-          category: "leadership",
+          category: "Functional/Behavioral Competencies",
           reasoning: "Natural progression for senior role"
         }
       ]);
@@ -100,6 +101,7 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
         description: formData.description || formData.notes || undefined,
         category: formData.category,
         targetDate: formData.targetDate,
+        weightage: formData.weightage,
         milestones: [] // Can be added later
       };
 
@@ -110,8 +112,9 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
         setFormData({
           title: "",
           description: "",
-          category: "Technical Skills",
+          category: "Business/Project Goals",
           targetDate: "",
+          weightage: 10,
           notes: ""
         });
         setIsDraft(false);
@@ -237,11 +240,9 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="technical">Technical Skills</SelectItem>
-                    <SelectItem value="leadership">Leadership</SelectItem>
-                    <SelectItem value="communication">Communication</SelectItem>
-                    <SelectItem value="business">Business Acumen</SelectItem>
-                    <SelectItem value="certification">Certification</SelectItem>
+                    <SelectItem value="Business/Project Goals">Business/Project Goals</SelectItem>
+                    <SelectItem value="Functional/Behavioral Competencies">Functional/Behavioral Competencies</SelectItem>
+                    <SelectItem value="Innovation/Initiatives/Collaboration">Innovation/Initiatives/Collaboration</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -255,6 +256,28 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
                   className="bg-background/50"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium mb-2 block">Weightage (%)</label>
+              <Select 
+                value={formData.weightage.toString()} 
+                onValueChange={(value) => setFormData({ ...formData, weightage: parseInt(value) })}
+              >
+                <SelectTrigger className="bg-background/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((value) => (
+                    <SelectItem key={value} value={value.toString()}>
+                      {value}%
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Select the percentage weightage for this goal (max 100%)
+              </p>
             </div>
 
             <div>

@@ -16,7 +16,8 @@ import {
   Bell,
   Send,
   RefreshCw,
-  X
+  X,
+  Loader2
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -55,6 +57,7 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { TeamMemberGoalsCard } from "./TeamMemberGoalsCard";
+import { calculateGoalDistribution } from "@/utils/goal-distribution";
 
 interface Employee {
   id: string;
@@ -89,6 +92,7 @@ interface Goal {
   targetDate: string;
   status: 'draft' | 'published' | 'completed' | 'pending_manager_approval' | 'manager_reopened';
   completion: number;
+  weightage?: number;
   createdAt: string;
   aiSuggested?: boolean;
   milestones?: Milestone[];
@@ -104,6 +108,7 @@ interface MyGoal {
   targetDate: string;
   status: 'in_progress' | 'completed' | 'pending' | 'pending_manager_approval' | 'manager_reopened';
   completion: number;
+  weightage?: number;
   setBy: string;
   milestones?: Milestone[];
   managerApproved?: boolean;
@@ -120,6 +125,7 @@ const convertGoalToMyGoal = (goal: APIGoal): MyGoal => {
     targetDate: goal.targetDate,
     status: goal.status,
     completion: goal.completion,
+    weightage: goal.weightage,
     setBy: "Manager",
     milestones: (goal.milestones || []).map(m => ({
       id: m.id,
@@ -149,11 +155,28 @@ const convertGoalToTeamGoal = (goal: APIGoal): Goal => {
     targetDate: goal.targetDate,
     status: goal.status,
     completion: goal.completion,
+    weightage: goal.weightage,
     createdAt: goal.created_at || new Date().toISOString(),
     milestones: goal.milestones || [],
     managerApproved: goal.managerApproved,
     managerReopened: goal.managerReopened
   };
+};
+
+// Normalize category value to match Select options
+const normalizeCategory = (category: string): string => {
+  const cat = category.toLowerCase();
+  // Map old categories to new ones
+  if (cat.includes('business') || cat.includes('project') || cat.includes('revenue') || cat.includes('sales') || cat.includes('client') || cat.includes('delivery') || cat.includes('product')) {
+    return 'Business/Project Goals';
+  }
+  if (cat.includes('functional') || cat.includes('behavioral') || cat.includes('competency') || cat.includes('technical') || cat.includes('skill') || cat.includes('leadership') || cat.includes('communication')) {
+    return 'Functional/Behavioral Competencies';
+  }
+  if (cat.includes('innovation') || cat.includes('initiative') || cat.includes('collaboration') || cat.includes('certification') || cat.includes('learning') || cat.includes('development') || cat.includes('training')) {
+    return 'Innovation/Initiatives/Collaboration';
+  }
+  return 'Business/Project Goals'; // default
 };
 
 export function ManagerPerformanceView() {
@@ -187,15 +210,57 @@ export function ManagerPerformanceView() {
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidenceFileName, setEvidenceFileName] = useState<string>("");
   const [milestoneComment, setMilestoneComment] = useState<string>("");
+  const [isMilestoneLoading, setIsMilestoneLoading] = useState(false);
   
   // Add milestone states
   const [showAddMilestoneDialog, setShowAddMilestoneDialog] = useState(false);
   const [selectedGoalForMilestone, setSelectedGoalForMilestone] = useState<string | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState<string>("");
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState<string>("");
+  const [isAddMilestoneLoading, setIsAddMilestoneLoading] = useState(false);
+  
+  // Edit goal states
+  const [selectedGoalForEdit, setSelectedGoalForEdit] = useState<Goal | null>(null);
+  const [showEditGoalDialog, setShowEditGoalDialog] = useState(false);
+  const [editGoalForm, setEditGoalForm] = useState({
+    title: "",
+    description: "",
+    category: "Business/Project Goals",
+    targetDate: "",
+    weightage: 10
+  });
   
   // Goals pending approval (fetched from API)
   const [pendingApprovalGoals, setPendingApprovalGoals] = useState<Array<{ goal: Goal; employee: Employee }>>([]);
+
+  // Initialize edit form when goal is selected for editing
+  useEffect(() => {
+    if (selectedGoalForEdit && showEditGoalDialog) {
+      // Extract date part (handle both ISO format and date-only format)
+      let dateValue = selectedGoalForEdit.targetDate;
+      if (dateValue.includes('T')) {
+        dateValue = dateValue.split('T')[0];
+      } else if (dateValue && !dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Handle date strings like "30/11/2025" or other formats
+        try {
+          const date = new Date(dateValue);
+          if (!isNaN(date.getTime())) {
+            dateValue = date.toISOString().split('T')[0];
+          }
+        } catch (e) {
+          console.warn("Could not parse date:", dateValue);
+        }
+      }
+      
+      setEditGoalForm({
+        title: selectedGoalForEdit.title || "",
+        description: selectedGoalForEdit.description || "",
+        category: normalizeCategory(selectedGoalForEdit.category),
+        targetDate: dateValue || "",
+        weightage: selectedGoalForEdit.weightage || 10
+      });
+    }
+  }, [selectedGoalForEdit, showEditGoalDialog]);
 
   // Mock growth data for manager's own goals
   const growthData = [
@@ -207,11 +272,8 @@ export function ManagerPerformanceView() {
     { month: "Jun", performance: 85, goalsCompleted: 3 }
   ];
 
-  const categoryData = [
-    { name: "Leadership", value: 40, color: "#4facfe" },
-    { name: "Technical", value: 35, color: "#00f2fe" },
-    { name: "Certification", value: 25, color: "#42b983" }
-  ];
+  // Calculate goal distribution using shared utility function
+  const categoryData = calculateGoalDistribution(myGoals);
 
   // Get manager's employee ID
   useEffect(() => {
@@ -268,12 +330,18 @@ export function ManagerPerformanceView() {
     setDirectReports(reports);
   }, [currentManagerEmployeeId, employees]);
 
-  // Fetch goals for a team member
-  const fetchTeamMemberGoals = async (employeeId: string) => {
+  // Fetch goals for a team member (with caching check)
+  const fetchTeamMemberGoals = async (employeeId: string, forceRefresh: boolean = false) => {
+    // Check if we already have goals for this employee in the Map
+    if (!forceRefresh && employeeGoals.has(employeeId)) {
+      // Goals already loaded, no need to fetch again
+      return;
+    }
+    
     try {
       setLoadingTeamGoals(true);
       setLoadingGoalEmployeeId(employeeId);
-      const apiGoals = await getEmployeeGoals(employeeId);
+      const apiGoals = await getEmployeeGoals(employeeId, forceRefresh);
       const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
       setEmployeeGoals(prev => {
         const newMap = new Map(prev);
@@ -293,14 +361,21 @@ export function ManagerPerformanceView() {
     }
   };
 
-  // Fetch goals for all direct reports when they're loaded
+  // Fetch goals for all direct reports when they're loaded (pre-load all team goals)
   useEffect(() => {
     const fetchAllTeamGoals = async () => {
       if (!currentManagerEmployeeId || directReports.length === 0) return;
       
       try {
-        // Fetch goals for all direct reports in parallel
-        const goalsPromises = directReports.map(async (report) => {
+        // Fetch goals for all direct reports in parallel (only if not already cached)
+        const reportsToFetch = directReports.filter(report => !employeeGoals.has(report.id));
+        
+        if (reportsToFetch.length === 0) {
+          // All goals already loaded
+          return;
+        }
+        
+        const goalsPromises = reportsToFetch.map(async (report) => {
           try {
             const apiGoals = await getEmployeeGoals(report.id);
             const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
@@ -329,7 +404,7 @@ export function ManagerPerformanceView() {
     if (currentManagerEmployeeId && directReports.length > 0) {
       fetchAllTeamGoals();
     }
-  }, [currentManagerEmployeeId, directReports, getEmployeeGoals]);
+  }, [currentManagerEmployeeId, directReports, getEmployeeGoals, employeeGoals]);
 
   // Fetch pending approval goals for team members
   useEffect(() => {
@@ -398,7 +473,24 @@ export function ManagerPerformanceView() {
     }
   };
 
-  // Milestone handlers for manager's own goals
+  // Helper function to find which employee a goal belongs to
+  const findEmployeeIdForGoal = (goalId: string): string | null => {
+    // Check if it's the manager's own goal
+    if (myGoals.some(g => g.id === goalId)) {
+      return currentManagerEmployeeId;
+    }
+    
+    // Check team member goals
+    for (const [employeeId, goals] of employeeGoals.entries()) {
+      if (goals.some(g => g.id === goalId)) {
+        return employeeId;
+      }
+    }
+    
+    return null;
+  };
+
+  // Milestone handlers for manager's own goals and team member goals
   const handleMilestoneClick = (goalId: string, milestone: Milestone) => {
     setSelectedMilestone({ goalId, milestone });
     setShowMilestoneDialog(true);
@@ -422,6 +514,7 @@ export function ManagerPerformanceView() {
     const { goalId, milestone } = selectedMilestone;
     
     try {
+      setIsMilestoneLoading(true);
       const updatedMilestone = await updateMilestone(goalId, milestone.id, {
         completed: true,
         completedDate: new Date().toISOString(),
@@ -430,11 +523,18 @@ export function ManagerPerformanceView() {
       });
 
       if (updatedMilestone) {
-        // Refresh goals
-        if (currentManagerEmployeeId) {
-          const apiGoals = await getEmployeeGoals(currentManagerEmployeeId);
-          const convertedGoals = apiGoals.map(convertGoalToMyGoal);
-          setMyGoals(convertedGoals);
+        // Find which employee this goal belongs to and refresh their goals
+        const employeeId = findEmployeeIdForGoal(goalId);
+        if (employeeId) {
+          if (employeeId === currentManagerEmployeeId) {
+            // Manager's own goal
+            const apiGoals = await getEmployeeGoals(currentManagerEmployeeId, true);
+            const convertedGoals = apiGoals.map(convertGoalToMyGoal);
+            setMyGoals(convertedGoals);
+          } else {
+            // Team member's goal - refresh their goals in the cache
+            await fetchTeamMemberGoals(employeeId, true);
+          }
         }
 
         setShowMilestoneDialog(false);
@@ -445,6 +545,8 @@ export function ManagerPerformanceView() {
       }
     } catch (error) {
       console.error("Error completing milestone:", error);
+    } finally {
+      setIsMilestoneLoading(false);
     }
   };
 
@@ -463,6 +565,7 @@ export function ManagerPerformanceView() {
     const { goalId, milestone } = selectedMilestone;
     
     try {
+      setIsMilestoneLoading(true);
       const updatedMilestone = await updateMilestone(goalId, milestone.id, {
         completed: false,
         completedDate: undefined,
@@ -470,11 +573,18 @@ export function ManagerPerformanceView() {
       });
 
       if (updatedMilestone) {
-        // Refresh goals
-        if (currentManagerEmployeeId) {
-          const apiGoals = await getEmployeeGoals(currentManagerEmployeeId);
-          const convertedGoals = apiGoals.map(convertGoalToMyGoal);
-          setMyGoals(convertedGoals);
+        // Find which employee this goal belongs to and refresh their goals
+        const employeeId = findEmployeeIdForGoal(goalId);
+        if (employeeId) {
+          if (employeeId === currentManagerEmployeeId) {
+            // Manager's own goal
+            const apiGoals = await getEmployeeGoals(currentManagerEmployeeId, true);
+            const convertedGoals = apiGoals.map(convertGoalToMyGoal);
+            setMyGoals(convertedGoals);
+          } else {
+            // Team member's goal - refresh their goals in the cache
+            await fetchTeamMemberGoals(employeeId, true);
+          }
         }
 
         setShowMilestoneDialog(false);
@@ -485,6 +595,8 @@ export function ManagerPerformanceView() {
       }
     } catch (error) {
       console.error("Error reopening milestone:", error);
+    } finally {
+      setIsMilestoneLoading(false);
     }
   };
 
@@ -542,17 +654,25 @@ export function ManagerPerformanceView() {
     }
 
     try {
+      setIsAddMilestoneLoading(true);
       const newMilestone = await createMilestone(selectedGoalForMilestone, {
         title: newMilestoneTitle.trim(),
         dueDate: newMilestoneDueDate
       });
 
       if (newMilestone) {
-        // Refresh goals
-        if (currentManagerEmployeeId) {
-          const apiGoals = await getEmployeeGoals(currentManagerEmployeeId);
-          const convertedGoals = apiGoals.map(convertGoalToMyGoal);
-          setMyGoals(convertedGoals);
+        // Find which employee this goal belongs to and refresh their goals
+        const employeeId = findEmployeeIdForGoal(selectedGoalForMilestone);
+        if (employeeId) {
+          if (employeeId === currentManagerEmployeeId) {
+            // Manager's own goal
+            const apiGoals = await getEmployeeGoals(currentManagerEmployeeId, true);
+            const convertedGoals = apiGoals.map(convertGoalToMyGoal);
+            setMyGoals(convertedGoals);
+          } else {
+            // Team member's goal - refresh their goals in the cache
+            await fetchTeamMemberGoals(employeeId, true);
+          }
         }
 
         setShowAddMilestoneDialog(false);
@@ -562,18 +682,20 @@ export function ManagerPerformanceView() {
       }
     } catch (error) {
       console.error("Error adding milestone:", error);
+    } finally {
+      setIsAddMilestoneLoading(false);
     }
   };
 
   return (
     <div className="space-y-6">
       {/* Header Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Direct Reports</p>
+                <p className="text-sm font-medium text-muted-foreground">My Team</p>
                 <p className="text-3xl font-bold mt-2">{directReports.length}</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
@@ -587,7 +709,7 @@ export function ManagerPerformanceView() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Goals Set</p>
+                <p className="text-sm font-medium text-muted-foreground">Individual goal set</p>
                 <p className="text-3xl font-bold mt-2">
                   {Array.from(employeeGoals.values()).flat().filter(g => g.status === 'published').length}
                 </p>
@@ -603,27 +725,13 @@ export function ManagerPerformanceView() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">My Goals</p>
-                <p className="text-3xl font-bold mt-2">{myGoals.length}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center">
-                <Target className="h-6 w-6 text-blue-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">In Progress</p>
+                <p className="text-sm font-medium text-muted-foreground">Performance Review's Set</p>
                 <p className="text-3xl font-bold mt-2">
-                  {myGoals.filter(g => g.status === 'in_progress').length}
+                  {0}
                 </p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-purple-500/10 flex items-center justify-center">
-                <Clock className="h-6 w-6 text-purple-500" />
+              <div className="h-12 w-12 rounded-full bg-orange-500/10 flex items-center justify-center">
+                <FileText className="h-6 w-6 text-orange-500" />
               </div>
             </div>
           </CardContent>
@@ -633,6 +741,15 @@ export function ManagerPerformanceView() {
       <Tabs value={viewMode} onValueChange={(v) => {
         preserveScroll();
         setViewMode(v as any);
+        // When switching to "my-team" tab, ensure all team goals are loaded
+        if (v === 'my-team' && currentManagerEmployeeId && directReports.length > 0) {
+          // Check if any team member goals are missing and fetch them
+          const missingGoals = directReports.filter(report => !employeeGoals.has(report.id));
+          if (missingGoals.length > 0) {
+            // Fetch missing goals in parallel
+            Promise.all(missingGoals.map(report => fetchTeamMemberGoals(report.id)));
+          }
+        }
       }} className="space-y-4">
         <TabsList className="bg-muted/50 backdrop-blur-sm flex-wrap">
           <TabsTrigger value="my-team">
@@ -779,24 +896,61 @@ export function ManagerPerformanceView() {
                   isLoading={loadingTeamGoals && loadingGoalEmployeeId === employee.id}
                   onFetchGoals={async () => {
                     setSelectedEmployee(employee);
-                    await fetchTeamMemberGoals(employee.id);
+                    // Only fetch if goals are not already loaded
+                    if (!employeeGoals.has(employee.id)) {
+                      await fetchTeamMemberGoals(employee.id);
+                    }
                   }}
                   onSetGoals={() => {
-                    setSelectedEmployee(employee);
-                    setShowGoalModal(true);
-                  }}
+                            setSelectedEmployee(employee);
+                            setShowGoalModal(true);
+                          }}
                   onAddGoal={() => {
-                    setSelectedEmployee(employee);
+                            setSelectedEmployee(employee);
                     setShowGoalModal(true);
                   }}
                   onEditGoal={(goalId) => {
-                    setSelectedEmployee(employee);
-                    setShowGoalModal(true);
+                    const goalToEdit = employeeGoalsList.find(g => g.id === goalId);
+                    if (goalToEdit) {
+                      setSelectedEmployee(employee);
+                      // Extract date part (handle both ISO format and date-only format)
+                      let dateValue = goalToEdit.targetDate || "";
+                      if (dateValue.includes('T')) {
+                        dateValue = dateValue.split('T')[0];
+                      } else if (dateValue && !dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        // Handle date strings like "30/11/2025" or other formats
+                        try {
+                          const date = new Date(dateValue);
+                          if (!isNaN(date.getTime())) {
+                            dateValue = date.toISOString().split('T')[0];
+                          }
+                        } catch (e) {
+                          console.warn("Could not parse date:", dateValue);
+                        }
+                      }
+                      
+                      // Set form data first, then open dialog
+                      const normalizedCategory = normalizeCategory(goalToEdit.category);
+                      setEditGoalForm({
+                        title: goalToEdit.title || "",
+                        description: goalToEdit.description || "",
+                        category: normalizedCategory,
+                        targetDate: dateValue,
+                        weightage: goalToEdit.weightage || 10
+                      });
+                      
+                      setSelectedGoalForEdit(goalToEdit);
+                      // Use setTimeout to ensure state is set before opening dialog
+                      setTimeout(() => {
+                        setShowEditGoalDialog(true);
+                      }, 0);
+                    }
                   }}
                   onDeleteGoal={async (goalId) => {
                     setSelectedEmployee(employee);
                     await deleteGoal(goalId);
-                    await fetchTeamMemberGoals(employee.id);
+                    // Force refresh to get updated goals after deletion
+                    await fetchTeamMemberGoals(employee.id, true);
                   }}
                   onMilestoneClick={handleMilestoneClick}
                   onAddMilestone={handleAddMilestoneClick}
@@ -984,8 +1138,8 @@ export function ManagerPerformanceView() {
                   <div className="text-center">
                     <Clock className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
                     <p className="text-muted-foreground">Loading goals...</p>
-                  </div>
-                </div>
+                          </div>
+                        </div>
               ) : myGoals.length === 0 ? (
                 <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
                   <CardContent className="p-12 text-center">
@@ -1040,6 +1194,187 @@ export function ManagerPerformanceView() {
         />
       )}
 
+      {/* Edit Goal Dialog */}
+      <Dialog open={showEditGoalDialog} onOpenChange={setShowEditGoalDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Goal</DialogTitle>
+            <DialogDescription>
+              Update the goal details below
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedGoalForEdit && (
+            <div className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="edit-goal-title">
+                  Goal Title
+                  <span className="text-destructive ml-1">*</span>
+                </Label>
+                <Input
+                  id="edit-goal-title"
+                  value={editGoalForm.title}
+                  onChange={(e) => setEditGoalForm({ ...editGoalForm, title: e.target.value })}
+                  placeholder="e.g., Master React Performance Optimization"
+                  className="mt-2"
+                  required
+                />
+    </div>
+
+              <div>
+                <Label htmlFor="edit-goal-description">Description</Label>
+                <Textarea
+                  id="edit-goal-description"
+                  value={editGoalForm.description}
+                  onChange={(e) => setEditGoalForm({ ...editGoalForm, description: e.target.value })}
+                  placeholder="Describe the goal in detail..."
+                  className="mt-2 min-h-[100px]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="edit-goal-category">
+                    Category
+                    <span className="text-destructive ml-1">*</span>
+                  </Label>
+                  <Select 
+                    value={editGoalForm.category || ""} 
+                    onValueChange={(value) => setEditGoalForm({ ...editGoalForm, category: value })}
+                  >
+                    <SelectTrigger className="mt-2">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Business/Project Goals">Business/Project Goals</SelectItem>
+                      <SelectItem value="Functional/Behavioral Competencies">Functional/Behavioral Competencies</SelectItem>
+                      <SelectItem value="Innovation/Initiatives/Collaboration">Innovation/Initiatives/Collaboration</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-goal-target-date">
+                    Target Date
+                    <span className="text-destructive ml-1">*</span>
+                  </Label>
+                  <Input
+                    id="edit-goal-target-date"
+                    type="date"
+                    value={editGoalForm.targetDate}
+                    onChange={(e) => setEditGoalForm({ ...editGoalForm, targetDate: e.target.value })}
+                    className="mt-2"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="edit-goal-weightage">
+                  Weightage (%)
+                  <span className="text-destructive ml-1">*</span>
+                </Label>
+                <Select 
+                  value={editGoalForm.weightage?.toString() || "10"} 
+                  onValueChange={(value) => setEditGoalForm({ ...editGoalForm, weightage: parseInt(value) })}
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Select weightage" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((value) => (
+                      <SelectItem key={value} value={value.toString()}>
+                        {value}%
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Select the percentage weightage for this goal (max 100%)
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowEditGoalDialog(false);
+                setSelectedGoalForEdit(null);
+                setEditGoalForm({
+                  title: "",
+                  description: "",
+                  category: "Business/Project Goals",
+                  targetDate: "",
+                  weightage: 10
+                });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={async () => {
+                if (!selectedGoalForEdit) return;
+                
+                if (!editGoalForm.title.trim() || !editGoalForm.targetDate) {
+                  toast({
+                    title: "Validation Error",
+                    description: "Please fill in all required fields (Title and Target Date).",
+                    variant: "destructive"
+                  });
+                  return;
+                }
+
+                try {
+                  const updateData = {
+                    title: editGoalForm.title.trim(),
+                    description: editGoalForm.description || undefined,
+                    category: editGoalForm.category,
+                    targetDate: editGoalForm.targetDate,
+                    weightage: editGoalForm.weightage
+                  };
+
+                  const updatedGoal = await updateGoal(selectedGoalForEdit.id, updateData);
+                  
+                  if (updatedGoal) {
+                    // Refresh goals for the employee
+                    if (selectedEmployee) {
+                      await fetchTeamMemberGoals(selectedEmployee.id, true);
+                    }
+                    
+                    toast({
+                      title: "Success",
+                      description: "Goal updated successfully",
+                    });
+                    
+                    setShowEditGoalDialog(false);
+                    setSelectedGoalForEdit(null);
+                    setEditGoalForm({
+                      title: "",
+                      description: "",
+                      category: "Business/Project Goals",
+                      targetDate: "",
+                      weightage: 10
+                    });
+                  }
+                } catch (error) {
+                  console.error("Error updating goal:", error);
+                  toast({
+                    title: "Error",
+                    description: "Failed to update goal",
+                    variant: "destructive"
+                  });
+                }
+              }}
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Manager Approval Dialog */}
       <Dialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
         <DialogContent className="max-w-2xl">
@@ -1059,7 +1394,7 @@ export function ManagerPerformanceView() {
               <div>
                 <Label className="text-base font-semibold">Employee</Label>
                 <p className="text-sm text-muted-foreground mt-1">{selectedGoalForApproval.employee.name}</p>
-              </div>
+    </div>
               
               <div>
                 <Label className="text-base font-semibold">Goal</Label>
@@ -1317,13 +1652,17 @@ export function ManagerPerformanceView() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowMilestoneDialog(false);
-              setSelectedMilestone(null);
-              setEvidenceFile(null);
-              setEvidenceFileName("");
-              setMilestoneComment("");
-            }}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowMilestoneDialog(false);
+                setSelectedMilestone(null);
+                setEvidenceFile(null);
+                setEvidenceFileName("");
+                setMilestoneComment("");
+              }}
+              disabled={isMilestoneLoading}
+            >
               Cancel
             </Button>
             {selectedMilestone?.milestone.completed ? (
@@ -1331,14 +1670,33 @@ export function ManagerPerformanceView() {
                 variant="outline"
                 className="border-orange-500/20 text-orange-600 hover:bg-orange-500/10"
                 onClick={handleReopenMilestone}
+                disabled={isMilestoneLoading}
               >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Reopen Milestone
+                {isMilestoneLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Reopening...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Reopen Milestone
+                  </>
+                )}
               </Button>
             ) : (
-              <Button onClick={handleCompleteMilestone}>
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Mark as Completed
+              <Button onClick={handleCompleteMilestone} disabled={isMilestoneLoading}>
+                {isMilestoneLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Completing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Mark as Completed
+                  </>
+                )}
               </Button>
             )}
           </DialogFooter>
@@ -1392,17 +1750,30 @@ export function ManagerPerformanceView() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowAddMilestoneDialog(false);
-              setSelectedGoalForMilestone(null);
-              setNewMilestoneTitle("");
-              setNewMilestoneDueDate("");
-            }}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowAddMilestoneDialog(false);
+                setSelectedGoalForMilestone(null);
+                setNewMilestoneTitle("");
+                setNewMilestoneDueDate("");
+              }}
+              disabled={isAddMilestoneLoading}
+            >
               Cancel
             </Button>
-            <Button onClick={handleAddMilestone}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Milestone
+            <Button onClick={handleAddMilestone} disabled={isAddMilestoneLoading}>
+              {isAddMilestoneLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Milestone
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

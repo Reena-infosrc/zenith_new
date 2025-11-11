@@ -18,7 +18,9 @@ import {
   FileText,
   Send,
   RefreshCw,
-  Plus
+  Plus,
+  Briefcase,
+  Loader2
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +31,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useGoals, Goal, Milestone as APIMilestone } from "@/hooks/use-goals";
@@ -51,6 +54,7 @@ import {
 } from "recharts";
 import { cn } from "@/lib/utils";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
+import { calculateGoalDistribution } from "@/utils/goal-distribution";
 
 interface PerformanceGoal {
   id: string;
@@ -59,6 +63,7 @@ interface PerformanceGoal {
   completion: number;
   targetDate: string;
   status: 'in_progress' | 'completed' | 'pending' | 'pending_manager_approval' | 'manager_reopened';
+  weightage?: number;
   milestones: Milestone[];
   managerApproved?: boolean;
   managerReopened?: boolean;
@@ -86,6 +91,7 @@ const convertGoalToPerformanceGoal = (goal: Goal): PerformanceGoal => {
     completion: goal.completion,
     targetDate: goal.targetDate,
     status: goal.status,
+    weightage: goal.weightage,
     milestones: (goal.milestones || []).map(m => ({
       id: m.id,
       title: m.title,
@@ -125,12 +131,15 @@ export function UserPerformanceView() {
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidenceFileName, setEvidenceFileName] = useState<string>("");
   const [milestoneComment, setMilestoneComment] = useState<string>("");
+  const [isMilestoneLoading, setIsMilestoneLoading] = useState(false);
   
   // Add milestone states
   const [showAddMilestoneDialog, setShowAddMilestoneDialog] = useState(false);
   const [selectedGoalForMilestone, setSelectedGoalForMilestone] = useState<string | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState<string>("");
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState<string>("");
+  const [isAddMilestoneLoading, setIsAddMilestoneLoading] = useState(false);
+  
 
   // Get current user's employee ID
   useEffect(() => {
@@ -180,6 +189,7 @@ export function UserPerformanceView() {
     }
   }, [currentEmployeeId, getEmployeeGoals, toast]);
 
+
   const growthData: GrowthData[] = [
     { month: "Jan", performance: 65, goalsCompleted: 1 },
     { month: "Feb", performance: 72, goalsCompleted: 2 },
@@ -189,11 +199,8 @@ export function UserPerformanceView() {
     { month: "Jun", performance: 85, goalsCompleted: 3 }
   ];
 
-  const categoryData = [
-    { name: "Technical", value: 45, color: "#4facfe" },
-    { name: "Leadership", value: 25, color: "#00f2fe" },
-    { name: "Certification", value: 30, color: "#42b983" }
-  ];
+  // Calculate goal distribution using shared utility function
+  const categoryData = calculateGoalDistribution(goals);
 
   const overallCompletion = goals.length > 0
     ? Math.round(goals.reduce((sum, goal) => sum + goal.completion, 0) / goals.length)
@@ -218,17 +225,34 @@ export function UserPerformanceView() {
   };
 
   const getCategoryIcon = (category: string) => {
-    switch (category.toLowerCase()) {
-      case 'technical skills':
-        return <Target className="h-4 w-4" />;
-      case 'leadership':
-        return <Award className="h-4 w-4" />;
-      case 'certification':
-        return <Award className="h-4 w-4" />;
-      default:
-        return <Target className="h-4 w-4" />;
+    const cat = category.toLowerCase();
+    if (cat.includes('business') || cat.includes('project')) {
+      return <Briefcase className="h-4 w-4" />;
     }
+    if (cat.includes('functional') || cat.includes('behavioral') || cat.includes('competency')) {
+      return <Target className="h-4 w-4" />;
+    }
+    if (cat.includes('innovation') || cat.includes('initiative') || cat.includes('collaboration')) {
+      return <Award className="h-4 w-4" />;
+    }
+    return <Target className="h-4 w-4" />;
   };
+
+// Normalize category value to match Select options
+const normalizeCategory = (category: string): string => {
+  const cat = category.toLowerCase();
+  // Map old categories to new ones
+  if (cat.includes('business') || cat.includes('project') || cat.includes('revenue') || cat.includes('sales') || cat.includes('client') || cat.includes('delivery') || cat.includes('product')) {
+    return 'Business/Project Goals';
+  }
+  if (cat.includes('functional') || cat.includes('behavioral') || cat.includes('competency') || cat.includes('technical') || cat.includes('skill') || cat.includes('leadership') || cat.includes('communication')) {
+    return 'Functional/Behavioral Competencies';
+  }
+  if (cat.includes('innovation') || cat.includes('initiative') || cat.includes('collaboration') || cat.includes('certification') || cat.includes('learning') || cat.includes('development') || cat.includes('training')) {
+    return 'Innovation/Initiatives/Collaboration';
+  }
+  return 'Business/Project Goals'; // default
+};
 
   // Handle milestone edit
   const handleMilestoneClick = (goalId: string, milestone: Milestone) => {
@@ -256,6 +280,7 @@ export function UserPerformanceView() {
     const { goalId, milestone } = selectedMilestone;
     
     try {
+      setIsMilestoneLoading(true);
       // Update milestone via API
       const updatedMilestone = await updateMilestone(goalId, milestone.id, {
         completed: true,
@@ -265,9 +290,9 @@ export function UserPerformanceView() {
       });
 
       if (updatedMilestone) {
-        // Refresh goals to get updated data
+        // Refresh goals to get updated data (force refresh to bypass cache)
         if (currentEmployeeId) {
-          const apiGoals = await getEmployeeGoals(currentEmployeeId);
+          const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
           const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
           setGoals(convertedGoals);
         }
@@ -280,6 +305,8 @@ export function UserPerformanceView() {
       }
     } catch (error) {
       console.error("Error completing milestone:", error);
+    } finally {
+      setIsMilestoneLoading(false);
     }
   };
 
@@ -300,6 +327,7 @@ export function UserPerformanceView() {
     const { goalId, milestone } = selectedMilestone;
     
     try {
+      setIsMilestoneLoading(true);
       // Update milestone via API
       const updatedMilestone = await updateMilestone(goalId, milestone.id, {
         completed: false,
@@ -308,9 +336,9 @@ export function UserPerformanceView() {
       });
 
       if (updatedMilestone) {
-        // Refresh goals to get updated data
+        // Refresh goals to get updated data (force refresh to bypass cache)
         if (currentEmployeeId) {
-          const apiGoals = await getEmployeeGoals(currentEmployeeId);
+          const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
           const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
           setGoals(convertedGoals);
         }
@@ -323,6 +351,8 @@ export function UserPerformanceView() {
       }
     } catch (error) {
       console.error("Error reopening milestone:", error);
+    } finally {
+      setIsMilestoneLoading(false);
     }
   };
 
@@ -386,6 +416,7 @@ export function UserPerformanceView() {
     }
 
     try {
+      setIsAddMilestoneLoading(true);
       // Create milestone via API
       const newMilestone = await createMilestone(selectedGoalForMilestone, {
         title: newMilestoneTitle.trim(),
@@ -393,9 +424,9 @@ export function UserPerformanceView() {
       });
 
       if (newMilestone) {
-        // Refresh goals to get updated data
+        // Refresh goals to get updated data (force refresh to bypass cache)
         if (currentEmployeeId) {
-          const apiGoals = await getEmployeeGoals(currentEmployeeId);
+          const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
           const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
           setGoals(convertedGoals);
         }
@@ -407,6 +438,8 @@ export function UserPerformanceView() {
       }
     } catch (error) {
       console.error("Error adding milestone:", error);
+    } finally {
+      setIsAddMilestoneLoading(false);
     }
   };
 
@@ -465,15 +498,12 @@ export function UserPerformanceView() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Growth Rate</p>
-                <p className="text-3xl font-bold mt-2">+12%</p>
-                <div className="flex items-center gap-1 mt-1 text-xs text-green-600">
-                  <ArrowUpRight className="h-3 w-3" />
-                  <span>vs last month</span>
-                </div>
+                <p className="text-sm font-medium text-muted-foreground">Total Goals</p>
+                <p className="text-3xl font-bold mt-2">{goals.length}</p>
+                <p className="text-xs text-muted-foreground mt-1">All goals</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-purple-500/10 flex items-center justify-center">
-                <Sparkles className="h-6 w-6 text-purple-500" />
+                <Target className="h-6 w-6 text-purple-500" />
               </div>
             </div>
           </CardContent>
@@ -714,13 +744,17 @@ export function UserPerformanceView() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowMilestoneDialog(false);
-              setSelectedMilestone(null);
-              setEvidenceFile(null);
-              setEvidenceFileName("");
-              setMilestoneComment("");
-            }}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowMilestoneDialog(false);
+                setSelectedMilestone(null);
+                setEvidenceFile(null);
+                setEvidenceFileName("");
+                setMilestoneComment("");
+              }}
+              disabled={isMilestoneLoading}
+            >
               Cancel
             </Button>
             {selectedMilestone?.milestone.completed ? (
@@ -728,14 +762,33 @@ export function UserPerformanceView() {
                 variant="outline"
                 className="border-orange-500/20 text-orange-600 hover:bg-orange-500/10"
                 onClick={handleReopenMilestone}
+                disabled={isMilestoneLoading}
               >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Reopen Milestone
+                {isMilestoneLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Reopening...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Reopen Milestone
+                  </>
+                )}
               </Button>
             ) : (
-              <Button onClick={handleCompleteMilestone}>
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Mark as Completed
+              <Button onClick={handleCompleteMilestone} disabled={isMilestoneLoading}>
+                {isMilestoneLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Completing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Mark as Completed
+                  </>
+                )}
               </Button>
             )}
           </DialogFooter>
@@ -789,17 +842,30 @@ export function UserPerformanceView() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowAddMilestoneDialog(false);
-              setSelectedGoalForMilestone(null);
-              setNewMilestoneTitle("");
-              setNewMilestoneDueDate("");
-            }}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowAddMilestoneDialog(false);
+                setSelectedGoalForMilestone(null);
+                setNewMilestoneTitle("");
+                setNewMilestoneDueDate("");
+              }}
+              disabled={isAddMilestoneLoading}
+            >
               Cancel
             </Button>
-            <Button onClick={handleAddMilestone}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Milestone
+            <Button onClick={handleAddMilestone} disabled={isAddMilestoneLoading}>
+              {isAddMilestoneLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Milestone
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
