@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { Zap } from "lucide-react";
 import type { TeamGoal } from "./TeamMemberGoalsCard";
 
 interface GoalWaterJarVisualizerProps {
@@ -138,6 +139,28 @@ export function GoalWaterJarVisualizer({
   const totalFilled = distribution.reduce((sum, item) => sum + item.value, 0);
   const emptySpace = Math.max(0, 100 - totalFilled);
 
+  // Get thunderbolt color based on total fill percentage
+  const getThunderboltColor = (percentage: number) => {
+    if (percentage >= 100) {
+      // Bright green for 100%
+      return { base: "rgb(34, 197, 94)", rgba: "rgba(34, 197, 94, 0.8)", rgbaLight: "rgba(34, 197, 94, 0.6)" };
+    } else if (percentage >= 70) {
+      // Light green for 70-90%
+      return { base: "rgb(74, 222, 128)", rgba: "rgba(74, 222, 128, 0.8)", rgbaLight: "rgba(74, 222, 128, 0.6)" };
+    } else if (percentage >= 30) {
+      // Yellow for 30-70%
+      return { base: "rgb(250, 204, 21)", rgba: "rgba(250, 204, 21, 0.8)", rgbaLight: "rgba(250, 204, 21, 0.6)" };
+    } else if (percentage >= 10) {
+      // Dark orange for 10-30%
+      return { base: "rgb(249, 115, 22)", rgba: "rgba(249, 115, 22, 0.8)", rgbaLight: "rgba(249, 115, 22, 0.6)" };
+    } else {
+      // Default gray for < 10%
+      return { base: "rgb(156, 163, 175)", rgba: "rgba(156, 163, 175, 0.8)", rgbaLight: "rgba(156, 163, 175, 0.6)" };
+    }
+  };
+
+  const thunderboltColor = getThunderboltColor(totalFilled);
+
   // Calculate cumulative heights for stacking (from bottom)
   let cumulativeHeight = 0;
   const layers = distribution.map((item, index) => {
@@ -153,23 +176,32 @@ export function GoalWaterJarVisualizer({
   });
 
   return (
-    <div className={cn("flex flex-col items-center justify-center w-full py-4 px-2", className)}>
-      <div className="relative w-full max-w-[200px] mx-auto flex-shrink-0" style={{ paddingBottom: "8px" }}>
-        {/* Glass/Jar Container */}
-        <div className="relative w-full h-[220px] rounded-t-2xl rounded-b-lg border-4 border-border/60 bg-background/40 backdrop-blur-sm shadow-lg overflow-hidden" style={{ boxSizing: "border-box" }}>
+    <div className={cn("flex flex-col items-center justify-center w-full", className)}>
+      <div className="relative w-full max-w-[130px] mx-auto flex-shrink-0" style={{ paddingBottom: "2px" }}>
+        {/* Battery Container - Cylindrical Standing */}
+        <div className="relative w-full rounded-lg border-2 border-border/70 bg-background/50 backdrop-blur-sm shadow-xl overflow-hidden" style={{ boxSizing: "border-box", height: "180px", maxHeight: "180px" }}>
+          {/* Battery Top Cap */}
+          <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-8 h-3 rounded-t-lg border-2 border-border/70 bg-background/50 z-[20]" />
+          
           {/* Empty Space at Top */}
           {emptySpace > 0 && (
             <div
-              className="absolute top-0 left-0 right-0 bg-transparent"
+              className="absolute top-0 left-0 right-0 bg-gradient-to-b from-background/30 to-transparent"
               style={{
                 height: `${emptySpace}%`
               }}
             />
           )}
 
-          {/* Water Layers */}
+          {/* Energy Layers - Use category colors with lighter versions */}
           {layers.map((layer) => {
-            const colors = CATEGORY_COLORS[layer.name] || CATEGORY_COLORS["Business/Project Goals"];
+            const categoryColors = CATEGORY_COLORS[layer.name] || CATEGORY_COLORS["Business/Project Goals"];
+            // Use lighter versions of category colors
+            const colors = {
+              base: categoryColors.light, // Use light as base for lighter appearance
+              light: categoryColors.base,  // Use base as light
+              dark: categoryColors.base   // Use base as dark for subtle gradient
+            };
             const isHighlighted = highlightedCategory === layer.name;
             const hasGoals = (goalsByCategory.get(layer.name) || []).length > 0;
 
@@ -202,40 +234,28 @@ export function GoalWaterJarVisualizer({
                   }
                 }}
               >
-                {/* Wave Animation at Top */}
-                {!prefersReducedMotion.current && layer.height > 0 && (
-                  <div
-                    className="absolute top-0 left-0 right-0 h-3 opacity-80 animate-water-wave"
-                    style={{
-                      background: `linear-gradient(to bottom, ${colors.light}, transparent)`,
-                      clipPath: "polygon(0 100%, 100% 100%, 100% 0, 0 0)",
-                      animationDelay: `${layer.index * 500}ms`
-                    }}
-                  />
-                )}
-
-                {/* Label and Percentage Overlay */}
-                {layer.height > 12 && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center px-2 pointer-events-none">
+                {/* Energy Level Label */}
+                {layer.height > 15 && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center px-1.5 pointer-events-none z-[5]">
                     <span
                       className={cn(
-                        "text-[10px] font-semibold text-white drop-shadow-lg text-center leading-tight w-full",
-                        layer.height < 25 && "text-[9px]",
+                        "text-[8px] font-semibold text-white drop-shadow-lg text-center leading-tight w-full",
+                        layer.height < 25 && "text-[7px]",
                         "break-words hyphens-auto"
                       )}
                       style={{
                         wordBreak: "break-word",
                         overflowWrap: "break-word",
                         maxWidth: "100%",
-                        lineHeight: "1.2"
+                        lineHeight: "1.1"
                       }}
                     >
                       {layer.name}
                     </span>
                     <span
                       className={cn(
-                        "text-lg font-bold text-white drop-shadow-lg mt-0.5",
-                        layer.height < 25 && "text-base"
+                        "text-sm font-bold text-white drop-shadow-lg mt-0.5",
+                        layer.height < 25 && "text-xs"
                       )}
                     >
                       {layer.value}%
@@ -246,9 +266,35 @@ export function GoalWaterJarVisualizer({
             );
           })}
 
-          {/* Glass Reflection Effect */}
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute left-0 top-0 bottom-0 w-1/3 bg-gradient-to-r from-white/20 to-transparent rounded-t-2xl" />
+          {/* Glowing Thunderbolt Symbol in Center - Dynamic color based on total fill */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[15]">
+            <div className="relative">
+              {/* Glow Effect */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Zap 
+                  className="h-10 w-10 blur-sm animate-pulse" 
+                  style={{ 
+                    filter: "blur(6px)",
+                    color: thunderboltColor.base,
+                    opacity: 0.4
+                  }}
+                />
+              </div>
+              {/* Main Thunderbolt */}
+              <Zap 
+                className="h-10 w-10 drop-shadow-2xl relative z-10 animate-pulse"
+                style={{
+                  color: thunderboltColor.base,
+                  filter: `drop-shadow(0 0 6px ${thunderboltColor.base}) drop-shadow(0 0 12px ${thunderboltColor.rgba}) drop-shadow(0 0 18px ${thunderboltColor.rgbaLight})`,
+                  animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite"
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Battery Reflection Effect */}
+          <div className="absolute inset-0 pointer-events-none z-[5]">
+            <div className="absolute left-0 top-0 bottom-0 w-1/3 bg-gradient-to-r from-white/15 to-transparent rounded-lg" />
           </div>
         </div>
       </div>

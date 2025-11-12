@@ -157,6 +157,7 @@ export function UserPerformanceView() {
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidenceFileName, setEvidenceFileName] = useState<string>("");
   const [milestoneComment, setMilestoneComment] = useState<string>("");
+  const [originalComment, setOriginalComment] = useState<string>(""); // Store original comment for comparison
   const [isMilestoneLoading, setIsMilestoneLoading] = useState(false);
 
   // Add milestone states
@@ -295,20 +296,38 @@ const normalizeCategory = (category: string): string => {
     setShowMilestoneDialog(true);
     setEvidenceFile(null);
     setEvidenceFileName("");
-    // Prefill with existing comment (userComment or managerComment)
+    // Store original comment for comparison
     const existingComment = milestone.userComment || milestone.managerComment || "";
-    setMilestoneComment(existingComment);
+    setOriginalComment(existingComment);
+    // If reopening (milestone is completed), leave comment field empty
+    // If completing (milestone is not completed), prefill with existing comment if available
+    if (milestone.completed) {
+      setMilestoneComment(""); // Empty when reopening
+    } else {
+      setMilestoneComment(existingComment); // Prefill when completing
+    }
   };
 
   // Handle milestone completion
   const handleCompleteMilestone = async () => {
     if (!selectedMilestone) return;
 
+    const trimmedComment = milestoneComment.trim();
     // Validate comment is provided
-    if (!milestoneComment.trim()) {
+    if (!trimmedComment) {
       toast({
         title: "Comment Required",
         description: "Please provide a comment before completing the milestone.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // If there was an original comment, require that it has been modified
+    if (originalComment && trimmedComment === originalComment.trim()) {
+      toast({
+        title: "Comment Required",
+        description: "Please update the comment or provide a new one before completing the milestone.",
         variant: "destructive"
       });
       return;
@@ -339,6 +358,7 @@ const normalizeCategory = (category: string): string => {
         setEvidenceFile(null);
         setEvidenceFileName("");
         setMilestoneComment("");
+        setOriginalComment("");
       }
     } catch (error) {
       console.error("Error completing milestone:", error);
@@ -351,8 +371,9 @@ const normalizeCategory = (category: string): string => {
   const handleReopenMilestone = async () => {
     if (!selectedMilestone) return;
 
+    const trimmedComment = milestoneComment.trim();
     // Validate comment is provided
-    if (!milestoneComment.trim()) {
+    if (!trimmedComment) {
       toast({
         title: "Comment Required",
         description: "Please provide a comment explaining why you're reopening this milestone.",
@@ -360,6 +381,7 @@ const normalizeCategory = (category: string): string => {
       });
       return;
     }
+    // When reopening, comment field starts empty, so no need to check if it's different from original
 
     const { goalId, milestone } = selectedMilestone;
 
@@ -385,6 +407,7 @@ const normalizeCategory = (category: string): string => {
         setEvidenceFile(null);
         setEvidenceFileName("");
         setMilestoneComment("");
+        setOriginalComment("");
       }
     } catch (error) {
       console.error("Error reopening milestone:", error);
@@ -839,6 +862,11 @@ const normalizeCategory = (category: string): string => {
                   {selectedMilestone.milestone.completed ? "Comment (Required)" : "Comment (Required)"}
                   <span className="text-destructive ml-1">*</span>
                 </Label>
+                {originalComment && !selectedMilestone.milestone.completed && (
+                  <p className="text-xs text-muted-foreground mb-1.5">
+                    Previous comment is shown below. Please update it or provide a new comment.
+                  </p>
+                )}
                 <Textarea
                   id="milestone-comment"
                   value={milestoneComment}
@@ -854,7 +882,9 @@ const normalizeCategory = (category: string): string => {
                 <p className="text-xs text-muted-foreground mt-1">
                   {selectedMilestone.milestone.completed
                     ? "Please provide a reason for reopening this milestone."
-                    : "Please provide a comment before completing this milestone."}
+                    : (originalComment && milestoneComment.trim() === originalComment.trim()
+                        ? "Please update the comment or provide a new one before completing."
+                        : "Please provide a comment before completing this milestone.")}
                 </p>
               </div>
             </div>

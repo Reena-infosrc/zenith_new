@@ -238,6 +238,7 @@ export function ManagerPerformanceView() {
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidenceFileName, setEvidenceFileName] = useState<string>("");
   const [milestoneComment, setMilestoneComment] = useState<string>("");
+  const [originalComment, setOriginalComment] = useState<string>(""); // Store original comment for comparison
   const [isMilestoneLoading, setIsMilestoneLoading] = useState(false);
   
   // Add milestone states
@@ -246,6 +247,9 @@ export function ManagerPerformanceView() {
   const [newMilestoneTitle, setNewMilestoneTitle] = useState<string>("");
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState<string>("");
   const [isAddMilestoneLoading, setIsAddMilestoneLoading] = useState(false);
+  
+  // Submit goal state
+  const [submittingGoalId, setSubmittingGoalId] = useState<string | null>(null);
   
   // Edit goal states
   const [selectedGoalForEdit, setSelectedGoalForEdit] = useState<Goal | null>(null);
@@ -674,18 +678,36 @@ export function ManagerPerformanceView() {
     setShowMilestoneDialog(true);
     setEvidenceFile(null);
     setEvidenceFileName("");
-    // Prefill with existing comment (userComment or managerComment)
+    // Store original comment for comparison
     const existingComment = milestone.userComment || milestone.managerComment || "";
-    setMilestoneComment(existingComment);
+    setOriginalComment(existingComment);
+    // If reopening (milestone is completed), leave comment field empty
+    // If completing (milestone is not completed), prefill with existing comment if available
+    if (milestone.completed) {
+      setMilestoneComment(""); // Empty when reopening
+    } else {
+      setMilestoneComment(existingComment); // Prefill when completing
+    }
   };
 
   const handleCompleteMilestone = async () => {
     if (!selectedMilestone) return;
 
-    if (!milestoneComment.trim()) {
+    const trimmedComment = milestoneComment.trim();
+    if (!trimmedComment) {
       toast({
         title: "Comment Required",
         description: "Please provide a comment before completing the milestone.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // If there was an original comment, require that it has been modified
+    if (originalComment && trimmedComment === originalComment.trim()) {
+      toast({
+        title: "Comment Required",
+        description: "Please update the comment or provide a new one before completing the milestone.",
         variant: "destructive"
       });
       return;
@@ -722,6 +744,7 @@ export function ManagerPerformanceView() {
         setEvidenceFile(null);
         setEvidenceFileName("");
         setMilestoneComment("");
+        setOriginalComment("");
       }
     } catch (error) {
       console.error("Error completing milestone:", error);
@@ -733,7 +756,8 @@ export function ManagerPerformanceView() {
   const handleReopenMilestone = async () => {
     if (!selectedMilestone) return;
 
-    if (!milestoneComment.trim()) {
+    const trimmedComment = milestoneComment.trim();
+    if (!trimmedComment) {
       toast({
         title: "Comment Required",
         description: "Please provide a comment explaining why you're reopening this milestone.",
@@ -741,6 +765,7 @@ export function ManagerPerformanceView() {
       });
       return;
     }
+    // When reopening, comment field starts empty, so no need to check if it's different from original
 
     const { goalId, milestone } = selectedMilestone;
     
@@ -772,6 +797,7 @@ export function ManagerPerformanceView() {
         setEvidenceFile(null);
         setEvidenceFileName("");
         setMilestoneComment("");
+        setOriginalComment("");
       }
     } catch (error) {
       console.error("Error reopening milestone:", error);
@@ -864,6 +890,32 @@ export function ManagerPerformanceView() {
       console.error("Error adding milestone:", error);
     } finally {
       setIsAddMilestoneLoading(false);
+    }
+  };
+
+  const handleSubmitGoal = async (goalId: string) => {
+    if (!currentManagerEmployeeId) return;
+
+    try {
+      setSubmittingGoalId(goalId);
+      await updateGoal(goalId, { status: 'pending_manager_approval' });
+      // Refresh manager's own goals
+      const apiGoals = await getEmployeeGoals(currentManagerEmployeeId, true);
+      const convertedGoals = apiGoals.map(convertGoalToMyGoal);
+      setMyGoals(convertedGoals);
+      toast({
+        title: "Submitted",
+        description: "Goal sent for manager review."
+      });
+    } catch (error) {
+      console.error('Error submitting goal:', error);
+      toast({
+        title: 'Submission failed',
+        description: 'Unable to submit goal for manager review right now.',
+        variant: 'destructive'
+      });
+    } finally {
+      setSubmittingGoalId(null);
     }
   };
 
@@ -1344,9 +1396,21 @@ export function ManagerPerformanceView() {
         employee={goalPanelState.employee ?? managerSummary}
         onClose={handleCloseGoalPanel}
         getGoal={getGoal}
-        onEditGoal={handlePanelEditGoal}
+        onEditGoal={
+          // Only show Edit Goal for team member goals, not for manager's own goals
+          goalPanelState.employee?.id && goalPanelState.employee.id !== currentManagerEmployeeId
+            ? handlePanelEditGoal
+            : undefined
+        }
         onAddMilestone={handleAddMilestoneClick}
         onMilestoneClick={handleMilestoneClick}
+        onSubmitGoal={
+          // Only show Submit for Review for manager's own goals
+          goalPanelState.employee?.id === currentManagerEmployeeId
+            ? handleSubmitGoal
+            : undefined
+        }
+        isSubmittingGoal={submittingGoalId === goalPanelState.goalId}
         triggerRef={goalPanelTriggerRef}
         panelId={goalPanelId}
       />
@@ -1805,6 +1869,11 @@ export function ManagerPerformanceView() {
                   Comment (Required)
                   <span className="text-destructive ml-1">*</span>
                 </Label>
+                {originalComment && !selectedMilestone.milestone.completed && (
+                  <p className="text-xs text-muted-foreground mb-1.5">
+                    Previous comment is shown below. Please update it or provide a new comment.
+                  </p>
+                )}
                 <Textarea
                   id="milestone-comment"
                   value={milestoneComment}
@@ -1820,7 +1889,9 @@ export function ManagerPerformanceView() {
                 <p className="text-xs text-muted-foreground mt-1">
                   {selectedMilestone.milestone.completed
                     ? "Please provide a reason for reopening this milestone."
-                    : "Please provide a comment before completing this milestone."}
+                    : (originalComment && milestoneComment.trim() === originalComment.trim()
+                        ? "Please update the comment or provide a new one before completing."
+                        : "Please provide a comment before completing this milestone.")}
                 </p>
               </div>
             </div>

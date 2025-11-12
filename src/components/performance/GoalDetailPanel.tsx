@@ -539,14 +539,14 @@ export function GoalDetailPanel({
       <header className="border-b border-border/50 px-6 py-4 flex-shrink-0 bg-background/50">
         <div className="flex items-start gap-3 min-w-0">
           <Avatar className="h-12 w-12 border border-border/60 flex-shrink-0">
-            {employee?.avatarUrl ? (
-              <AvatarImage src={employee.avatarUrl} alt={employee.name} />
-            ) : (
+              {employee?.avatarUrl ? (
+                <AvatarImage src={employee.avatarUrl} alt={employee.name} />
+              ) : (
               <AvatarFallback className="text-sm font-semibold">
                 {employee?.name?.split(" ").map((n) => n[0]).join("").slice(0, 2) || "?"}
               </AvatarFallback>
-            )}
-          </Avatar>
+              )}
+            </Avatar>
           <div className="space-y-2 flex-1 min-w-0 overflow-hidden">
             <div className="flex items-start gap-2 min-w-0">
               <h2 
@@ -555,12 +555,12 @@ export function GoalDetailPanel({
                 style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
               >
                 {categoryName || "Goals"}
-              </h2>
+                </h2>
               <Badge variant="outline" className="text-xs flex-shrink-0 whitespace-nowrap">
                 {categoryGoals.length} {categoryGoals.length === 1 ? "Goal" : "Goals"}
               </Badge>
-            </div>
-            {employee && (
+              </div>
+              {employee && (
               <div className="flex flex-col gap-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">
                   {employee.name}
@@ -807,53 +807,66 @@ export function GoalDetailPanel({
   // Single Goal Detail View
   const PanelContent = !isCategoryView && (
     <div className="flex h-full flex-col">
-      <header className="border-b border-border/50 px-6 py-5">
-        <div className="flex items-start justify-between gap-4">
+      <header className="border-b border-border/50 px-6 py-4 bg-background/50">
+        <div className="space-y-3">
           {selectedGoalFromCategory && (
             <Button
               variant="ghost"
               size="icon"
               onClick={handleBackToCategory}
-              className="mr-2"
+              className="flex-shrink-0 -ml-2 -mt-1"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
           )}
-          <div className="flex items-start gap-3 flex-1">
-            <Avatar className="h-12 w-12 border border-border/60">
-              {employee?.avatarUrl ? (
-                <AvatarImage src={employee.avatarUrl} alt={employee.name} />
-              ) : (
-                <AvatarFallback>{employee?.name?.split(" ").map((n) => n[0]).join("")}</AvatarFallback>
-              )}
-            </Avatar>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <h2 id="goal-panel-title" className="text-lg font-semibold leading-tight">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <h2 
+                  id="goal-panel-title" 
+                  className="text-lg font-semibold leading-tight break-words"
+                  style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
+                >
                   {goalTitle}
                 </h2>
-                <Badge className={cn("border", statusBadge(goalStatus))}>{statusLabel(goalStatus)}</Badge>
+                <Badge className={cn("border text-xs flex-shrink-0", statusBadge(goalStatus))}>
+                  {statusLabel(goalStatus)}
+                </Badge>
               </div>
               {employee && (
-                <p className="text-sm text-muted-foreground">
-                  {employee.name}
-                  {employee.role ? ` • ${employee.role}` : ""}
-                  {employee.department ? ` • ${employee.department}` : ""}
-                </p>
-              )}
-              {goalCategory && (
-                <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 text-xs text-muted-foreground">
-                  <Target className="h-3 w-3" />
-                  {goalCategory}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-medium text-foreground">{employee.name}</span>
+                    {employee.role && (
+                      <>
+                        <span className="text-muted-foreground/60">•</span>
+                        <span className="text-muted-foreground">{employee.role}</span>
+                      </>
+                    )}
+                    {employee.department && (
+                      <>
+                        <span className="text-muted-foreground/60">•</span>
+                        <span className="text-muted-foreground">{employee.department}</span>
+                      </>
+                    )}
+                  </div>
+                  {goalCategory && (
+                    <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 text-xs text-muted-foreground">
+                      <Target className="h-3 w-3 flex-shrink-0" />
+                      <span>{goalCategory}</span>
+                    </div>
+                  )}
+                  {goalTargetDate && (
+                    <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary border border-primary/20">
+                      <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span>Due: {new Date(goalTargetDate).toLocaleDateString()}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <span className="text-2xl font-bold text-primary">{Math.round(goalCompletion)}%</span>
-            <div className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-              <Clock className="h-3 w-3" />
-              {goalTargetDate ? `Due ${new Date(goalTargetDate).toLocaleDateString()}` : "No due date"}
+            <div className="flex-shrink-0">
+              <span className="text-3xl font-bold text-primary leading-none">{Math.round(goalCompletion)}%</span>
             </div>
           </div>
         </div>
@@ -877,9 +890,11 @@ export function GoalDetailPanel({
           ) : (
             <Fragment>
               {goalDescription && (
-                <section className="space-y-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Goal Overview</h3>
-                  <p className="text-sm leading-relaxed text-muted-foreground">{goalDescription}</p>
+                <section className="space-y-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground bg-primary/10 px-3 py-2 rounded-md border border-primary/20">
+                    Goal Overview
+                  </h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground pl-1">{goalDescription}</p>
                 </section>
               )}
 
@@ -908,11 +923,11 @@ export function GoalDetailPanel({
               )}
 
               <section className="space-y-3" aria-labelledby="milestone-heading">
-                <div className="flex items-center justify-between">
-                  <h3 id="milestone-heading" className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="flex items-center justify-between bg-primary/10 px-3 py-2 rounded-md border border-primary/20">
+                  <h3 id="milestone-heading" className="text-sm font-semibold uppercase tracking-wide text-foreground">
                     Milestones
                   </h3>
-                  <div className="text-xs text-muted-foreground">{flattenedMilestones.length} total</div>
+                  <div className="text-xs font-medium text-muted-foreground">{flattenedMilestones.length} total</div>
                 </div>
 
                 {flattenedMilestones.length === 0 ? (
@@ -943,43 +958,40 @@ export function GoalDetailPanel({
       </div>
 
       <footer className="border-t border-border/50 bg-background/60 px-6 py-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-2">
-            {onEditGoal && activeGoalId && (
-              <Button variant="outline" size="sm" onClick={() => onEditGoal(activeGoalId)}>
-                Edit Goal
-              </Button>
-            )}
-            {onAddMilestone && activeGoalId && (
-              <Button variant="outline" size="sm" onClick={() => onAddMilestone(activeGoalId)}>
-                Add Milestone
-              </Button>
-            )}
-            {onSubmitGoal && activeGoalId && (
-              <Button
-                size="sm"
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
-                onClick={() => onSubmitGoal(activeGoalId)}
-                disabled={isSubmittingGoal}
-              >
-                {isSubmittingGoal ? (
-                  <span className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 animate-spin" />
-                    Submitting...
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <Send className="h-4 w-4" />
-                    Submit for Review
-                  </span>
-                )}
-              </Button>
-            )}
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Close
-            <X className="ml-2 h-4 w-4" />
-          </Button>
+        <div className="flex flex-wrap gap-2">
+          {onEditGoal && activeGoalId && (
+            <Button variant="outline" size="sm" onClick={() => onEditGoal(activeGoalId)}>
+              Edit Goal
+            </Button>
+          )}
+          {onAddMilestone && activeGoalId && (
+            <Button variant="outline" size="sm" onClick={() => onAddMilestone(activeGoalId)}>
+              Add Milestone
+            </Button>
+          )}
+          {onSubmitGoal && activeGoalId && (
+            <Button
+              size="sm"
+              className={cn(
+                "bg-primary text-primary-foreground hover:bg-primary/90",
+                goalCompletion < 100 && "opacity-50 cursor-not-allowed bg-muted text-muted-foreground hover:bg-muted"
+              )}
+              onClick={() => onSubmitGoal(activeGoalId)}
+              disabled={isSubmittingGoal || goalCompletion < 100}
+            >
+              {isSubmittingGoal ? (
+                <span className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 animate-spin" />
+                  Submitting...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Send className="h-4 w-4" />
+                  Submit for Review
+                </span>
+              )}
+            </Button>
+          )}
         </div>
       </footer>
     </div>

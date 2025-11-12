@@ -243,29 +243,29 @@ export function TeamMemberGoalsCard({
   );
 
   const renderBack = () => (
-    <div className="flex h-full flex-col gap-4 p-6 min-w-0 overflow-hidden">
-      <div className="flex items-center justify-between gap-2 min-w-0">
+    <div className="flex h-full flex-col gap-2 p-4 min-w-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 min-w-0 flex-shrink-0">
         <Button
           variant="outline"
           size="icon"
-          className="h-9 w-9 rounded-full border-border/60 text-muted-foreground hover:bg-primary/5 flex-shrink-0"
+          className="h-8 w-8 rounded-full border-border/60 text-muted-foreground hover:bg-primary/5 flex-shrink-0"
           onClick={(e) => {
             e.stopPropagation();
             handleFlip();
           }}
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="relative flex h-14 w-14 items-center justify-center flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="relative flex h-10 w-10 items-center justify-center flex-shrink-0">
             <div
               className="absolute inset-0 rounded-full"
               style={{
                 background: `conic-gradient(var(--primary) ${goals.length ? Math.max(Math.round(goals.reduce((sum, g) => sum + g.completion, 0) / goals.length), 0) : 0}%, hsl(var(--muted)) 0)`
               }}
             />
-            <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-background">
-              <span className="text-sm font-semibold">
+            <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-background">
+              <span className="text-xs font-semibold">
                 {goals.length
                   ? Math.round(goals.reduce((sum, g) => sum + g.completion, 0) / goals.length)
                   : 0}%
@@ -273,12 +273,12 @@ export function TeamMemberGoalsCard({
             </div>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground break-words">Overview of active goals & milestones</p>
+            <p className="text-sm font-semibold text-foreground break-words leading-tight">Goals Overview</p>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto overflow-x-visible">
+      <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-hidden">
         {(isLoading || isFetching) ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -296,21 +296,23 @@ export function TeamMemberGoalsCard({
             </Button>
           </div>
         ) : (
-          <GoalWaterJarVisualizer
-            goals={goals}
-            onSegmentClick={(category, categoryGoals) => {
-              if (categoryGoals.length > 0) {
-                if (onOpenCategoryGoals) {
-                  onOpenCategoryGoals(category, categoryGoals, employee, null);
-                } else {
-                  // Fallback to single goal view
-                  const firstGoal = categoryGoals[0];
-                  onOpenGoal(firstGoal, employee, null);
+          <div className="flex flex-col items-center justify-center flex-1 min-h-0">
+            <GoalWaterJarVisualizer
+              goals={goals}
+              onSegmentClick={(category, categoryGoals) => {
+                if (categoryGoals.length > 0) {
+                  if (onOpenCategoryGoals) {
+                    onOpenCategoryGoals(category, categoryGoals, employee, null);
+                  } else {
+                    // Fallback to single goal view
+                    const firstGoal = categoryGoals[0];
+                    onOpenGoal(firstGoal, employee, null);
+                  }
                 }
-              }
-            }}
-            className="w-full"
-          />
+              }}
+              className="w-full"
+            />
+          </div>
         )}
       </div>
     </div>

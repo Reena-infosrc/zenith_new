@@ -1,7 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Calendar, ChevronRight } from "lucide-react";
 
 const statusStyles: Record<string, string> = {
@@ -78,7 +77,15 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
             <div className="flex-1 min-w-0 space-y-1">
               <p className="text-sm font-semibold text-foreground break-words">{goal.title}</p>
               {goal.category && (
-                <Badge variant="secondary" className="text-[11px] font-medium capitalize">
+                <Badge 
+                  variant="outline" 
+                  className="text-[11px] font-medium capitalize"
+                  style={{
+                    backgroundColor: "hsl(196 100% 47% / 0.1)",
+                    color: "hsl(196 100% 47%)",
+                    borderColor: "hsl(196 100% 47% / 0.2)"
+                  }}
+                >
                   {goal.category}
                 </Badge>
               )}
@@ -96,7 +103,17 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
             </Badge>
           </div>
           <div className="space-y-2">
-            <Progress value={goal.completion} className="h-2" />
+            <div 
+              className="relative h-2 w-full overflow-hidden rounded-full"
+              style={{ backgroundColor: "#00B0F0" }}
+            >
+              {goal.completion > 0 && (
+                <div 
+                  className="h-full transition-all bg-green-500"
+                  style={{ width: `${Math.min(goal.completion, 100)}%` }}
+                />
+              )}
+            </div>
             {goal.targetDate && (
               <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                 <Calendar className="h-3 w-3" />
