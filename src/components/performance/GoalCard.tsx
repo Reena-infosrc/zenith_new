@@ -1,4 +1,4 @@
-import { Target, Calendar, Plus, CheckCircle2, Clock, Send, RefreshCw, Award, FileText, Edit, Briefcase } from "lucide-react";
+import { Target, Calendar, Plus, CheckCircle2, Clock, Send, RefreshCw, Award, FileText, Edit, Briefcase, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,9 +25,8 @@ export interface GoalCardProps {
     description?: string;
     category: string;
     targetDate: string;
-    status: 'in_progress' | 'completed' | 'pending' | 'pending_manager_approval' | 'manager_reopened';
+    status: string;
     completion: number;
-    weightage?: number;
     milestones?: Milestone[];
     managerApproved?: boolean;
     managerReopened?: boolean;
@@ -36,6 +35,8 @@ export interface GoalCardProps {
   onMilestoneClick?: (goalId: string, milestone: Milestone) => void;
   onAddMilestone?: (goalId: string) => void;
   onEditGoal?: (goalId: string) => void;
+  onSubmitGoal?: (goalId: string) => void;
+  isSubmittingGoal?: boolean;
   showSetBy?: boolean; // Show "Set by" text for manager view
 }
 
@@ -73,7 +74,7 @@ const areAllMilestonesCompleted = (goal: GoalCardProps['goal']): boolean => {
   return goal.milestones.every(m => m.completed);
 };
 
-export function GoalCard({ goal, onMilestoneClick, onAddMilestone, onEditGoal, showSetBy = false }: GoalCardProps) {
+export function GoalCard({ goal, onMilestoneClick, onAddMilestone, onEditGoal, onSubmitGoal, isSubmittingGoal = false, showSetBy = false }: GoalCardProps) {
   return (
     <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all duration-300">
       <CardHeader>
@@ -128,7 +129,7 @@ export function GoalCard({ goal, onMilestoneClick, onAddMilestone, onEditGoal, s
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">Progress</span>
-            <span className="text-sm font-semibold text-primary">{goal.completion}%</span>
+            <span className="text-sm font-semibold text-primary">{Math.round(goal.completion)}%</span>
           </div>
           <Progress value={goal.completion} className="h-3" />
         </div>
@@ -158,63 +159,60 @@ export function GoalCard({ goal, onMilestoneClick, onAddMilestone, onEditGoal, s
                 <div
                   key={milestone.id}
                   className={cn(
-                    "flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-accent/50 transition-colors",
+                    "rounded-lg border px-3 py-2 transition-colors",
                     milestone.completed
                       ? "bg-green-500/10 border-green-500/20"
-                      : "bg-muted/30 border-border"
+                      : "bg-muted/40 border-border/60"
                   )}
                   onClick={() => onMilestoneClick?.(goal.id, milestone)}
                 >
-                  <div className={cn(
-                    "h-6 w-6 rounded-full flex items-center justify-center flex-shrink-0",
-                    milestone.completed
-                      ? "bg-green-500 text-white"
-                      : "bg-muted border-2 border-border"
-                  )}>
-                    {milestone.completed ? (
-                      <CheckCircle2 className="h-4 w-4" />
-                    ) : (
-                      <span className="text-xs font-semibold">{idx + 1}</span>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={cn(
-                      "text-sm font-medium break-words",
-                      milestone.completed && "line-through text-muted-foreground"
+                  <div className="flex items-start gap-2">
+                    <div className={cn(
+                      "mt-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                      milestone.completed
+                        ? "bg-green-500 text-white"
+                        : "bg-background border border-border text-muted-foreground"
                     )}>
-                      {milestone.title}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Due: {new Date(milestone.dueDate).toLocaleDateString()}
-                      {milestone.completed && milestone.completedDate && (
-                        <span className="ml-2">• Completed: {new Date(milestone.completedDate).toLocaleDateString()}</span>
+                      {milestone.completed ? <CheckCircle2 className="h-4 w-4" /> : idx + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className={cn("text-sm font-medium break-words", milestone.completed && "line-through text-muted-foreground")}>{milestone.title}</p>
+                        {milestone.completed && (
+                          <Badge className="h-5 rounded-full bg-green-500/15 px-2 text-[10px] font-semibold text-green-600">
+                            Completed
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                        <span>Due: {new Date(milestone.dueDate).toLocaleDateString()}</span>
+                        {milestone.completed && milestone.completedDate && (
+                          <span>• Completed: {new Date(milestone.completedDate).toLocaleDateString()}</span>
+                        )}
+                      </div>
+                      {milestone.evidence && (
+                        <div className="mt-2 inline-flex items-center gap-1 rounded border border-border/60 bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
+                          <FileText className="h-3 w-3" />
+                          {milestone.evidence}
+                        </div>
                       )}
-                    </p>
-                    {milestone.evidence && (
-                      <div className="flex items-center gap-1 mt-1">
-                        <FileText className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">{milestone.evidence}</span>
-                      </div>
-                    )}
-                    {milestone.userComment && (
-                      <div className="mt-2 p-2 bg-muted/50 rounded-md border border-border/50">
-                        <p className="text-xs font-semibold text-muted-foreground mb-1">Your Comment:</p>
-                        <p className="text-xs text-muted-foreground">{milestone.userComment}</p>
-                      </div>
-                    )}
-                    {milestone.managerComment && (
-                      <div className="mt-2 p-2 bg-blue-500/10 rounded-md border border-blue-500/20">
-                        <p className="text-xs font-semibold text-blue-600 mb-1">Manager Comment:</p>
-                        <p className="text-xs text-blue-600">{milestone.managerComment}</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {milestone.completed && (
-                      <Badge className="bg-green-500/10 text-green-600 border-green-500/20">
-                        Completed
-                      </Badge>
-                    )}
+                      {(milestone.userComment || milestone.managerComment) && (
+                        <div className="mt-2 space-y-1 text-[11px]">
+                          {milestone.userComment && (
+                            <div className="rounded border border-border/50 bg-muted/40 px-2 py-1">
+                              <p className="font-semibold text-muted-foreground">Your Comment</p>
+                              <p className="text-muted-foreground">{milestone.userComment}</p>
+                            </div>
+                          )}
+                          {milestone.managerComment && (
+                            <div className="rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1">
+                              <p className="font-semibold text-blue-600">Manager Comment</p>
+                              <p className="text-blue-600">{milestone.managerComment}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))
@@ -223,8 +221,47 @@ export function GoalCard({ goal, onMilestoneClick, onAddMilestone, onEditGoal, s
             )}
           </div>
           
-          {/* Manager Approval Section */}
-          {areAllMilestonesCompleted(goal) && goal.status === 'pending_manager_approval' && (
+          {onSubmitGoal &&
+            goal.status !== 'pending_manager_approval' &&
+            goal.status !== 'completed' &&
+            (goal.milestones?.length ?? 0) > 0 &&
+            goal.milestones?.every((milestone) => milestone.completed) && (
+              <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-3">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-start gap-2">
+                    <Send className="h-4 w-4 text-primary" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-primary">Ready to submit</p>
+                      <p className="text-xs text-muted-foreground">
+                        All milestones are complete. Submit your goal for manager review to close it out.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      className="bg-primary text-primary-foreground hover:bg-primary/90"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSubmitGoal(goal.id);
+                      }}
+                      disabled={isSubmittingGoal}
+                    >
+                      {isSubmittingGoal ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 h-4 w-4" />
+                      )}
+                      Submit for Manager Review
+                    </Button>
+                    <p className="text-[11px] text-muted-foreground">
+                      Manager approval will be required after submission.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          
+          {goal.status === 'pending_manager_approval' && (
             <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <Send className="h-4 w-4 text-blue-600" />

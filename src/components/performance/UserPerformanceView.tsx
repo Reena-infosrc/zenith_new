@@ -119,7 +119,7 @@ export function UserPerformanceView() {
   const { preserveScroll } = usePreserveScroll();
   const { toast } = useToast();
   const { user } = useAuth();
-  const { getEmployeeGoals, createMilestone, updateMilestone, deleteMilestone, loading: goalsLoading } = useGoals();
+  const { getEmployeeGoals, createMilestone, updateMilestone, deleteMilestone, updateGoal, loading: goalsLoading } = useGoals();
   const { employees } = useEmployees();
   
   const [goals, setGoals] = useState<PerformanceGoal[]>([]);
@@ -138,6 +138,7 @@ export function UserPerformanceView() {
   const [selectedGoalForMilestone, setSelectedGoalForMilestone] = useState<string | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState<string>("");
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState<string>("");
+  const [submittingGoalId, setSubmittingGoalId] = useState<string | null>(null);
   const [isAddMilestoneLoading, setIsAddMilestoneLoading] = useState(false);
   
 
@@ -443,6 +444,31 @@ const normalizeCategory = (category: string): string => {
     }
   };
 
+  const handleSubmitGoal = async (goalId: string) => {
+    if (!currentEmployeeId) return;
+
+    try {
+      setSubmittingGoalId(goalId);
+      await updateGoal(goalId, { status: 'pending_manager_approval' });
+      const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
+      const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
+      setGoals(convertedGoals);
+      toast({
+        title: "Submitted",
+        description: "Goal sent for manager review."
+      });
+    } catch (error) {
+      console.error('Error submitting goal:', error);
+      toast({
+        title: 'Submission failed',
+        description: 'Unable to submit goal for manager review right now.',
+        variant: 'destructive'
+      });
+    } finally {
+      setSubmittingGoalId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
@@ -617,6 +643,8 @@ const normalizeCategory = (category: string): string => {
                   goal={goal}
                   onMilestoneClick={handleMilestoneClick}
                   onAddMilestone={handleAddMilestoneClick}
+                  onSubmitGoal={handleSubmitGoal}
+                  isSubmittingGoal={submittingGoalId === goal.id}
                 />
               ))}
             </div>

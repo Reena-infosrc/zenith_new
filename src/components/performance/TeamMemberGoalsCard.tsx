@@ -40,7 +40,7 @@ export interface TeamMemberGoalsCardProps {
     department: string;
     yearsOfExperience?: number;
     experienceYears?: number;
-    skills: string[];
+    skills?: string[];
   };
   summary: {
     total: number;
@@ -53,7 +53,7 @@ export interface TeamMemberGoalsCardProps {
     description?: string;
     category: string;
     targetDate: string;
-    status: 'in_progress' | 'completed' | 'pending' | 'pending_manager_approval' | 'manager_reopened';
+    status: string;
     completion: number;
     milestones?: Milestone[];
     managerApproved?: boolean;
@@ -91,6 +91,7 @@ export function TeamMemberGoalsCard({
     const years = employee.yearsOfExperience ?? employee.experienceYears ?? 0;
     return `${years} year${years === 1 ? "" : "s"} exp.`;
   }, [employee.experienceYears, employee.yearsOfExperience]);
+  const skills = useMemo(() => employee.skills ?? [], [employee.skills]);
 
   const handleFlip = async () => {
     if (!isFlipped && (isFetching || isLoading)) {
@@ -153,14 +154,14 @@ export function TeamMemberGoalsCard({
           <span className="text-muted-foreground break-words min-w-0">{experienceLabel}</span>
         </div>
         <div className="flex flex-wrap gap-1">
-          {employee.skills.slice(0, 3).map((skill, idx) => (
+          {skills.slice(0, 3).map((skill, idx) => (
             <Badge key={idx} variant="secondary" className="text-xs break-words">
               {skill}
             </Badge>
           ))}
-          {employee.skills.length > 3 && (
-            <Badge variant="secondary" className="text-xs">
-              +{employee.skills.length - 3}
+          {skills.length > 3 && (
+            <Badge variant="secondary" className="text-xs break-words">
+              +{skills.length - 3}
             </Badge>
           )}
         </div>
@@ -287,6 +288,7 @@ export function TeamMemberGoalsCard({
         ) : (
           goals.map((goal) => {
             const isExpanded = expandedGoalIds.includes(goal.id);
+            const roundedCompletion = Math.round(goal.completion);
 
             return (
               <div
@@ -315,7 +317,7 @@ export function TeamMemberGoalsCard({
                         {goal.title}
                       </span>
                       <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary flex-shrink-0 whitespace-nowrap">
-                        {goal.completion}%
+                        {roundedCompletion}%
                       </span>
                     </div>
                     <div className="relative h-1.5 overflow-hidden rounded-full bg-muted">

@@ -62,11 +62,11 @@ import { calculateGoalDistribution } from "@/utils/goal-distribution";
 interface Employee {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   position: string;
   department: string;
-  yearsOfExperience: number;
-  skills: string[];
+  yearsOfExperience?: number;
+  skills?: string[];
   photoUrl?: string;
   reporting_to?: string;
 }
@@ -81,6 +81,7 @@ interface Milestone {
   managerApproved?: boolean;
   managerReopened?: boolean;
   managerComment?: string;
+  userComment?: string;
 }
 
 interface Goal {
@@ -90,7 +91,7 @@ interface Goal {
   description: string;
   category: string;
   targetDate: string;
-  status: 'draft' | 'published' | 'completed' | 'pending_manager_approval' | 'manager_reopened';
+  status: string;
   completion: number;
   weightage?: number;
   createdAt: string;
@@ -440,7 +441,7 @@ export function ManagerPerformanceView() {
 
   const filteredReports = directReports.filter(emp => {
     return emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           emp.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
            emp.position.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
