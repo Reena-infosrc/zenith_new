@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Sparkles,
   Save,
@@ -6,12 +6,15 @@ import {
   Brain,
   X,
   Calendar,
-  Target
+  Target,
+  AlertCircle
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 import { useGoals } from "@/hooks/use-goals";
 import { useToast } from "@/hooks/use-toast";
 
@@ -34,7 +37,7 @@ interface GoalSettingModalProps {
 }
 
 export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: GoalSettingModalProps) {
-  const { createGoal, loading: creatingGoal } = useGoals();
+  const { createGoal, getEmployeeGoals, loading: creatingGoal } = useGoals();
   const { toast } = useToast();
   
   const [formData, setFormData] = useState({
@@ -49,6 +52,68 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
   const [aiSuggestions, setAiSuggestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [existingGoals, setExistingGoals] = useState<any[]>([]);
+  const [loadingGoals, setLoadingGoals] = useState(false);
+
+  // Fetch existing goals when modal opens
+  useEffect(() => {
+    if (open && employee.id) {
+      const fetchExistingGoals = async () => {
+        setLoadingGoals(true);
+        try {
+          const goals = await getEmployeeGoals(employee.id, true);
+          setExistingGoals(goals || []);
+        } catch (error) {
+          console.error("Error fetching existing goals:", error);
+        } finally {
+          setLoadingGoals(false);
+        }
+      };
+      fetchExistingGoals();
+    } else if (!open) {
+      // Reset form when modal closes
+      setFormData({
+        title: "",
+        description: "",
+        category: "Business/Project Goals",
+        targetDate: "",
+        weightage: 10,
+        notes: ""
+      });
+      setExistingGoals([]);
+    }
+  }, [open, employee.id, getEmployeeGoals]);
+
+  // Calculate total weightage from existing goals
+  const totalWeightage = useMemo(() => {
+    return existingGoals.reduce((sum, goal) => sum + (goal.weightage || 0), 0);
+  }, [existingGoals]);
+
+  // Calculate remaining weightage
+  const remainingWeightage = useMemo(() => {
+    return Math.max(0, 100 - totalWeightage);
+  }, [totalWeightage]);
+
+  // Available weightage options (only up to remaining weightage)
+  const availableWeightageOptions = useMemo(() => {
+    const options = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+    return options.filter(opt => opt <= remainingWeightage);
+  }, [remainingWeightage]);
+
+  // Update weightage if it exceeds remaining
+  useEffect(() => {
+    if (formData.weightage > remainingWeightage && remainingWeightage > 0) {
+      setFormData(prev => ({
+        ...prev,
+        weightage: Math.max(10, Math.floor(remainingWeightage / 10) * 10) // Round down to nearest 10
+      }));
+    } else if (remainingWeightage === 0) {
+      setFormData(prev => ({
+        ...prev,
+        weightage: 0
+      }));
+    }
+  }, [remainingWeightage]);
 
   const handleAISuggestions = async () => {
     setLoading(true);
@@ -89,6 +154,35 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
       toast({
         title: "Validation Error",
         description: "Please fill in all required fields (Title and Target Date).",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate weightage
+    if (formData.weightage <= 0) {
+      toast({
+        title: "Validation Error",
+        description: "Weightage must be greater than 0.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (formData.weightage > remainingWeightage) {
+      toast({
+        title: "Validation Error",
+        description: `Weightage cannot exceed remaining weightage (${remainingWeightage}%).`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const newTotalWeightage = totalWeightage + formData.weightage;
+    if (newTotalWeightage > 100) {
+      toast({
+        title: "Validation Error",
+        description: `Total weightage cannot exceed 100%. Current: ${totalWeightage}%, Adding: ${formData.weightage}% = ${newTotalWeightage}%`,
         variant: "destructive"
       });
       return;
@@ -259,25 +353,60 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Weightage (%)</label>
-              <Select 
-                value={formData.weightage.toString()} 
-                onValueChange={(value) => setFormData({ ...formData, weightage: parseInt(value) })}
-              >
-                <SelectTrigger className="bg-background/50">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((value) => (
-                    <SelectItem key={value} value={value.toString()}>
-                      {value}%
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground mt-1">
-                Select the percentage weightage for this goal (max 100%)
-              </p>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium">Weightage (%)</label>
+                {loadingGoals ? (
+                  <span className="text-xs text-muted-foreground">Loading...</span>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      Used: <span className="font-semibold">{totalWeightage}%</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">•</span>
+                    <span className={cn(
+                      "text-xs font-semibold",
+                      remainingWeightage > 0 ? "text-primary" : "text-destructive"
+                    )}>
+                      Remaining: {remainingWeightage}%
+                    </span>
+                  </div>
+                )}
+              </div>
+              
+              {remainingWeightage === 0 ? (
+                <Alert className="bg-amber-500/10 border-amber-500/20">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-sm text-amber-600">
+                    All weightage (100%) has been allocated. Please edit or delete existing goals to free up weightage.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <>
+                  <Select 
+                    value={formData.weightage.toString()} 
+                    onValueChange={(value) => setFormData({ ...formData, weightage: parseInt(value) })}
+                    disabled={remainingWeightage === 0}
+                  >
+                    <SelectTrigger className="bg-background/50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableWeightageOptions.length > 0 ? (
+                        availableWeightageOptions.map((value) => (
+                          <SelectItem key={value} value={value.toString()}>
+                            {value}%
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="0" disabled>No weightage available</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Select the percentage weightage for this goal. Maximum available: {remainingWeightage}%
+                  </p>
+                </>
+              )}
             </div>
 
             <div>
@@ -315,7 +444,7 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
                     // For now, treat draft same as published (can be enhanced later)
                     await handleCreateGoal();
                   }}
-                  disabled={creatingGoal || !formData.title || !formData.targetDate}
+                  disabled={creatingGoal || !formData.title || !formData.targetDate || remainingWeightage === 0 || formData.weightage <= 0}
                   className="bg-blue-500 hover:bg-blue-600"
                 >
                   <Save className="h-4 w-4 mr-2" />
@@ -324,7 +453,7 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
               ) : (
                 <Button
                   onClick={handleCreateGoal}
-                  disabled={creatingGoal || !formData.title || !formData.targetDate}
+                  disabled={creatingGoal || !formData.title || !formData.targetDate || remainingWeightage === 0 || formData.weightage <= 0}
                   className="bg-gradient-to-r from-primary to-primary/80"
                 >
                   <Send className="h-4 w-4 mr-2" />

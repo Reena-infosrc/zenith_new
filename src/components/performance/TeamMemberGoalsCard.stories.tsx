@@ -9,13 +9,17 @@ const meta: Meta<typeof TeamMemberGoalsCard> = {
     layout: "centered"
   },
   argTypes: {
-    onFetchGoals: { action: "fetchGoals" },
-    onSetGoals: { action: "setGoals" },
-    onAddGoal: { action: "addGoal" },
-    onEditGoal: { action: "editGoal" },
-    onDeleteGoal: { action: "deleteGoal", control: false },
-    onMilestoneClick: { action: "milestoneClick" },
-    onAddMilestone: { action: "addMilestone" }
+    employee: { control: 'object' },
+    goals: { control: 'object' },
+    summary: { control: 'object' },
+    isLoading: { control: 'boolean' },
+    onFetchGoals: { action: 'fetchGoals' },
+    onSetGoals: { action: 'setGoals' },
+    onAddGoal: { action: 'addGoal' },
+    onEditGoal: { action: 'editGoal' },
+    onDeleteGoal: { action: 'deleteGoal', control: false },
+    activeGoalId: { control: 'text' },
+    panelId: { control: 'text' }
   }
 };
 
@@ -88,8 +92,8 @@ export const Default: Story = {
     onAddGoal: () => {},
     onEditGoal: () => {},
     onDeleteGoal: async () => {},
-    onMilestoneClick: () => {},
-    onAddMilestone: () => {}
+    activeGoalId: null,
+    panelId: "goal-detail-panel"
   }
 };
 
@@ -97,6 +101,7 @@ export const Loading: Story = {
   args: {
     ...Default.args,
     goals: [],
+    activeGoalId: null,
     isLoading: true
   }
 };

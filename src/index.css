@@ -305,4 +305,50 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
+
+  /* Water Jar Visualizer Animations */
+  @keyframes waterFillUp {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes waterWave {
+    0%,
+    100% {
+      clip-path: polygon(0 100%, 100% 100%, 100% 0, 0 0);
+    }
+    50% {
+      clip-path: polygon(
+        0 100%,
+        100% 100%,
+        100% 0,
+        0 0,
+        0 20%,
+        10% 15%,
+        20% 20%,
+        30% 15%,
+        40% 20%,
+        50% 15%,
+        60% 20%,
+        70% 15%,
+        80% 20%,
+        90% 15%,
+        100% 20%
+      );
+    }
+  }
+
+  .animate-water-fill {
+    animation: waterFillUp 1s ease-out both;
+  }
+
+  .animate-water-wave {
+    animation: waterWave 3s ease-in-out infinite;
+  }
 }

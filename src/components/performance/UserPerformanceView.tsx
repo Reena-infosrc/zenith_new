@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   TrendingUp,
   Target,
@@ -36,7 +36,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useGoals, Goal, Milestone as APIMilestone } from "@/hooks/use-goals";
 import { useEmployees } from "@/hooks/use-employees";
-import { GoalCard } from "./GoalCard";
+import { GoalDetailPanel, GoalDetailSnapshot } from "./GoalDetailPanel";
+import { GoalSummaryCard, GoalSummary } from "./GoalSummaryCard";
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -60,6 +61,7 @@ interface PerformanceGoal {
   id: string;
   title: string;
   category: string;
+  description?: string;
   completion: number;
   targetDate: string;
   status: 'in_progress' | 'completed' | 'pending' | 'pending_manager_approval' | 'manager_reopened';
@@ -88,6 +90,7 @@ const convertGoalToPerformanceGoal = (goal: Goal): PerformanceGoal => {
     id: goal.id,
     title: goal.title,
     category: goal.category,
+    description: goal.description || "",
     completion: goal.completion,
     targetDate: goal.targetDate,
     status: goal.status,
@@ -119,20 +122,43 @@ export function UserPerformanceView() {
   const { preserveScroll } = usePreserveScroll();
   const { toast } = useToast();
   const { user } = useAuth();
-  const { getEmployeeGoals, createMilestone, updateMilestone, deleteMilestone, updateGoal, loading: goalsLoading } = useGoals();
+  const { getEmployeeGoals, getGoal, createMilestone, updateMilestone, deleteMilestone, updateGoal, loading: goalsLoading } = useGoals();
   const { employees } = useEmployees();
-  
+
   const [goals, setGoals] = useState<PerformanceGoal[]>([]);
   const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  
+
+  const currentEmployeeSummary = useMemo(() => {
+    if (!currentEmployeeId) return null;
+    const employeeRecord = employees.find(emp => emp.id === currentEmployeeId);
+    if (employeeRecord) {
+      return {
+        id: employeeRecord.id,
+        name: employeeRecord.name,
+        role: employeeRecord.position,
+        department: employeeRecord.department,
+        avatarUrl: employeeRecord.photoUrl
+      };
+    }
+
+    if (user?.name || user?.email) {
+      return {
+        id: currentEmployeeId,
+        name: user?.name ?? user?.email ?? "Employee"
+      };
+    }
+
+    return null;
+  }, [currentEmployeeId, employees, user]);
+
   const [selectedMilestone, setSelectedMilestone] = useState<{ goalId: string; milestone: Milestone } | null>(null);
   const [showMilestoneDialog, setShowMilestoneDialog] = useState(false);
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidenceFileName, setEvidenceFileName] = useState<string>("");
   const [milestoneComment, setMilestoneComment] = useState<string>("");
   const [isMilestoneLoading, setIsMilestoneLoading] = useState(false);
-  
+
   // Add milestone states
   const [showAddMilestoneDialog, setShowAddMilestoneDialog] = useState(false);
   const [selectedGoalForMilestone, setSelectedGoalForMilestone] = useState<string | null>(null);
@@ -140,13 +166,21 @@ export function UserPerformanceView() {
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState<string>("");
   const [submittingGoalId, setSubmittingGoalId] = useState<string | null>(null);
   const [isAddMilestoneLoading, setIsAddMilestoneLoading] = useState(false);
-  
+
+  const [goalPanelState, setGoalPanelState] = useState<{
+    open: boolean;
+    goalId: string | null;
+    summary: GoalDetailSnapshot | null;
+  }>({ open: false, goalId: null, summary: null });
+  const goalPanelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const goalPanelId = "goal-detail-panel";
+
 
   // Get current user's employee ID
   useEffect(() => {
     const fetchEmployeeId = async () => {
       if (!user?.email) return;
-      
+
       try {
         // Find employee by email from cached employees
         const employee = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
@@ -167,7 +201,7 @@ export function UserPerformanceView() {
   useEffect(() => {
     const fetchGoals = async () => {
       if (!currentEmployeeId) return;
-      
+
       try {
         setLoading(true);
         const apiGoals = await getEmployeeGoals(currentEmployeeId);
@@ -261,7 +295,9 @@ const normalizeCategory = (category: string): string => {
     setShowMilestoneDialog(true);
     setEvidenceFile(null);
     setEvidenceFileName("");
-    setMilestoneComment(milestone.userComment || "");
+    // Prefill with existing comment (userComment or managerComment)
+    const existingComment = milestone.userComment || milestone.managerComment || "";
+    setMilestoneComment(existingComment);
   };
 
   // Handle milestone completion
@@ -279,7 +315,7 @@ const normalizeCategory = (category: string): string => {
     }
 
     const { goalId, milestone } = selectedMilestone;
-    
+
     try {
       setIsMilestoneLoading(true);
       // Update milestone via API
@@ -326,7 +362,7 @@ const normalizeCategory = (category: string): string => {
     }
 
     const { goalId, milestone } = selectedMilestone;
-    
+
     try {
       setIsMilestoneLoading(true);
       // Update milestone via API
@@ -406,7 +442,7 @@ const normalizeCategory = (category: string): string => {
     const selectedDate = new Date(newMilestoneDueDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     if (selectedDate < today) {
       toast({
         title: "Invalid Date",
@@ -468,6 +504,38 @@ const normalizeCategory = (category: string): string => {
       setSubmittingGoalId(null);
     }
   };
+
+  const handleOpenGoalPanel = (goal: PerformanceGoal, trigger: HTMLButtonElement | null) => {
+    goalPanelTriggerRef.current = trigger;
+    setGoalPanelState({
+      open: true,
+      goalId: goal.id,
+      summary: toGoalPanelSnapshot(goal)
+    });
+  };
+
+  const handleCloseGoalPanel = () => {
+    setGoalPanelState(prev => ({ ...prev, open: false }));
+  };
+
+  const handleGoalPanelOpenChange = (open: boolean) => {
+    if (!open) {
+      handleCloseGoalPanel();
+    }
+  };
+
+  const toGoalPanelSnapshot = (goal: PerformanceGoal): GoalDetailSnapshot => ({
+    id: goal.id,
+    title: goal.title,
+    status: goal.status,
+    completion: goal.completion,
+    category: goal.category,
+    targetDate: goal.targetDate,
+    description: goal.description,
+    managerApproved: goal.managerApproved,
+    managerReopened: goal.managerReopened,
+    milestones: goal.milestones
+  });
 
   return (
     <div className="space-y-6">
@@ -638,18 +706,39 @@ const normalizeCategory = (category: string): string => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {goals.map((goal) => (
-                <GoalCard
+                <GoalSummaryCard
                   key={goal.id}
-                  goal={goal}
-                  onMilestoneClick={handleMilestoneClick}
-                  onAddMilestone={handleAddMilestoneClick}
-                  onSubmitGoal={handleSubmitGoal}
-                  isSubmittingGoal={submittingGoalId === goal.id}
+                  goal={{
+                    id: goal.id,
+                    title: goal.title,
+                    completion: goal.completion,
+                    status: goal.status,
+                    targetDate: goal.targetDate,
+                    category: goal.category
+                  }}
+                  onOpen={(_, trigger) => handleOpenGoalPanel(goal, trigger)}
+                  isOpen={goalPanelState.open && goalPanelState.goalId === goal.id}
+                  controlsId={goalPanelId}
                 />
               ))}
             </div>
           )}
         </TabsContent>
+
+        <GoalDetailPanel
+          open={goalPanelState.open}
+          goalId={goalPanelState.goalId}
+          summary={goalPanelState.summary}
+          employee={currentEmployeeSummary}
+          onClose={handleCloseGoalPanel}
+          getGoal={getGoal}
+          onAddMilestone={handleAddMilestoneClick}
+          onMilestoneClick={handleMilestoneClick}
+          onSubmitGoal={handleSubmitGoal}
+          isSubmittingGoal={submittingGoalId === goalPanelState.goalId}
+          triggerRef={goalPanelTriggerRef}
+          panelId={goalPanelId}
+        />
       </Tabs>
 
       {/* Milestone Edit Dialog */}
@@ -661,7 +750,7 @@ const normalizeCategory = (category: string): string => {
                 <Label className="text-base font-semibold">Milestone</Label>
                 <p className="text-sm text-muted-foreground mt-1">{selectedMilestone.milestone.title}</p>
               </div>
-              
+
               <div>
                 <Label>Due Date</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -673,7 +762,7 @@ const normalizeCategory = (category: string): string => {
                 <div>
                   <Label>Completed Date</Label>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {selectedMilestone.milestone.completedDate 
+                    {selectedMilestone.milestone.completedDate
                       ? new Date(selectedMilestone.milestone.completedDate).toLocaleDateString()
                       : "N/A"}
                   </p>
@@ -772,8 +861,8 @@ const normalizeCategory = (category: string): string => {
           )}
 
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setShowMilestoneDialog(false);
                 setSelectedMilestone(null);
@@ -786,7 +875,7 @@ const normalizeCategory = (category: string): string => {
               Cancel
             </Button>
             {selectedMilestone?.milestone.completed ? (
-              <Button 
+              <Button
                 variant="outline"
                 className="border-orange-500/20 text-orange-600 hover:bg-orange-500/10"
                 onClick={handleReopenMilestone}
@@ -832,7 +921,7 @@ const normalizeCategory = (category: string): string => {
               Add a new milestone to track progress towards your goal
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div>
               <Label htmlFor="milestone-title">
@@ -870,8 +959,8 @@ const normalizeCategory = (category: string): string => {
           </div>
 
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setShowAddMilestoneDialog(false);
                 setSelectedGoalForMilestone(null);

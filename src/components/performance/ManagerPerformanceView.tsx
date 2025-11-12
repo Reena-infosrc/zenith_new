@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Users, 
   Target, 
@@ -36,11 +36,12 @@ import { useAuth } from "@/hooks/use-auth";
 import { useGoals, Goal as APIGoal, Milestone as APIMilestone } from "@/hooks/use-goals";
 import { useEmployees } from "@/hooks/use-employees";
 import { GoalSettingModal, Employee as GoalEmployee } from "./GoalSettingModal";
+import { GoalDetailPanel, GoalDetailSnapshot } from "./GoalDetailPanel";
 import { ReviewForms } from "./ReviewForms";
 import { ContinuousFeedback } from "./ContinuousFeedback";
 import { ManagerSignOff } from "./ManagerSignOff";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
-import { GoalCard } from "./GoalCard";
+import { GoalSummaryCard } from "./GoalSummaryCard";
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -94,7 +95,7 @@ interface Goal {
   status: string;
   completion: number;
   weightage?: number;
-  createdAt: string;
+  createdAt?: string;
   aiSuggested?: boolean;
   milestones?: Milestone[];
   managerApproved?: boolean;
@@ -164,6 +165,32 @@ const convertGoalToTeamGoal = (goal: APIGoal): Goal => {
   };
 };
 
+const toTeamGoalSnapshot = (goal: Goal): GoalDetailSnapshot => ({
+  id: goal.id,
+  title: goal.title,
+  status: goal.status,
+  completion: goal.completion,
+  category: goal.category,
+  targetDate: goal.targetDate,
+  description: goal.description,
+  managerApproved: goal.managerApproved,
+  managerReopened: goal.managerReopened,
+  milestones: goal.milestones ?? []
+});
+
+const toMyGoalSnapshot = (goal: MyGoal): GoalDetailSnapshot => ({
+  id: goal.id,
+  title: goal.title,
+  status: goal.status,
+  completion: goal.completion,
+  category: goal.category,
+  targetDate: goal.targetDate,
+  description: goal.description,
+  managerApproved: goal.managerApproved,
+  managerReopened: goal.managerReopened,
+  milestones: goal.milestones ?? []
+});
+
 // Normalize category value to match Select options
 const normalizeCategory = (category: string): string => {
   const cat = category.toLowerCase();
@@ -183,7 +210,7 @@ const normalizeCategory = (category: string): string => {
 export function ManagerPerformanceView() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { getEmployeeGoals, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
+  const { getEmployeeGoals, getGoal, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
   const { employees } = useEmployees();
   
   const [directReports, setDirectReports] = useState<Employee[]>([]);
@@ -233,6 +260,156 @@ export function ManagerPerformanceView() {
   
   // Goals pending approval (fetched from API)
   const [pendingApprovalGoals, setPendingApprovalGoals] = useState<Array<{ goal: Goal; employee: Employee }>>([]);
+
+  const [goalPanelState, setGoalPanelState] = useState<{
+    open: boolean;
+    goalId: string | null;
+    summary: GoalDetailSnapshot | null;
+    categoryGoals?: GoalDetailSnapshot[];
+    categoryName?: string;
+    employee: { id: string; name: string; role?: string; department?: string; avatarUrl?: string } | null;
+  }>({ open: false, goalId: null, summary: null, employee: null });
+  const goalPanelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const goalPanelId = "manager-goal-detail-panel";
+
+  const managerRecord = useMemo(() => {
+    if (!currentManagerEmployeeId) return null;
+    return employees.find(emp => emp.id === currentManagerEmployeeId) ?? null;
+  }, [currentManagerEmployeeId, employees]);
+
+  const managerSummary = useMemo(() => {
+    if (managerRecord) {
+      return {
+        id: managerRecord.id,
+        name: managerRecord.name,
+        role: managerRecord.position,
+        department: managerRecord.department,
+        avatarUrl: managerRecord.photoUrl
+      };
+    }
+
+    if (user?.name || user?.email) {
+      return {
+        id: currentManagerEmployeeId ?? "",
+        name: user?.name ?? user?.email ?? "Manager"
+      };
+    }
+
+    return null;
+  }, [currentManagerEmployeeId, managerRecord, user?.email, user?.name]);
+
+  const openEditGoalDialog = (goalToEdit: Goal, owner: Employee) => {
+    setSelectedEmployee(owner);
+
+    let dateValue = goalToEdit.targetDate || "";
+    if (dateValue.includes("T")) {
+      dateValue = dateValue.split("T")[0];
+    } else if (dateValue && !dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      try {
+        const parsed = new Date(dateValue);
+        if (!Number.isNaN(parsed.getTime())) {
+          dateValue = parsed.toISOString().split("T")[0];
+        }
+      } catch (error) {
+        console.warn("Could not parse date:", dateValue);
+      }
+    }
+
+    setEditGoalForm({
+      title: goalToEdit.title || "",
+      description: goalToEdit.description || "",
+      category: normalizeCategory(goalToEdit.category),
+      targetDate: dateValue,
+      weightage: goalToEdit.weightage || 10
+    });
+
+    setSelectedGoalForEdit(goalToEdit);
+    setTimeout(() => {
+      setShowEditGoalDialog(true);
+    }, 0);
+  };
+
+  const handleOpenGoalPanel = (goal: Goal, employee: Employee, trigger: HTMLButtonElement | null) => {
+    goalPanelTriggerRef.current = trigger;
+    setGoalPanelState({
+      open: true,
+      goalId: goal.id,
+      summary: toTeamGoalSnapshot(goal),
+      employee: {
+        id: employee.id,
+        name: employee.name,
+        role: employee.position,
+        department: employee.department,
+        avatarUrl: employee.photoUrl
+      }
+    });
+  };
+
+  const handleOpenCategoryGoals = (category: string, categoryGoals: Goal[], employee: Employee, trigger: HTMLButtonElement | null) => {
+    goalPanelTriggerRef.current = trigger;
+    const categorySnapshots = categoryGoals.map(toTeamGoalSnapshot);
+    setGoalPanelState({
+      open: true,
+      goalId: null,
+      summary: null,
+      categoryGoals: categorySnapshots,
+      categoryName: category,
+      employee: {
+        id: employee.id,
+        name: employee.name,
+        role: employee.position,
+        department: employee.department,
+        avatarUrl: employee.photoUrl
+      }
+    });
+  };
+
+  const handleOpenMyGoalPanel = (goal: MyGoal, trigger: HTMLButtonElement | null) => {
+    goalPanelTriggerRef.current = trigger;
+    setGoalPanelState({
+      open: true,
+      goalId: goal.id,
+      summary: toMyGoalSnapshot(goal),
+      employee: managerSummary
+    });
+  };
+
+  const handleCloseGoalPanel = () => {
+    setGoalPanelState((prev) => ({ ...prev, open: false }));
+  };
+
+  const handlePanelEditGoal = (goalId: string) => {
+    const ownerId = goalPanelState.employee?.id;
+    if (ownerId) {
+      const ownerEmployee = employees.find((emp) => emp.id === ownerId) ?? null;
+      const teamGoals = employeeGoals.get(ownerId) ?? [];
+      const teamGoal = teamGoals.find((g) => g.id === goalId);
+      if (teamGoal && ownerEmployee) {
+        openEditGoalDialog(teamGoal, ownerEmployee);
+        return;
+      }
+    }
+
+    const myGoalRecord = myGoals.find((g) => g.id === goalId);
+    if (myGoalRecord && managerRecord) {
+      const converted: Goal = {
+        id: myGoalRecord.id,
+        employeeId: managerRecord.id,
+        title: myGoalRecord.title,
+        description: myGoalRecord.description,
+        category: myGoalRecord.category,
+        targetDate: myGoalRecord.targetDate,
+        status: myGoalRecord.status,
+        completion: myGoalRecord.completion,
+        weightage: myGoalRecord.weightage,
+        createdAt: new Date().toISOString(),
+        milestones: myGoalRecord.milestones ?? [],
+        managerApproved: myGoalRecord.managerApproved,
+        managerReopened: myGoalRecord.managerReopened
+      };
+      openEditGoalDialog(converted, managerRecord);
+    }
+  };
 
   // Initialize edit form when goal is selected for editing
   useEffect(() => {
@@ -497,7 +674,9 @@ export function ManagerPerformanceView() {
     setShowMilestoneDialog(true);
     setEvidenceFile(null);
     setEvidenceFileName("");
-    setMilestoneComment(milestone.userComment || "");
+    // Prefill with existing comment (userComment or managerComment)
+    const existingComment = milestone.userComment || milestone.managerComment || "";
+    setMilestoneComment(existingComment);
   };
 
   const handleCompleteMilestone = async () => {
@@ -903,48 +1082,17 @@ export function ManagerPerformanceView() {
                     }
                   }}
                   onSetGoals={() => {
-                            setSelectedEmployee(employee);
-                            setShowGoalModal(true);
-                          }}
+                    setSelectedEmployee(employee);
+                    setShowGoalModal(true);
+                  }}
                   onAddGoal={() => {
-                            setSelectedEmployee(employee);
+                    setSelectedEmployee(employee);
                     setShowGoalModal(true);
                   }}
                   onEditGoal={(goalId) => {
                     const goalToEdit = employeeGoalsList.find(g => g.id === goalId);
                     if (goalToEdit) {
-                      setSelectedEmployee(employee);
-                      // Extract date part (handle both ISO format and date-only format)
-                      let dateValue = goalToEdit.targetDate || "";
-                      if (dateValue.includes('T')) {
-                        dateValue = dateValue.split('T')[0];
-                      } else if (dateValue && !dateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
-                        // Handle date strings like "30/11/2025" or other formats
-                        try {
-                          const date = new Date(dateValue);
-                          if (!isNaN(date.getTime())) {
-                            dateValue = date.toISOString().split('T')[0];
-                          }
-                        } catch (e) {
-                          console.warn("Could not parse date:", dateValue);
-                        }
-                      }
-                      
-                      // Set form data first, then open dialog
-                      const normalizedCategory = normalizeCategory(goalToEdit.category);
-                      setEditGoalForm({
-                        title: goalToEdit.title || "",
-                        description: goalToEdit.description || "",
-                        category: normalizedCategory,
-                        targetDate: dateValue,
-                        weightage: goalToEdit.weightage || 10
-                      });
-                      
-                      setSelectedGoalForEdit(goalToEdit);
-                      // Use setTimeout to ensure state is set before opening dialog
-                      setTimeout(() => {
-                        setShowEditGoalDialog(true);
-                      }, 0);
+                      openEditGoalDialog(goalToEdit, employee);
                     }
                   }}
                   onDeleteGoal={async (goalId) => {
@@ -953,8 +1101,10 @@ export function ManagerPerformanceView() {
                     // Force refresh to get updated goals after deletion
                     await fetchTeamMemberGoals(employee.id, true);
                   }}
-                  onMilestoneClick={handleMilestoneClick}
-                  onAddMilestone={handleAddMilestoneClick}
+                  onOpenGoal={(goal, teamMember, trigger) => handleOpenGoalPanel(goal, teamMember, trigger)}
+                  onOpenCategoryGoals={(category, categoryGoals, teamMember, trigger) => handleOpenCategoryGoals(category, categoryGoals, teamMember, trigger)}
+                  activeGoalId={goalPanelState.open ? goalPanelState.goalId : null}
+                  panelId={goalPanelId}
                 />
               );
             })}
@@ -1151,11 +1301,19 @@ export function ManagerPerformanceView() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {myGoals.map((goal) => (
-                    <GoalCard
+                    <GoalSummaryCard
                       key={goal.id}
-                      goal={goal}
-                      onMilestoneClick={handleMilestoneClick}
-                      onAddMilestone={handleAddMilestoneClick}
+                      goal={{
+                        id: goal.id,
+                        title: goal.title,
+                        completion: goal.completion,
+                        status: goal.status,
+                        targetDate: goal.targetDate,
+                        category: goal.category
+                      }}
+                      onOpen={(_, trigger) => handleOpenMyGoalPanel(goal, trigger)}
+                      isOpen={goalPanelState.open && goalPanelState.goalId === goal.id}
+                      controlsId={goalPanelId}
                     />
                   ))}
                 </div>
@@ -1177,6 +1335,22 @@ export function ManagerPerformanceView() {
         </TabsContent>
       </Tabs>
 
+      <GoalDetailPanel
+        open={goalPanelState.open}
+        goalId={goalPanelState.goalId}
+        summary={goalPanelState.summary}
+        categoryGoals={goalPanelState.categoryGoals}
+        categoryName={goalPanelState.categoryName}
+        employee={goalPanelState.employee ?? managerSummary}
+        onClose={handleCloseGoalPanel}
+        getGoal={getGoal}
+        onEditGoal={handlePanelEditGoal}
+        onAddMilestone={handleAddMilestoneClick}
+        onMilestoneClick={handleMilestoneClick}
+        triggerRef={goalPanelTriggerRef}
+        panelId={goalPanelId}
+      />
+ 
       {/* Goal Setting Modal */}
       {showGoalModal && selectedEmployee && (
         <GoalSettingModal

@@ -14,8 +14,46 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { GoalCard, Milestone } from "./GoalCard";
 import { cn } from "@/lib/utils";
+import { GoalSummaryCard } from "./GoalSummaryCard";
+import { GoalWaterJarVisualizer } from "./GoalWaterJarVisualizer";
+
+interface TeamGoal {
+  id: string;
+  employeeId: string;
+  title: string;
+  description: string;
+  category: string;
+  targetDate: string;
+  status: string;
+  completion: number;
+  weightage?: number;
+  createdAt?: string;
+  milestones?: Array<{
+    id: string;
+    title: string;
+    completed: boolean;
+    dueDate: string;
+    evidence?: string;
+    completedDate?: string;
+    managerApproved?: boolean;
+    managerReopened?: boolean;
+    managerComment?: string;
+    userComment?: string;
+  }>;
+  managerApproved?: boolean;
+  managerReopened?: boolean;
+}
+
+interface TeamMember {
+  id: string;
+  name: string;
+  position: string;
+  department: string;
+  yearsOfExperience?: number;
+  experienceYears?: number;
+  skills?: string[];
+}
 
 const usePrefersReducedMotion = () => {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
@@ -33,40 +71,23 @@ const usePrefersReducedMotion = () => {
 };
 
 export interface TeamMemberGoalsCardProps {
-  employee: {
-    id: string;
-    name: string;
-    position: string;
-    department: string;
-    yearsOfExperience?: number;
-    experienceYears?: number;
-    skills?: string[];
-  };
+  employee: TeamMember;
   summary: {
     total: number;
     active: number;
     completed: number;
   };
-  goals: Array<{
-    id: string;
-    title: string;
-    description?: string;
-    category: string;
-    targetDate: string;
-    status: string;
-    completion: number;
-    milestones?: Milestone[];
-    managerApproved?: boolean;
-    managerReopened?: boolean;
-  }>;
+  goals: TeamGoal[];
   isLoading: boolean;
   onFetchGoals: () => Promise<void>;
   onSetGoals: () => void;
   onAddGoal: () => void;
   onEditGoal: (goalId: string) => void;
   onDeleteGoal: (goalId: string) => Promise<void>;
-  onMilestoneClick?: (goalId: string, milestone: Milestone) => void;
-  onAddMilestone?: (goalId: string) => void;
+  onOpenGoal: (goal: TeamGoal, employee: TeamMember, trigger: HTMLButtonElement | null) => void;
+  onOpenCategoryGoals?: (category: string, goals: TeamGoal[], employee: TeamMember, trigger: HTMLButtonElement | null) => void;
+  activeGoalId?: string | null;
+  panelId?: string;
 }
 
 export function TeamMemberGoalsCard({
@@ -79,13 +100,14 @@ export function TeamMemberGoalsCard({
   onAddGoal,
   onEditGoal,
   onDeleteGoal,
-  onMilestoneClick,
-  onAddMilestone
+  onOpenGoal,
+  onOpenCategoryGoals,
+  activeGoalId = null,
+  panelId
 }: TeamMemberGoalsCardProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
-  const [expandedGoalIds, setExpandedGoalIds] = useState<string[]>([]);
 
   const experienceLabel = useMemo(() => {
     const years = employee.yearsOfExperience ?? employee.experienceYears ?? 0;
@@ -96,17 +118,6 @@ export function TeamMemberGoalsCard({
   const handleFlip = async () => {
     if (!isFlipped && (isFetching || isLoading)) {
       return;
-    }
-
-    if (!isFlipped) {
-      try {
-        setIsFetching(true);
-        await onFetchGoals();
-      } finally {
-        setIsFetching(false);
-      }
-    } else {
-      setExpandedGoalIds([]);
     }
 
     setIsFlipped((prev) => !prev);
@@ -262,13 +273,12 @@ export function TeamMemberGoalsCard({
             </div>
           </div>
           <div className="min-w-0 flex-1">
-            <h4 className="font-semibold break-words">Team Goals</h4>
             <p className="text-xs text-muted-foreground break-words">Overview of active goals & milestones</p>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto overflow-x-visible">
         {(isLoading || isFetching) ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -286,68 +296,21 @@ export function TeamMemberGoalsCard({
             </Button>
           </div>
         ) : (
-          goals.map((goal) => {
-            const isExpanded = expandedGoalIds.includes(goal.id);
-            const roundedCompletion = Math.round(goal.completion);
-
-            return (
-              <div
-                key={goal.id}
-                className="rounded-lg border border-border/60 bg-background/60 shadow-sm"
-              >
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setExpandedGoalIds((prev) =>
-                      prev.includes(goal.id)
-                        ? prev.filter((id) => id !== goal.id)
-                        : [...prev, goal.id]
-                    );
-                  }}
-                  className={cn(
-                    "w-full rounded-lg border border-transparent bg-card px-4 py-3 text-left transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20",
-                    isExpanded && "border-primary/40"
-                  )}
-                  aria-expanded={isExpanded}
-                >
-                  <div className="flex flex-col gap-2 min-w-0">
-                    <div className="flex items-center justify-between gap-3 min-w-0">
-                      <span className="text-sm font-semibold text-foreground break-words flex-1 min-w-0">
-                        {goal.title}
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary flex-shrink-0 whitespace-nowrap">
-                        {roundedCompletion}%
-                      </span>
-                    </div>
-                    <div className="relative h-1.5 overflow-hidden rounded-full bg-muted">
-                      <span
-                        className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary via-primary/80 to-primary/60 transition-all duration-500"
-                        style={{ width: `${goal.completion}%` }}
-                      />
-                    </div>
-                  </div>
-                </button>
-
-                <div
-                  className={cn(
-                    "grid transition-all",
-                    prefersReducedMotion ? "" : "duration-500 ease-in-out",
-                    isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-                  )}
-                >
-                  <div className="overflow-hidden">
-                    <GoalCard
-                      goal={goal}
-                      onMilestoneClick={onMilestoneClick}
-                      onAddMilestone={onAddMilestone}
-                      onEditGoal={onEditGoal}
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          })
+          <GoalWaterJarVisualizer
+            goals={goals}
+            onSegmentClick={(category, categoryGoals) => {
+              if (categoryGoals.length > 0) {
+                if (onOpenCategoryGoals) {
+                  onOpenCategoryGoals(category, categoryGoals, employee, null);
+                } else {
+                  // Fallback to single goal view
+                  const firstGoal = categoryGoals[0];
+                  onOpenGoal(firstGoal, employee, null);
+                }
+              }
+            }}
+            className="w-full"
+          />
         )}
       </div>
     </div>
@@ -360,7 +323,7 @@ export function TeamMemberGoalsCard({
         role="group"
         aria-label={`${employee.name} goals card`}
       >
-        <CardContent className="p-0">
+        <CardContent className="p-0 h-full">
           {isFlipped ? renderBack() : renderFront()}
         </CardContent>
       </Card>
@@ -381,8 +344,8 @@ export function TeamMemberGoalsCard({
           style={{ backfaceVisibility: "hidden" }}
           aria-hidden={isFlipped}
         >
-          <Card role="group" aria-label={`${employee.name} goals card`}>
-            <CardContent className="p-0">
+          <Card className="h-full" role="group" aria-label={`${employee.name} goals card`}>
+            <CardContent className="p-0 h-full flex flex-col">
               {renderFront()}
             </CardContent>
           </Card>
@@ -393,8 +356,8 @@ export function TeamMemberGoalsCard({
           style={{ transform: "rotateY(180deg)", backfaceVisibility: "hidden" }}
           aria-hidden={!isFlipped}
         >
-          <Card role="group" aria-label={`${employee.name} goals details`}>
-            <CardContent className="p-0">
+          <Card className="h-full" role="group" aria-label={`${employee.name} goals details`}>
+            <CardContent className="p-0 h-full flex flex-col">
               {renderBack()}
             </CardContent>
           </Card>
