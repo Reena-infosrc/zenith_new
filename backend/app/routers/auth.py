@@ -126,19 +126,14 @@ async def exchange_msal_token(msal_token: str = Body(..., embed=True)):
         )
 
 @router.get("/me")
-async def get_me(email: str = None):
-    # For demo: allow public access and select user by email param
-    user = None
-    if email and email in MOCK_USERS:
-        user = MOCK_USERS[email]
-    else:
-        user = MOCK_USERS["admin@example.com"]
-    role = "admin" if user.get("is_admin") else "user"
+async def get_me(current_user: dict = Depends(get_current_active_user)):
+    """Get current authenticated user information"""
+    role = "admin" if current_user.get("is_admin") else "user"
     return {
         "role": role,
-        "employeeId": user.get("id", "1"),
-        "name": user.get("full_name", "User"),
-        "email": user.get("email", "user@example.com")
+        "employeeId": current_user.get("id", "1"),
+        "name": current_user.get("full_name", "User"),
+        "email": current_user.get("email", current_user.get("username", "user@example.com"))
     }
 
 # Admin endpoints - added to auth router for production compatibility
@@ -231,7 +226,8 @@ async def test_admin_endpoint():
 @router.get("/admins/", response_model=List[Dict[str, Any]])
 async def get_admins(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000)
+    limit: int = Query(100, ge=1, le=1000),
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Get all admins - simplified version without Pydantic models"""
     logger.info(f"Auth router - get_admins called with skip={skip}, limit={limit}")

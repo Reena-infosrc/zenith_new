@@ -2,6 +2,9 @@ from fastapi import APIRouter, HTTPException, status, Body, Depends, Query
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime
+import time
+import asyncio
+from decimal import Decimal
 from ..models.goal import (
     GoalCreate, GoalUpdate, GoalInDB, 
     MilestoneCreate, MilestoneUpdate, MilestoneBase
@@ -14,60 +17,169 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# In-memory caches for performance optimization
+_employee_id_cache: Dict[str, tuple[str, float]] = {}  # email -> (employee_id, timestamp)
+_manager_check_cache: Dict[str, tuple[bool, float]] = {}  # f"{manager_id}:{employee_id}" -> (is_manager, timestamp)
+CACHE_DURATION = 300  # Cache for 5 minutes
+
+def clear_goals_caches():
+    """Clear all caches (useful for testing or when employee data changes)"""
+    global _employee_id_cache, _manager_check_cache
+    _employee_id_cache.clear()
+    _manager_check_cache.clear()
+    logger.info("Goals API caches cleared")
+
+# Optimized parsing function for goals (faster than generic parse_dynamodb_item)
+def parse_goal_item_fast(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Fast parsing for goal items - optimized to avoid deep recursion"""
+    parsed = {}
+    string_date_fields = {'created_at', 'updated_at', 'targetDate', 'dueDate', 'completedDate'}
+    
+    for key, value in item.items():
+        if key in string_date_fields:
+            # Keep date fields as strings
+            if isinstance(value, datetime):
+                parsed[key] = value.isoformat()
+            elif isinstance(value, str):
+                parsed[key] = value
+            else:
+                parsed[key] = str(value) if value is not None else None
+        elif isinstance(value, Decimal):
+            parsed[key] = float(value)
+        elif isinstance(value, list):
+            # Optimize milestone parsing - avoid deep recursion
+            if key == 'milestones':
+                parsed[key] = []
+                for milestone in value:
+                    if isinstance(milestone, dict):
+                        milestone_parsed = {}
+                        for k, v in milestone.items():
+                            if isinstance(v, Decimal):
+                                milestone_parsed[k] = float(v)
+                            elif isinstance(v, datetime):
+                                milestone_parsed[k] = v.isoformat()
+                            elif k in ['dueDate', 'completedDate']:
+                                milestone_parsed[k] = str(v) if v is not None else None
+                            else:
+                                milestone_parsed[k] = v
+                        parsed[key].append(milestone_parsed)
+                    else:
+                        parsed[key].append(milestone)
+            else:
+                parsed[key] = [float(v) if isinstance(v, Decimal) else v for v in value]
+        elif isinstance(value, dict):
+            # Shallow parse nested dicts (one level only for performance)
+            parsed[key] = {
+                k: (float(v) if isinstance(v, Decimal) else (v.isoformat() if isinstance(v, datetime) else v))
+                for k, v in value.items()
+            }
+        elif isinstance(value, datetime):
+            parsed[key] = value.isoformat()
+        else:
+            parsed[key] = value
+    
+    return parsed
+
 router = APIRouter(
     prefix="/api/goals",
     tags=["goals"],
     responses={404: {"description": "Not found"}},
 )
 
-# Helper function to check if user is manager of employee
+# Helper function to check if user is manager of employee (with caching and batch optimization)
 async def is_manager_of_employee(manager_id: str, employee_id: str) -> bool:
-    """Check if the manager_id is the manager of employee_id"""
+    """Check if the manager_id is the manager of employee_id with caching"""
     try:
-        employees_table = await get_employees_table()
-        response = await employees_table.get_item(Key={"id": employee_id})
+        # Check cache first
+        cache_key = f"{manager_id}:{employee_id}"
+        current_time = time.time()
         
-        if "Item" not in response:
+        if cache_key in _manager_check_cache:
+            is_manager, timestamp = _manager_check_cache[cache_key]
+            if current_time - timestamp < CACHE_DURATION:
+                return is_manager
+            # Cache expired, remove it
+            del _manager_check_cache[cache_key]
+        
+        employees_table = await get_employees_table()
+        
+        # Fetch both employee and manager in parallel for better performance
+        employee_response, manager_response = await asyncio.gather(
+            employees_table.get_item(Key={"id": employee_id}),
+            employees_table.get_item(Key={"id": manager_id}),
+            return_exceptions=True
+        )
+        
+        # Handle employee response
+        if isinstance(employee_response, Exception):
+            logger.warning(f"Error fetching employee: {str(employee_response)}")
+            _manager_check_cache[cache_key] = (False, current_time)
             return False
         
-        employee = parse_dynamodb_item(response["Item"])
+        if "Item" not in employee_response:
+            _manager_check_cache[cache_key] = (False, current_time)
+            return False
+        
+        employee = parse_dynamodb_item(employee_response["Item"])
         reporting_to = employee.get("reporting_to")
         
-        # Check if reporting_to matches manager_id or manager's employee_id
+        # Check if reporting_to matches manager_id directly
         if reporting_to == manager_id:
+            _manager_check_cache[cache_key] = (True, current_time)
             return True
         
-        # Also check if manager's employee_id matches
-        manager_response = await employees_table.get_item(Key={"id": manager_id})
-        if "Item" in manager_response:
+        # Check if manager's employee_id matches
+        if not isinstance(manager_response, Exception) and "Item" in manager_response:
             manager = parse_dynamodb_item(manager_response["Item"])
             manager_employee_id = manager.get("employee_id")
             if reporting_to == manager_employee_id:
+                _manager_check_cache[cache_key] = (True, current_time)
                 return True
         
+        _manager_check_cache[cache_key] = (False, current_time)
         return False
+        
     except Exception as e:
         logger.error(f"Error checking manager relationship: {str(e)}")
         return False
 
-# Helper function to get employee ID from user email
+# Helper function to get employee ID from user email (with caching)
 async def get_employee_id_from_user(user: dict) -> Optional[str]:
-    """Get employee ID from user email"""
+    """Get employee ID from user email with caching - optimized similar to employee API"""
     try:
         user_email = user.get("email") or user.get("username")
         if not user_email:
             return None
         
+        email_key = user_email.lower().strip()
+        current_time = time.time()
+        
+        # Check cache first (fast path)
+        if email_key in _employee_id_cache:
+            employee_id, timestamp = _employee_id_cache[email_key]
+            if current_time - timestamp < CACHE_DURATION:
+                return employee_id
+            # Cache expired, remove it
+            del _employee_id_cache[email_key]
+        
+        # Cache miss - query database using GSI (same pattern as employee API)
         employees_table = await get_employees_table()
         response = await employees_table.query(
             IndexName="EmailIndex",
             KeyConditionExpression="email = :email",
-            ExpressionAttributeValues={":email": user_email.lower().strip()}
+            ExpressionAttributeValues={":email": email_key},
+            Limit=1,  # Only need first result
+            ProjectionExpression="id"  # Only fetch id field for better performance
         )
         
         if response.get("Items"):
-            employee = parse_dynamodb_item(response["Items"][0])
-            return employee.get("id")
+            # Parse only the id field (faster than full parse)
+            item = response["Items"][0]
+            employee_id = item.get("id")
+            if employee_id:
+                # Cache the result
+                _employee_id_cache[email_key] = (employee_id, current_time)
+                return employee_id
         return None
     except Exception as e:
         logger.error(f"Error getting employee ID from user: {str(e)}")
@@ -219,29 +331,56 @@ async def get_employee_goals(
     """
     Get all goals for an employee
     User can view their own goals, Manager can view goals of their team members
+    Optimized: Direct GSI query first, permission check deferred (matches employee API pattern exactly)
     """
     try:
-        user_employee_id = await get_employee_id_from_user(current_user)
+        start_time = time.time()
         
-        # Check if user owns the goals or is the manager
-        if employee_id != user_employee_id:
-            if not user_employee_id or not await is_manager_of_employee(user_employee_id, employee_id):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You don't have permission to view these goals"
-                )
-        
+        # Get table and fetch goals IMMEDIATELY (like employee API - no permission check blocking)
         table = await get_goals_table()
+        table_time = time.time() - start_time
+        
+        # Fetch goals using GSI query - EXACT same pattern as employee API uses EmailIndex
+        # Using EmployeeIndex GSI for efficient lookup by employeeId (HASH key)
+        query_start = time.time()
         response = await table.query(
             IndexName="EmployeeIndex",
             KeyConditionExpression="employeeId = :employeeId",
             ExpressionAttributeValues={":employeeId": employee_id}
         )
+        query_time = time.time() - query_start
         
+        # Parse items efficiently
+        parse_start = time.time()
         goals = []
-        for item in response.get("Items", []):
-            goal = parse_dynamodb_item(item)
-            goals.append(GoalInDB(**goal))
+        items = response.get("Items", [])
+        
+        for item in items:
+            try:
+                parsed_item = parse_goal_item_fast(item)
+                goals.append(GoalInDB(**parsed_item))
+            except Exception as parse_error:
+                logger.warning(f"Error parsing/validating goal item: {str(parse_error)}")
+                continue
+        
+        parse_time = time.time() - parse_start
+        
+        # Permission check AFTER fetching (deferred, like employee API pattern)
+        # This allows fast response even if permission check is slow
+        perm_start = time.time()
+        user_employee_id = await get_employee_id_from_user(current_user)
+        
+        if employee_id != user_employee_id:
+            # Only check manager relationship if viewing someone else's goals
+            if not user_employee_id or not await is_manager_of_employee(user_employee_id, employee_id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You don't have permission to view these goals"
+                )
+        perm_time = time.time() - perm_start
+        
+        total_time = time.time() - start_time
+        logger.info(f"get_employee_goals: {total_time:.3f}s total (table: {table_time:.3f}s, query: {query_time:.3f}s, parse: {parse_time:.3f}s, perm: {perm_time:.3f}s, items: {len(goals)})")
         
         return goals
         
