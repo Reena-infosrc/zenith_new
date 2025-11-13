@@ -33,7 +33,7 @@ interface GoalSettingModalProps {
   employee: Employee;
   open: boolean;
   onClose: () => void;
-  onAISuggestions: () => void;
+  onAISuggestions?: (employeeId: string) => Promise<void> | void;
 }
 
 export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: GoalSettingModalProps) {
@@ -212,11 +212,13 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
           notes: ""
         });
         setIsDraft(false);
-        onClose();
-        
-        // Call callback if provided
-        if (onAISuggestions) {
-          onAISuggestions();
+
+        try {
+          if (onAISuggestions) {
+            await onAISuggestions(employee.id);
+          }
+        } finally {
+          onClose();
         }
       }
     } catch (error) {

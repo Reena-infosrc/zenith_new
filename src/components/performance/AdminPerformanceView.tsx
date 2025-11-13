@@ -507,7 +507,7 @@ export function AdminPerformanceView() {
             setShowGoalModal(false);
             setSelectedEmployee(null);
           }}
-          onAISuggestions={() => {}}
+          onAISuggestions={async (_employeeId) => {}}
         />
       )}
     </div>

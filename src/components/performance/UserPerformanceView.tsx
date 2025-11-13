@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   TrendingUp,
   Target,
@@ -176,6 +176,48 @@ export function UserPerformanceView() {
   const goalPanelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const goalPanelId = "goal-detail-panel";
 
+  const toGoalPanelSnapshot = useCallback((goal: PerformanceGoal): GoalDetailSnapshot => ({
+    id: goal.id,
+    title: goal.title,
+    status: goal.status,
+    completion: goal.completion,
+    category: goal.category,
+    targetDate: goal.targetDate,
+    description: goal.description,
+    managerApproved: goal.managerApproved,
+    managerReopened: goal.managerReopened,
+    milestones: goal.milestones
+  }), []);
+
+  const refreshGoalPanelState = useCallback((updatedGoals: PerformanceGoal[]) => {
+    setGoalPanelState((prev) => {
+      if (!prev.open || !prev.goalId) {
+        return prev;
+      }
+
+      const updatedGoal = updatedGoals.find((goal) => goal.id === prev.goalId);
+      if (!updatedGoal) {
+        return prev;
+      }
+
+      const updatedSummary = toGoalPanelSnapshot(updatedGoal);
+      const hasChanged =
+        !prev.summary ||
+        prev.summary.milestones?.length !== updatedSummary.milestones?.length ||
+        prev.summary.completion !== updatedSummary.completion ||
+        prev.summary.status !== updatedSummary.status;
+
+      if (!hasChanged) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        summary: updatedSummary
+      };
+    });
+  }, [toGoalPanelSnapshot]);
+
 
   // Get current user's employee ID
   useEffect(() => {
@@ -208,6 +250,7 @@ export function UserPerformanceView() {
         const apiGoals = await getEmployeeGoals(currentEmployeeId);
         const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
         setGoals(convertedGoals);
+        refreshGoalPanelState(convertedGoals);
       } catch (error) {
         console.error("Error fetching goals:", error);
         toast({
@@ -223,7 +266,7 @@ export function UserPerformanceView() {
     if (currentEmployeeId) {
       fetchGoals();
     }
-  }, [currentEmployeeId, getEmployeeGoals, toast]);
+  }, [currentEmployeeId, getEmployeeGoals, toast, refreshGoalPanelState]);
 
 
   const growthData: GrowthData[] = [
@@ -351,6 +394,7 @@ const normalizeCategory = (category: string): string => {
           const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
           const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
           setGoals(convertedGoals);
+          refreshGoalPanelState(convertedGoals);
         }
 
         setShowMilestoneDialog(false);
@@ -400,6 +444,7 @@ const normalizeCategory = (category: string): string => {
           const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
           const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
           setGoals(convertedGoals);
+          refreshGoalPanelState(convertedGoals);
         }
 
         setShowMilestoneDialog(false);
@@ -489,6 +534,7 @@ const normalizeCategory = (category: string): string => {
           const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
           const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
           setGoals(convertedGoals);
+          refreshGoalPanelState(convertedGoals);
         }
 
         setShowAddMilestoneDialog(false);
@@ -512,6 +558,7 @@ const normalizeCategory = (category: string): string => {
       const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
       const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
       setGoals(convertedGoals);
+      refreshGoalPanelState(convertedGoals);
       toast({
         title: "Submitted",
         description: "Goal sent for manager review."
@@ -546,19 +593,6 @@ const normalizeCategory = (category: string): string => {
       handleCloseGoalPanel();
     }
   };
-
-  const toGoalPanelSnapshot = (goal: PerformanceGoal): GoalDetailSnapshot => ({
-    id: goal.id,
-    title: goal.title,
-    status: goal.status,
-    completion: goal.completion,
-    category: goal.category,
-    targetDate: goal.targetDate,
-    description: goal.description,
-    managerApproved: goal.managerApproved,
-    managerReopened: goal.managerReopened,
-    milestones: goal.milestones
-  });
 
   return (
     <div className="space-y-6">

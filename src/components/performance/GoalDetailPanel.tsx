@@ -236,6 +236,75 @@ export function GoalDetailPanel({
     });
   }, [details?.milestones, summary?.milestones]);
 
+  useEffect(() => {
+    if (!open || !summary) return;
+    setDetails((prev) => {
+      if (!prev || prev.id !== summary.id) {
+        return prev;
+      }
+
+      const snapshotMilestones = summary.milestones ?? [];
+      const previousMilestones = prev.milestones ?? [];
+
+      const hasDifference =
+        snapshotMilestones.length !== previousMilestones.length ||
+        snapshotMilestones.some((milestone, index) => {
+          const prevMilestone = previousMilestones[index];
+          if (!prevMilestone) return true;
+          return (
+            milestone.id !== prevMilestone.id ||
+            milestone.title !== prevMilestone.title ||
+            milestone.completed !== prevMilestone.completed ||
+            milestone.dueDate !== prevMilestone.dueDate
+          );
+        });
+
+      if (!hasDifference) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        title: summary.title,
+        status: summary.status as Goal["status"],
+        completion: summary.completion ?? prev.completion,
+        category: summary.category,
+        targetDate: summary.targetDate ?? prev.targetDate,
+        description: summary.description ?? prev.description,
+        managerApproved: summary.managerApproved ?? prev.managerApproved,
+        managerReopened: summary.managerReopened ?? prev.managerReopened,
+        milestones: snapshotMilestones
+      };
+    });
+  }, [open, summary]);
+
+  useEffect(() => {
+    if (!categoryGoals || categoryGoals.length === 0) return;
+    setExpandedGoalDetails((prev) => {
+      const newMap = new Map(prev);
+      categoryGoals.forEach((snapshot) => {
+        if (newMap.has(snapshot.id)) {
+          const existing = newMap.get(snapshot.id);
+          if (existing) {
+            newMap.set(snapshot.id, {
+              ...existing,
+              title: snapshot.title,
+              status: snapshot.status as Goal["status"],
+              completion: snapshot.completion ?? existing.completion,
+              category: snapshot.category,
+              targetDate: snapshot.targetDate ?? existing.targetDate,
+              description: snapshot.description ?? existing.description,
+              managerApproved: snapshot.managerApproved ?? existing.managerApproved,
+              managerReopened: snapshot.managerReopened ?? existing.managerReopened,
+              milestones: snapshot.milestones ?? existing.milestones
+            });
+          }
+        }
+      });
+      return newMap;
+    });
+  }, [categoryGoals]);
+
   const hasMoreMilestones = visibleMilestones < flattenedMilestones.length;
 
   const resetState = useCallback(() => {

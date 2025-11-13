@@ -11,19 +11,19 @@ interface GoalWaterJarVisualizerProps {
 
 const CATEGORY_COLORS: Record<string, { base: string; light: string; dark: string }> = {
   "Business/Project Goals": {
-    base: "hsl(210, 98%, 65%)", // #4facfe
+    base: "hsl(150, 60%, 50%)", // Vibrant green
+    light: "hsl(150, 60%, 60%)",
+    dark: "hsl(150, 60%, 40%)"
+  },
+  "Functional/Behavioral Competencies": {
+    base: "hsl(210, 98%, 65%)", // Bright blue
     light: "hsl(210, 98%, 75%)",
     dark: "hsl(210, 98%, 55%)"
   },
-  "Functional/Behavioral Competencies": {
-    base: "hsl(185, 100%, 50%)", // #00f2fe
-    light: "hsl(185, 100%, 60%)",
-    dark: "hsl(185, 100%, 40%)"
-  },
   "Innovation/Initiatives/Collaboration": {
-    base: "hsl(150, 60%, 50%)", // #42b983
-    light: "hsl(150, 60%, 60%)",
-    dark: "hsl(150, 60%, 40%)"
+    base: "hsl(40, 90%, 58%)", // Warm yellow-orange blend
+    light: "hsl(40, 90%, 68%)",
+    dark: "hsl(40, 90%, 48%)"
   }
 };
 
@@ -198,12 +198,15 @@ export function GoalWaterJarVisualizer({
             const categoryColors = CATEGORY_COLORS[layer.name] || CATEGORY_COLORS["Business/Project Goals"];
             // Use lighter versions of category colors
             const colors = {
-              base: categoryColors.light, // Use light as base for lighter appearance
-              light: categoryColors.base,  // Use base as light
-              dark: categoryColors.base   // Use base as dark for subtle gradient
+              base: categoryColors.light,
+              light: categoryColors.base,
+              dark: categoryColors.base
             };
             const isHighlighted = highlightedCategory === layer.name;
             const hasGoals = (goalsByCategory.get(layer.name) || []).length > 0;
+            const lightnessMatch = categoryColors.base.match(/hsl\(\s*\d+\s*,\s*\d+%\s*,\s*(\d+)%\s*\)/);
+            const baseLightness = lightnessMatch ? parseInt(lightnessMatch[1], 10) : 50;
+            const textClassName = baseLightness > 65 ? "text-foreground" : "text-white";
 
             return (
               <div
@@ -239,7 +242,8 @@ export function GoalWaterJarVisualizer({
                   <div className="absolute inset-0 flex flex-col items-center justify-center px-1.5 pointer-events-none z-[5]">
                     <span
                       className={cn(
-                        "text-[8px] font-semibold text-white drop-shadow-lg text-center leading-tight w-full",
+                        "text-[8px] font-semibold drop-shadow text-center leading-tight w-full",
+                        textClassName,
                         layer.height < 25 && "text-[7px]",
                         "break-words hyphens-auto"
                       )}
@@ -254,7 +258,8 @@ export function GoalWaterJarVisualizer({
                     </span>
                     <span
                       className={cn(
-                        "text-sm font-bold text-white drop-shadow-lg mt-0.5",
+                        "text-sm font-bold drop-shadow mt-0.5",
+                        textClassName,
                         layer.height < 25 && "text-xs"
                       )}
                     >
