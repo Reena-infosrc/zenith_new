@@ -565,17 +565,16 @@ export function GoalDetailPanel({
                 <p className="text-sm font-medium text-foreground truncate">
                   {employee.name}
                 </p>
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
-                  {employee.role && (
-                    <span className="truncate max-w-[200px]">{employee.role}</span>
-                  )}
-                  {employee.role && employee.department && (
-                    <span className="flex-shrink-0">•</span>
-                  )}
-                  {employee.department && (
-                    <span className="truncate max-w-[200px]">{employee.department}</span>
-                  )}
-                </div>
+                {employee.role && (
+                  <p className="text-sm text-muted-foreground truncate">
+                    {employee.role}
+                  </p>
+                )}
+                {employee.department && (
+                  <p className="text-xs text-muted-foreground truncate">
+                    {employee.department}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -835,19 +834,13 @@ export function GoalDetailPanel({
               </div>
               {employee && (
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="font-medium text-foreground">{employee.name}</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium text-foreground text-sm">{employee.name}</span>
                     {employee.role && (
-                      <>
-                        <span className="text-muted-foreground/60">•</span>
-                        <span className="text-muted-foreground">{employee.role}</span>
-                      </>
+                      <span className="text-sm text-muted-foreground">{employee.role}</span>
                     )}
                     {employee.department && (
-                      <>
-                        <span className="text-muted-foreground/60">•</span>
-                        <span className="text-muted-foreground">{employee.department}</span>
-                      </>
+                      <span className="text-xs text-muted-foreground">{employee.department}</span>
                     )}
                   </div>
                   {goalCategory && (

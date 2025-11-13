@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Users, 
   Target, 
@@ -221,6 +221,26 @@ export function ManagerPerformanceView() {
   const [loadingMyGoals, setLoadingMyGoals] = useState(true);
   const [loadingTeamGoals, setLoadingTeamGoals] = useState(false);
   const [loadingGoalEmployeeId, setLoadingGoalEmployeeId] = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState("Loading...");
+  const goalDetailsCache = useRef<Map<string, APIGoal>>(new Map());
+  
+  // Cached version of getGoal that checks cache first for instant loading
+  const getCachedGoal = useCallback(async (goalId: string): Promise<APIGoal | null> => {
+    // Check cache first
+    const cached = goalDetailsCache.current.get(goalId);
+    if (cached) {
+      return cached;
+    }
+    
+    // If not in cache, fetch and cache it
+    const detail = await getGoal(goalId);
+    if (detail) {
+      goalDetailsCache.current.set(goalId, detail);
+    }
+    return detail;
+  }, [getGoal]);
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'reviews' | 'feedback' | 'signoff'>('my-team');
@@ -335,6 +355,8 @@ export function ManagerPerformanceView() {
 
   const handleOpenGoalPanel = (goal: Goal, employee: Employee, trigger: HTMLButtonElement | null) => {
     goalPanelTriggerRef.current = trigger;
+    // Check cache first for instant loading
+    const cachedDetail = goalDetailsCache.current.get(goal.id);
     setGoalPanelState({
       open: true,
       goalId: goal.id,
@@ -347,6 +369,14 @@ export function ManagerPerformanceView() {
         avatarUrl: employee.photoUrl
       }
     });
+    // Preload if not cached
+    if (!cachedDetail) {
+      getGoal(goal.id).then(detail => {
+        if (detail) {
+          goalDetailsCache.current.set(goal.id, detail);
+        }
+      }).catch(() => {});
+    }
   };
 
   const handleOpenCategoryGoals = (category: string, categoryGoals: Goal[], employee: Employee, trigger: HTMLButtonElement | null) => {
@@ -370,12 +400,22 @@ export function ManagerPerformanceView() {
 
   const handleOpenMyGoalPanel = (goal: MyGoal, trigger: HTMLButtonElement | null) => {
     goalPanelTriggerRef.current = trigger;
+    // Check cache first for instant loading
+    const cachedDetail = goalDetailsCache.current.get(goal.id);
     setGoalPanelState({
       open: true,
       goalId: goal.id,
       summary: toMyGoalSnapshot(goal),
       employee: managerSummary
     });
+    // Preload if not cached
+    if (!cachedDetail) {
+      getGoal(goal.id).then(detail => {
+        if (detail) {
+          goalDetailsCache.current.set(goal.id, detail);
+        }
+      }).catch(() => {});
+    }
   };
 
   const handleCloseGoalPanel = () => {
@@ -457,60 +497,104 @@ export function ManagerPerformanceView() {
   // Calculate goal distribution using shared utility function
   const categoryData = calculateGoalDistribution(myGoals);
 
-  // Get manager's employee ID
+  // Initial data loading - load everything before showing UI
   useEffect(() => {
-    const fetchManagerEmployeeId = async () => {
-      if (!user?.email) return;
-      
-      try {
-        const employee = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
-        if (employee) {
-          setCurrentManagerEmployeeId(employee.id);
-        }
-      } catch (error) {
-        console.error("Error fetching manager employee ID:", error);
+    const loadAllData = async () => {
+      if (!user?.email || employees.length === 0) {
+        setInitialLoading(false);
+        return;
       }
-    };
 
-    if (user?.email && employees.length > 0) {
-      fetchManagerEmployeeId();
-    }
-  }, [user?.email, employees]);
-
-  // Fetch manager's own goals
-  useEffect(() => {
-    const fetchMyGoals = async () => {
-      if (!currentManagerEmployeeId) return;
-      
       try {
-        setLoadingMyGoals(true);
-        const apiGoals = await getEmployeeGoals(currentManagerEmployeeId);
-        const convertedGoals = apiGoals.map(convertGoalToMyGoal);
-        setMyGoals(convertedGoals);
+        setInitialLoading(true);
+        setLoadingMessage("Loading manager information...");
+
+        // Step 1: Get manager's employee ID
+        const employee = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
+        if (!employee) {
+          setInitialLoading(false);
+          return;
+        }
+
+        const managerId = employee.id;
+        setCurrentManagerEmployeeId(managerId);
+
+        // Step 2: Get direct reports
+        setLoadingMessage("Loading team members...");
+        const reports = employees.filter(emp => emp.reporting_to === managerId);
+        setDirectReports(reports);
+
+        // Step 3: Fetch manager's own goals
+        setLoadingMessage("Loading your goals...");
+        const managerApiGoals = await getEmployeeGoals(managerId);
+        const convertedManagerGoals = managerApiGoals.map(convertGoalToMyGoal);
+        setMyGoals(convertedManagerGoals);
+
+        // Preload manager's goal details
+        const managerGoalDetailsPromises = managerApiGoals.map(goal => 
+          getGoal(goal.id).then(detail => {
+            if (detail) {
+              goalDetailsCache.current.set(goal.id, detail);
+            }
+          }).catch(() => {})
+        );
+        await Promise.all(managerGoalDetailsPromises);
+
+        // Step 4: Fetch all team member goals in parallel
+        if (reports.length > 0) {
+          setLoadingMessage(`Loading goals for ${reports.length} team member${reports.length !== 1 ? 's' : ''}...`);
+          
+          const teamGoalsPromises = reports.map(async (report) => {
+            try {
+              const apiGoals = await getEmployeeGoals(report.id);
+              const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
+              
+              // Preload goal details for this team member
+              const goalDetailsPromises = apiGoals.map(goal =>
+                getGoal(goal.id).then(detail => {
+                  if (detail) {
+                    goalDetailsCache.current.set(goal.id, detail);
+                  }
+                }).catch(() => {})
+              );
+              await Promise.all(goalDetailsPromises);
+              
+              return { employeeId: report.id, goals: convertedGoals };
+            } catch (error) {
+              console.error(`Error fetching goals for ${report.id}:`, error);
+              return { employeeId: report.id, goals: [] };
+            }
+          });
+
+          const teamResults = await Promise.all(teamGoalsPromises);
+          
+          // Update the employeeGoals Map with all fetched goals
+          setEmployeeGoals(prev => {
+            const newMap = new Map(prev);
+            teamResults.forEach(({ employeeId, goals }) => {
+              newMap.set(employeeId, goals);
+            });
+            return newMap;
+          });
+        }
+
+        // All data loaded
+        setInitialLoading(false);
+        setLoadingMyGoals(false);
       } catch (error) {
-        console.error("Error fetching manager goals:", error);
+        console.error("Error loading initial data:", error);
         toast({
           title: "Error",
-          description: "Failed to load your goals",
+          description: "Failed to load data. Please refresh the page.",
           variant: "destructive"
         });
-      } finally {
+        setInitialLoading(false);
         setLoadingMyGoals(false);
       }
     };
 
-    if (currentManagerEmployeeId) {
-      fetchMyGoals();
-    }
-  }, [currentManagerEmployeeId, getEmployeeGoals, toast]);
-
-  // Get direct reports (employees who report to current manager)
-  useEffect(() => {
-    if (!currentManagerEmployeeId) return;
-    
-    const reports = employees.filter(emp => emp.reporting_to === currentManagerEmployeeId);
-    setDirectReports(reports);
-  }, [currentManagerEmployeeId, employees]);
+    loadAllData();
+  }, [user?.email, employees, getEmployeeGoals, getGoal, toast]);
 
   // Fetch goals for a team member (with caching check)
   const fetchTeamMemberGoals = async (employeeId: string, forceRefresh: boolean = false) => {
@@ -543,67 +627,22 @@ export function ManagerPerformanceView() {
     }
   };
 
-  // Fetch goals for all direct reports when they're loaded (pre-load all team goals)
-  useEffect(() => {
-    const fetchAllTeamGoals = async () => {
-      if (!currentManagerEmployeeId || directReports.length === 0) return;
-      
-      try {
-        // Fetch goals for all direct reports in parallel (only if not already cached)
-        const reportsToFetch = directReports.filter(report => !employeeGoals.has(report.id));
-        
-        if (reportsToFetch.length === 0) {
-          // All goals already loaded
-          return;
-        }
-        
-        const goalsPromises = reportsToFetch.map(async (report) => {
-          try {
-            const apiGoals = await getEmployeeGoals(report.id);
-            const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
-            return { employeeId: report.id, goals: convertedGoals };
-          } catch (error) {
-            console.error(`Error fetching goals for ${report.id}:`, error);
-            return { employeeId: report.id, goals: [] };
-          }
-        });
-
-        const results = await Promise.all(goalsPromises);
-        
-        // Update the employeeGoals Map with all fetched goals
-        setEmployeeGoals(prev => {
-          const newMap = new Map(prev);
-          results.forEach(({ employeeId, goals }) => {
-            newMap.set(employeeId, goals);
-          });
-          return newMap;
-        });
-      } catch (error) {
-        console.error("Error fetching all team goals:", error);
-      }
-    };
-
-    if (currentManagerEmployeeId && directReports.length > 0) {
-      fetchAllTeamGoals();
-    }
-  }, [currentManagerEmployeeId, directReports, getEmployeeGoals, employeeGoals]);
-
-  // Fetch pending approval goals for team members
+  // Fetch pending approval goals for team members (only after initial loading)
   useEffect(() => {
     const fetchPendingApprovalGoals = async () => {
-      if (!currentManagerEmployeeId || directReports.length === 0) return;
+      if (initialLoading || !currentManagerEmployeeId || directReports.length === 0) return;
       
       try {
         const pendingGoals: Array<{ goal: Goal; employee: Employee }> = [];
         
-        // Fetch goals for each direct report
+        // Use already loaded goals from employeeGoals map instead of fetching again
         for (const report of directReports) {
-          const apiGoals = await getEmployeeGoals(report.id);
-          const goalsPendingApproval = apiGoals.filter(g => g.status === 'pending_manager_approval');
+          const goals = employeeGoals.get(report.id) || [];
+          const goalsPendingApproval = goals.filter(g => g.status === 'pending_manager_approval');
           
-          for (const apiGoal of goalsPendingApproval) {
+          for (const goal of goalsPendingApproval) {
             pendingGoals.push({
-              goal: convertGoalToTeamGoal(apiGoal),
+              goal: goal,
               employee: report
             });
           }
@@ -615,10 +654,10 @@ export function ManagerPerformanceView() {
       }
     };
 
-    if (currentManagerEmployeeId && directReports.length > 0) {
+    if (!initialLoading && currentManagerEmployeeId && directReports.length > 0) {
       fetchPendingApprovalGoals();
     }
-  }, [currentManagerEmployeeId, directReports, getEmployeeGoals]);
+  }, [initialLoading, currentManagerEmployeeId, directReports, employeeGoals]);
 
   const filteredReports = directReports.filter(emp => {
     return emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -899,6 +938,8 @@ export function ManagerPerformanceView() {
     try {
       setSubmittingGoalId(goalId);
       await updateGoal(goalId, { status: 'pending_manager_approval' });
+      // Invalidate goal details cache
+      goalDetailsCache.current.delete(goalId);
       // Refresh manager's own goals
       const apiGoals = await getEmployeeGoals(currentManagerEmployeeId, true);
       const convertedGoals = apiGoals.map(convertGoalToMyGoal);
@@ -918,6 +959,23 @@ export function ManagerPerformanceView() {
       setSubmittingGoalId(null);
     }
   };
+
+  // Show loader while initial data is loading
+  if (initialLoading) {
+    return (
+      <div className="flex flex-col justify-center items-center py-12 min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
+          <div className="text-lg font-medium text-muted-foreground mb-2">
+            {loadingMessage}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            Please wait while we fetch the latest data
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1150,6 +1208,8 @@ export function ManagerPerformanceView() {
                   onDeleteGoal={async (goalId) => {
                     setSelectedEmployee(employee);
                     await deleteGoal(goalId);
+                    // Invalidate goal details cache
+                    goalDetailsCache.current.delete(goalId);
                     // Force refresh to get updated goals after deletion
                     await fetchTeamMemberGoals(employee.id, true);
                   }}
@@ -1395,7 +1455,7 @@ export function ManagerPerformanceView() {
         categoryName={goalPanelState.categoryName}
         employee={goalPanelState.employee ?? managerSummary}
         onClose={handleCloseGoalPanel}
-        getGoal={getGoal}
+        getGoal={getCachedGoal}
         onEditGoal={
           // Only show Edit Goal for team member goals, not for manager's own goals
           goalPanelState.employee?.id && goalPanelState.employee.id !== currentManagerEmployeeId
@@ -1577,6 +1637,8 @@ export function ManagerPerformanceView() {
                   const updatedGoal = await updateGoal(selectedGoalForEdit.id, updateData);
                   
                   if (updatedGoal) {
+                    // Invalidate goal details cache
+                    goalDetailsCache.current.delete(selectedGoalForEdit.id);
                     // Refresh goals for the employee
                     if (selectedEmployee) {
                       await fetchTeamMemberGoals(selectedEmployee.id, true);
@@ -1704,6 +1766,8 @@ export function ManagerPerformanceView() {
                       status: 'completed'
                     });
                     
+                    // Invalidate goal details cache
+                    goalDetailsCache.current.delete(selectedGoalForApproval.goal.id);
                     // Remove from pending list
                     setPendingApprovalGoals(prev => 
                       prev.filter(item => item.goal.id !== selectedGoalForApproval.goal.id)
@@ -1731,6 +1795,9 @@ export function ManagerPerformanceView() {
                       status: 'manager_reopened',
                       milestones: updatedMilestones
                     });
+                    
+                    // Invalidate goal details cache
+                    goalDetailsCache.current.delete(selectedGoalForApproval.goal.id);
                     
                     // Remove from pending list
                     setPendingApprovalGoals(prev => 
