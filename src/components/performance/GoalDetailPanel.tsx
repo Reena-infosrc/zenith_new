@@ -430,73 +430,80 @@ export function GoalDetailPanel({
   }, []);
 
   const renderMilestone = useCallback((milestone: Milestone, index: number) => (
-    <div
-      key={milestone.id}
-      className={cn(
-        "rounded-lg border px-3 py-2 transition-colors",
-        milestone.completed ? "bg-green-500/10 border-green-500/20" : "bg-muted/40 border-border/60"
-      )}
-      onClick={() => onMilestoneClick?.(goalId!, milestone)}
-      role={onMilestoneClick ? "button" : undefined}
-      tabIndex={onMilestoneClick ? 0 : -1}
-      onKeyDown={(event) => {
-        if (!onMilestoneClick) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onMilestoneClick(goalId!, milestone);
-        }
-      }}
-    >
-      <div className="flex items-start gap-2">
+    <div key={milestone.id} className="space-y-2">
+      <button
+        type="button"
+        onClick={() => {
+          if (onMilestoneClick) {
+            onMilestoneClick(goalId!, milestone);
+          }
+        }}
+        disabled={!onMilestoneClick}
+        className={cn(
+          "group w-full flex items-center gap-3 text-xs p-3 rounded-lg border text-left transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-1",
+          milestone.completed
+            ? "bg-gradient-to-r from-green-500/10 to-green-500/5 border-green-500/30 hover:border-green-500/50 hover:shadow-sm"
+            : "bg-gradient-to-r from-muted/40 to-muted/30 border-border/60 hover:from-primary/10 hover:to-primary/5 hover:border-primary/40 hover:shadow-sm",
+          onMilestoneClick ? "cursor-pointer active:scale-[0.98]" : "cursor-default"
+        )}
+      >
         <div
           className={cn(
-            "mt-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
-            milestone.completed ? "bg-green-500 text-white" : "bg-background border border-border text-muted-foreground"
+            "flex-shrink-0 rounded-full p-1.5",
+            milestone.completed ? "bg-green-500/20" : "bg-muted"
           )}
         >
-          {milestone.completed ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+          {milestone.completed ? (
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+          ) : (
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          )}
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <p className={cn("text-sm font-medium break-words", milestone.completed && "line-through text-muted-foreground")}>{milestone.title}</p>
-            {milestone.completed && (
-              <Badge className="h-5 rounded-full bg-green-500/15 px-2 text-[10px] font-semibold text-green-600">
-                Completed
-              </Badge>
+        <span
+          className={cn(
+            "flex-1 break-words font-medium",
+            milestone.completed ? "line-through text-muted-foreground" : "text-foreground"
+          )}
+        >
+          {milestone.title || `Milestone ${index + 1}`}
+        </span>
+        {milestone.dueDate && (
+          <span
+            className={cn(
+              "text-[10px] whitespace-nowrap flex-shrink-0 px-2 py-1 rounded-md font-medium",
+              milestone.completed ? "text-green-600/70 bg-green-500/10" : "text-muted-foreground bg-muted/50"
             )}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-            {milestone.dueDate && (
-              <span>Due: {new Date(milestone.dueDate).toLocaleDateString()}</span>
-            )}
-            {milestone.completed && milestone.completedDate && (
-              <span>• Completed: {new Date(milestone.completedDate).toLocaleDateString()}</span>
-            )}
-          </div>
-          {(milestone.userComment || milestone.managerComment) && (
-            <div className="mt-2 space-y-1 text-[11px]">
-              {milestone.userComment && (
-                <div className="rounded border border-border/50 bg-muted/40 px-2 py-1">
-                  <p className="font-semibold text-muted-foreground">Your Comment</p>
-                  <p className="text-muted-foreground break-words">{milestone.userComment}</p>
-                </div>
-              )}
-              {milestone.managerComment && (
-                <div className="rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1">
-                  <p className="font-semibold text-blue-600">Manager Comment</p>
-                  <p className="text-blue-600 break-words">{milestone.managerComment}</p>
-                </div>
-              )}
+          >
+            {new Date(milestone.dueDate).toLocaleDateString()}
+          </span>
+        )}
+        {onMilestoneClick && (
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" />
+        )}
+      </button>
+
+      {(milestone.userComment || milestone.managerComment || milestone.evidence) && (
+        <div className="space-y-1.5 pl-2">
+          {milestone.userComment && (
+            <div className="rounded-lg border border-border/40 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+              <p className="font-semibold text-foreground/80 mb-1">Your Comment</p>
+              <p className="break-words leading-relaxed">{milestone.userComment}</p>
+            </div>
+          )}
+          {milestone.managerComment && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[11px] text-primary/80">
+              <p className="font-semibold text-primary mb-1">Manager Comment</p>
+              <p className="break-words leading-relaxed">{milestone.managerComment}</p>
             </div>
           )}
           {milestone.evidence && (
-            <div className="mt-2 inline-flex items-center gap-1 rounded border border-border/60 bg-background/80 px-2 py-1 text-[11px] text-muted-foreground">
+            <div className="inline-flex items-center gap-1.5 rounded border border-border/60 bg-background/80 px-3 py-1.5 text-[11px] text-muted-foreground">
               <Download className="h-3 w-3" />
-              <span className="truncate">{milestone.evidence}</span>
+              <span className="truncate max-w-[200px]">{milestone.evidence}</span>
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   ), [goalId, onMilestoneClick]);
 
@@ -536,45 +543,55 @@ export function GoalDetailPanel({
   // Category List View
   const CategoryListView = categoryGoals && categoryGoals.length > 0 && (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="border-b border-border/50 px-6 py-4 flex-shrink-0 bg-background/50">
-        <div className="flex items-start gap-3 min-w-0">
-          <Avatar className="h-12 w-12 border border-border/60 flex-shrink-0">
+      <header className="border-b border-border/50 bg-gradient-to-r from-primary/10 via-background/80 to-background/95 px-6 py-5 flex-shrink-0 backdrop-blur">
+        <div className="flex items-start gap-4 min-w-0">
+          <Avatar className="h-12 w-12 border-2 border-primary/30 ring-4 ring-primary/10 shadow-lg flex-shrink-0">
               {employee?.avatarUrl ? (
                 <AvatarImage src={employee.avatarUrl} alt={employee.name} />
               ) : (
-              <AvatarFallback className="text-sm font-semibold">
+              <AvatarFallback className="text-sm font-semibold bg-primary/10 text-primary">
                 {employee?.name?.split(" ").map((n) => n[0]).join("").slice(0, 2) || "?"}
               </AvatarFallback>
               )}
             </Avatar>
-          <div className="space-y-2 flex-1 min-w-0 overflow-hidden">
-            <div className="flex items-start gap-2 min-w-0">
-              <h2 
-                id="goal-panel-title" 
-                className="text-lg font-semibold leading-tight break-words flex-1 min-w-0"
-                style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
-              >
-                {categoryName || "Goals"}
+          <div className="flex-1 min-w-0 space-y-3 overflow-hidden">
+            <div className="flex flex-wrap items-center gap-3 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary shadow-sm">
+                  <Target className="h-4 w-4" />
+                </div>
+                <h2 
+                  id="goal-panel-title" 
+                  className="text-xl font-semibold leading-tight text-foreground tracking-tight flex-1 min-w-0 break-words"
+                  style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
+                >
+                  {categoryName || "Goals"}
                 </h2>
-              <Badge variant="outline" className="text-xs flex-shrink-0 whitespace-nowrap">
-                {categoryGoals.length} {categoryGoals.length === 1 ? "Goal" : "Goals"}
-              </Badge>
               </div>
-              {employee && (
-              <div className="flex flex-col gap-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">
+              <div className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-0.5 text-[11px] font-semibold text-primary shadow-sm">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary"></span>
+                <span>{categoryGoals.length} {categoryGoals.length === 1 ? "Goal" : "Goals"}</span>
+              </div>
+            </div>
+            {employee && (
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground truncate">
                   {employee.name}
                 </p>
-                {employee.role && (
-                  <p className="text-sm text-muted-foreground truncate">
-                    {employee.role}
-                  </p>
-                )}
-                {employee.department && (
-                  <p className="text-xs text-muted-foreground truncate">
-                    {employee.department}
-                  </p>
-                )}
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground/90">
+                  {employee.role && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 font-medium text-muted-foreground truncate max-w-[160px]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary/50"></span>
+                      <span className="truncate">{employee.role}</span>
+                    </span>
+                  )}
+                  {employee.department && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 font-medium text-muted-foreground truncate max-w-[160px]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary/50"></span>
+                      <span className="truncate">{employee.department}</span>
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -628,41 +645,56 @@ export function GoalDetailPanel({
                 </button>
 
                 {isExpanded && (
-                  <div className="border-t border-border/60 p-4 space-y-4 max-h-[60vh] overflow-y-auto">
+                  <div className="border-t border-border/60 bg-gradient-to-br from-background/50 via-background/30 to-background/50 p-5 space-y-5 max-h-[60vh] overflow-y-auto">
                     {isLoadingGoal ? (
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         <Skeleton className="h-4 w-3/4" />
-                        <Skeleton className="h-20 w-full" />
+                        <Skeleton className="h-20 w-full rounded-lg" />
                       </div>
                     ) : (
                       <>
-                        {/* Always show information when expanded - use full details if loaded, otherwise use summary */}
-                        <div className="grid grid-cols-2 gap-4 pb-3 border-b border-border/50">
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                              Status
-                            </h4>
-                            <Badge className={cn("border text-[11px]", statusBadge(goal.status))}>
+                        {/* Status and Progress Cards */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="rounded-lg bg-gradient-to-br from-blue-500/10 to-blue-500/5 border border-blue-500/20 p-3 backdrop-blur-sm">
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-blue-600/80">
+                                Status
+                              </h4>
+                            </div>
+                            <Badge className={cn("border text-[11px] font-medium shadow-sm", statusBadge(goal.status))}>
                               {statusLabel(goal.status)}
                             </Badge>
                           </div>
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                              Progress
-                            </h4>
-                            <span className="text-sm font-semibold text-primary">{Math.round(goal.completion)}%</span>
+                          <div className="rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 p-3 backdrop-blur-sm">
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"></div>
+                              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-primary/80">
+                                Progress
+                              </h4>
+                            </div>
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-xl font-bold text-primary">{Math.round(goal.completion)}</span>
+                              <span className="text-xs font-medium text-primary/70">%</span>
+                            </div>
+                            <div className="mt-2 h-1.5 bg-primary/20 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-primary to-primary/80 rounded-full transition-all duration-500"
+                                style={{ width: `${goal.completion}%` }}
+                              />
+                            </div>
                           </div>
                         </div>
 
-                        {/* Action Buttons for Manager - Moved to top */}
+                        {/* Action Buttons for Manager */}
                         {(onEditGoal || onAddMilestone) && goal.id && (
-                          <div className="flex gap-2 pb-3 border-b border-border/50">
+                          <div className="flex gap-2.5">
                             {onEditGoal && (
                               <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => onEditGoal(goal.id)}
-                                className="flex-1"
+                                className="flex-1 bg-gradient-to-r from-background to-background/80 hover:from-primary/10 hover:to-primary/5 border-primary/20 hover:border-primary/40 transition-all duration-200 shadow-sm hover:shadow-md"
                               >
                                 <Edit className="h-3.5 w-3.5 mr-1.5" />
                                 Edit Goal
@@ -673,7 +705,7 @@ export function GoalDetailPanel({
                                 variant="outline"
                                 size="sm"
                                 onClick={() => onAddMilestone(goal.id)}
-                                className="flex-1"
+                                className="flex-1 bg-gradient-to-r from-background to-background/80 hover:from-primary/10 hover:to-primary/5 border-primary/20 hover:border-primary/40 transition-all duration-200 shadow-sm hover:shadow-md"
                               >
                                 <Target className="h-3.5 w-3.5 mr-1.5" />
                                 Add Milestone
@@ -682,44 +714,53 @@ export function GoalDetailPanel({
                           </div>
                         )}
 
-                        {goal.targetDate && (
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                              Target Date
-                            </h4>
-                            <div className="flex items-center gap-2 text-sm">
-                              <Calendar className="h-4 w-4 text-muted-foreground" />
-                              <span>{new Date(goal.targetDate).toLocaleDateString()}</span>
+                        {/* Goal Details Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {goal.targetDate && (
+                            <div className="rounded-lg bg-muted/30 border border-border/50 p-3 hover:bg-muted/40 transition-colors">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                                <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                  Target Date
+                                </h4>
+                              </div>
+                              <span className="text-sm font-medium text-foreground">
+                                {new Date(goal.targetDate).toLocaleDateString()}
+                              </span>
                             </div>
-                          </div>
-                        )}
+                          )}
 
-                        {goal.category && (
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                              Category
-                            </h4>
-                            <Badge variant="outline" className="text-xs">
-                              {goal.category}
-                            </Badge>
-                          </div>
-                        )}
+                          {goal.category && (
+                            <div className="rounded-lg bg-muted/30 border border-border/50 p-3 hover:bg-muted/40 transition-colors">
+                              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                                Category
+                              </h4>
+                              <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium bg-background/50 border-primary/20 hover:border-primary/40 max-w-full">
+                                <span className="truncate block">{goal.category}</span>
+                              </div>
+                            </div>
+                          )}
 
-                        {goalDetails?.weightage && (
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                              Weightage
-                            </h4>
-                            <span className="text-sm font-medium">{goalDetails.weightage}%</span>
-                          </div>
-                        )}
+                          {goalDetails?.weightage && (
+                            <div className="rounded-lg bg-muted/30 border border-border/50 p-3 hover:bg-muted/40 transition-colors">
+                              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                                Weightage
+                              </h4>
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-lg font-bold text-foreground">{goalDetails.weightage}</span>
+                                <span className="text-xs font-medium text-muted-foreground">%</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
 
                         {(goalDetails?.description || goal.description) && (
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                          <div className="rounded-lg bg-muted/20 border border-border/50 p-4">
+                            <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                              <div className="h-0.5 w-4 bg-primary/40"></div>
                               Description
                             </h4>
-                            <p className="text-sm text-muted-foreground leading-relaxed break-words">
+                            <p className="text-sm text-foreground/90 leading-relaxed break-words">
                               {goalDetails?.description || goal.description}
                             </p>
                           </div>
@@ -729,10 +770,11 @@ export function GoalDetailPanel({
                           <>
                             {((goalDetails?.milestones || goal.milestones)?.length || 0) > 0 ? (
                               <div>
-                                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                                <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                                  <div className="h-0.5 w-4 bg-primary/40"></div>
                                   Milestones ({(goalDetails?.milestones || goal.milestones)?.length || 0})
                                 </h4>
-                                <div className="space-y-2">
+                                <div className="space-y-2.5">
                                   {(goalDetails?.milestones || goal.milestones)?.map((milestone) => (
                                     <button
                                       key={milestone.id}
@@ -744,50 +786,69 @@ export function GoalDetailPanel({
                                       }}
                                       disabled={!onMilestoneClick}
                                       className={cn(
-                                        "w-full flex items-center gap-2 text-xs p-2.5 rounded-lg border border-border/50 bg-muted/30 text-left transition-colors",
-                                        onMilestoneClick && "hover:bg-muted/50 hover:border-primary/30 cursor-pointer",
+                                        "w-full flex items-center gap-3 text-xs p-3 rounded-lg border text-left transition-all duration-200",
+                                        "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-1",
+                                        milestone.completed 
+                                          ? "bg-gradient-to-r from-green-500/10 to-green-500/5 border-green-500/30 hover:border-green-500/50 hover:shadow-sm"
+                                          : "bg-gradient-to-r from-muted/40 to-muted/30 border-border/60 hover:from-primary/10 hover:to-primary/5 hover:border-primary/40 hover:shadow-sm",
+                                        onMilestoneClick && "cursor-pointer active:scale-[0.98]",
                                         !onMilestoneClick && "cursor-default"
                                       )}
                                     >
-                                      {milestone.completed ? (
-                                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
-                                      ) : (
-                                        <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                                      )}
-                                      <span className={cn("flex-1 break-words", milestone.completed && "line-through text-muted-foreground")}>
+                                      <div className={cn(
+                                        "flex-shrink-0 rounded-full p-1.5",
+                                        milestone.completed 
+                                          ? "bg-green-500/20" 
+                                          : "bg-muted"
+                                      )}>
+                                        {milestone.completed ? (
+                                          <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                        ) : (
+                                          <Clock className="h-4 w-4 text-muted-foreground" />
+                                        )}
+                                      </div>
+                                      <span className={cn(
+                                        "flex-1 break-words font-medium",
+                                        milestone.completed 
+                                          ? "line-through text-muted-foreground" 
+                                          : "text-foreground"
+                                      )}>
                                         {milestone.title}
                                       </span>
                                       {milestone.dueDate && (
-                                        <span className="text-muted-foreground text-[10px] whitespace-nowrap flex-shrink-0">
+                                        <span className={cn(
+                                          "text-[10px] whitespace-nowrap flex-shrink-0 px-2 py-1 rounded-md font-medium",
+                                          milestone.completed
+                                            ? "text-green-600/70 bg-green-500/10"
+                                            : "text-muted-foreground bg-muted/50"
+                                        )}>
                                           {new Date(milestone.dueDate).toLocaleDateString()}
                                         </span>
                                       )}
                                       {onMilestoneClick && (
-                                        <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" />
                                       )}
                                     </button>
                                   ))}
                                 </div>
                               </div>
                             ) : (
-                              <div>
-                                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                                  Milestones
-                                </h4>
-                                <div className="text-center py-4 text-xs text-muted-foreground border border-dashed border-border/50 rounded-lg">
-                                  No milestones added yet
+                              <div className="rounded-lg border border-dashed border-border/50 bg-muted/20 p-6">
+                                <div className="text-center">
+                                  <Target className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
+                                  <p className="text-xs font-medium text-muted-foreground">No milestones added yet</p>
                                 </div>
                               </div>
                             )}
                           </>
                         ) : isLoadingGoal ? (
                           <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                            <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                               Milestones
                             </h4>
-                            <div className="space-y-2">
-                              <Skeleton className="h-10 w-full" />
-                              <Skeleton className="h-10 w-full" />
+                            <div className="space-y-2.5">
+                              <Skeleton className="h-12 w-full rounded-lg" />
+                              <Skeleton className="h-12 w-full rounded-lg" />
                             </div>
                           </div>
                         ) : null}

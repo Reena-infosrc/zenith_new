@@ -713,10 +713,23 @@ const normalizeCategory = (category: string): string => {
 
         <TabsContent value="goals" className="space-y-4">
           {loading ? (
-            <div className="flex items-center justify-center p-12">
-              <div className="text-center">
-                <Clock className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">Loading goals...</p>
+            <div className="flex items-center justify-center p-16">
+              <div className="text-center space-y-4">
+                <div className="relative mx-auto w-14 h-14">
+                  <Target className="h-14 w-14 animate-spin text-primary/60" style={{ animationDuration: '2s' }} />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-2 w-2 rounded-full bg-primary animate-pulse"></div>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-base font-medium text-foreground">Loading your goals</p>
+                  <p className="text-sm text-muted-foreground">Fetching the latest updates...</p>
+                </div>
+                <div className="flex items-center justify-center gap-1.5 mt-3">
+                  <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                </div>
               </div>
             </div>
           ) : goals.length === 0 ? (

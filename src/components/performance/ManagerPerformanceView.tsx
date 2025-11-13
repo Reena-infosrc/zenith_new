@@ -223,20 +223,22 @@ export function ManagerPerformanceView() {
   const [loadingGoalEmployeeId, setLoadingGoalEmployeeId] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState("Loading...");
-  const goalDetailsCache = useRef<Map<string, APIGoal>>(new Map());
+  // Store all goals from employee goals endpoint - no need for separate getGoal calls
+  const allGoalsCache = useRef<Map<string, APIGoal>>(new Map());
   
-  // Cached version of getGoal that checks cache first for instant loading
+  // Cached version of getGoal that uses already-loaded employee goals data
   const getCachedGoal = useCallback(async (goalId: string): Promise<APIGoal | null> => {
-    // Check cache first
-    const cached = goalDetailsCache.current.get(goalId);
+    // Check our cache first (from employee goals endpoint)
+    const cached = allGoalsCache.current.get(goalId);
     if (cached) {
       return cached;
     }
     
-    // If not in cache, fetch and cache it
+    // If not found in cache, it means we don't have it yet
+    // This shouldn't happen if we preload everything, but fallback to API if needed
     const detail = await getGoal(goalId);
     if (detail) {
-      goalDetailsCache.current.set(goalId, detail);
+      allGoalsCache.current.set(goalId, detail);
     }
     return detail;
   }, [getGoal]);
@@ -355,8 +357,7 @@ export function ManagerPerformanceView() {
 
   const handleOpenGoalPanel = (goal: Goal, employee: Employee, trigger: HTMLButtonElement | null) => {
     goalPanelTriggerRef.current = trigger;
-    // Check cache first for instant loading
-    const cachedDetail = goalDetailsCache.current.get(goal.id);
+    // Goal details are already available from employee goals endpoint, no need to fetch
     setGoalPanelState({
       open: true,
       goalId: goal.id,
@@ -369,14 +370,6 @@ export function ManagerPerformanceView() {
         avatarUrl: employee.photoUrl
       }
     });
-    // Preload if not cached
-    if (!cachedDetail) {
-      getGoal(goal.id).then(detail => {
-        if (detail) {
-          goalDetailsCache.current.set(goal.id, detail);
-        }
-      }).catch(() => {});
-    }
   };
 
   const handleOpenCategoryGoals = (category: string, categoryGoals: Goal[], employee: Employee, trigger: HTMLButtonElement | null) => {
@@ -400,22 +393,13 @@ export function ManagerPerformanceView() {
 
   const handleOpenMyGoalPanel = (goal: MyGoal, trigger: HTMLButtonElement | null) => {
     goalPanelTriggerRef.current = trigger;
-    // Check cache first for instant loading
-    const cachedDetail = goalDetailsCache.current.get(goal.id);
+    // Goal details are already available from employee goals endpoint, no need to fetch
     setGoalPanelState({
       open: true,
       goalId: goal.id,
       summary: toMyGoalSnapshot(goal),
       employee: managerSummary
     });
-    // Preload if not cached
-    if (!cachedDetail) {
-      getGoal(goal.id).then(detail => {
-        if (detail) {
-          goalDetailsCache.current.set(goal.id, detail);
-        }
-      }).catch(() => {});
-    }
   };
 
   const handleCloseGoalPanel = () => {
@@ -530,15 +514,10 @@ export function ManagerPerformanceView() {
         const convertedManagerGoals = managerApiGoals.map(convertGoalToMyGoal);
         setMyGoals(convertedManagerGoals);
 
-        // Preload manager's goal details
-        const managerGoalDetailsPromises = managerApiGoals.map(goal => 
-          getGoal(goal.id).then(detail => {
-            if (detail) {
-              goalDetailsCache.current.set(goal.id, detail);
-            }
-          }).catch(() => {})
-        );
-        await Promise.all(managerGoalDetailsPromises);
+        // Cache manager's goals (already have full details from employee goals endpoint)
+        managerApiGoals.forEach(goal => {
+          allGoalsCache.current.set(goal.id, goal);
+        });
 
         // Step 4: Fetch all team member goals in parallel
         if (reports.length > 0) {
@@ -549,15 +528,10 @@ export function ManagerPerformanceView() {
               const apiGoals = await getEmployeeGoals(report.id);
               const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
               
-              // Preload goal details for this team member
-              const goalDetailsPromises = apiGoals.map(goal =>
-                getGoal(goal.id).then(detail => {
-                  if (detail) {
-                    goalDetailsCache.current.set(goal.id, detail);
-                  }
-                }).catch(() => {})
-              );
-              await Promise.all(goalDetailsPromises);
+              // Cache team member goals (already have full details from employee goals endpoint)
+              apiGoals.forEach(goal => {
+                allGoalsCache.current.set(goal.id, goal);
+              });
               
               return { employeeId: report.id, goals: convertedGoals };
             } catch (error) {
@@ -609,6 +583,12 @@ export function ManagerPerformanceView() {
       setLoadingGoalEmployeeId(employeeId);
       const apiGoals = await getEmployeeGoals(employeeId, forceRefresh);
       const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
+      
+      // Cache all goals (already have full details from employee goals endpoint)
+      apiGoals.forEach(goal => {
+        allGoalsCache.current.set(goal.id, goal);
+      });
+      
       setEmployeeGoals(prev => {
         const newMap = new Map(prev);
         newMap.set(employeeId, convertedGoals);
@@ -938,12 +918,14 @@ export function ManagerPerformanceView() {
     try {
       setSubmittingGoalId(goalId);
       await updateGoal(goalId, { status: 'pending_manager_approval' });
-      // Invalidate goal details cache
-      goalDetailsCache.current.delete(goalId);
       // Refresh manager's own goals
       const apiGoals = await getEmployeeGoals(currentManagerEmployeeId, true);
       const convertedGoals = apiGoals.map(convertGoalToMyGoal);
       setMyGoals(convertedGoals);
+      // Update cache with refreshed goals
+      apiGoals.forEach(goal => {
+        allGoalsCache.current.set(goal.id, goal);
+      });
       toast({
         title: "Submitted",
         description: "Goal sent for manager review."
@@ -963,14 +945,31 @@ export function ManagerPerformanceView() {
   // Show loader while initial data is loading
   if (initialLoading) {
     return (
-      <div className="flex flex-col justify-center items-center py-12 min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
-          <div className="text-lg font-medium text-muted-foreground mb-2">
+      <div className="flex flex-col justify-center items-center py-16 min-h-[500px]">
+        <div className="relative">
+          {/* Outer rotating ring */}
+          <div className="absolute inset-0 rounded-full border-4 border-primary/20"></div>
+          {/* Inner spinning loader */}
+          <div className="relative w-16 h-16">
+            <Loader2 className="h-16 w-16 animate-spin text-primary" style={{ animationDuration: '1s' }} />
+            {/* Center dot */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="h-3 w-3 rounded-full bg-primary animate-pulse"></div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-8 text-center space-y-2">
+          <div className="text-xl font-semibold text-foreground animate-pulse">
             {loadingMessage}
           </div>
           <div className="text-sm text-muted-foreground">
             Please wait while we fetch the latest data
+          </div>
+          {/* Progress dots */}
+          <div className="flex items-center justify-center gap-1.5 mt-4">
+            <div className="h-2 w-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="h-2 w-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="h-2 w-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: '300ms' }}></div>
           </div>
         </div>
       </div>
@@ -1208,10 +1207,15 @@ export function ManagerPerformanceView() {
                   onDeleteGoal={async (goalId) => {
                     setSelectedEmployee(employee);
                     await deleteGoal(goalId);
-                    // Invalidate goal details cache
-                    goalDetailsCache.current.delete(goalId);
+                    // Remove from cache
+                    allGoalsCache.current.delete(goalId);
                     // Force refresh to get updated goals after deletion
                     await fetchTeamMemberGoals(employee.id, true);
+                    // Update cache with refreshed goals
+                    const refreshedGoals = await getEmployeeGoals(employee.id);
+                    refreshedGoals.forEach(goal => {
+                      allGoalsCache.current.set(goal.id, goal);
+                    });
                   }}
                   onOpenGoal={(goal, teamMember, trigger) => handleOpenGoalPanel(goal, teamMember, trigger)}
                   onOpenCategoryGoals={(category, categoryGoals, teamMember, trigger) => handleOpenCategoryGoals(category, categoryGoals, teamMember, trigger)}
@@ -1397,12 +1401,25 @@ export function ManagerPerformanceView() {
             <TabsContent value="goals-timeline" className="space-y-4">
               {/* Goals in Card Grid View */}
               {loadingMyGoals ? (
-                <div className="flex items-center justify-center p-12">
-                  <div className="text-center">
-                    <Clock className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-                    <p className="text-muted-foreground">Loading goals...</p>
-                          </div>
-                        </div>
+                <div className="flex items-center justify-center p-16">
+                  <div className="text-center space-y-4">
+                    <div className="relative mx-auto w-14 h-14">
+                      <Target className="h-14 w-14 animate-spin text-primary/60" style={{ animationDuration: '2s' }} />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="h-2 w-2 rounded-full bg-primary animate-pulse"></div>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-base font-medium text-foreground">Loading your goals</p>
+                      <p className="text-sm text-muted-foreground">Fetching the latest updates...</p>
+                    </div>
+                    <div className="flex items-center justify-center gap-1.5 mt-3">
+                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                  </div>
+                </div>
               ) : myGoals.length === 0 ? (
                 <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
                   <CardContent className="p-12 text-center">
@@ -1637,11 +1654,16 @@ export function ManagerPerformanceView() {
                   const updatedGoal = await updateGoal(selectedGoalForEdit.id, updateData);
                   
                   if (updatedGoal) {
-                    // Invalidate goal details cache
-                    goalDetailsCache.current.delete(selectedGoalForEdit.id);
+                    // Update cache with new goal data
+                    allGoalsCache.current.set(selectedGoalForEdit.id, updatedGoal);
                     // Refresh goals for the employee
                     if (selectedEmployee) {
                       await fetchTeamMemberGoals(selectedEmployee.id, true);
+                      // Update cache with refreshed goals
+                      const refreshedGoals = await getEmployeeGoals(selectedEmployee.id);
+                      refreshedGoals.forEach(goal => {
+                        allGoalsCache.current.set(goal.id, goal);
+                      });
                     }
                     
                     toast({
@@ -1761,13 +1783,15 @@ export function ManagerPerformanceView() {
                 try {
                   if (approvalAction === 'approve') {
                     // Approve the goal via API
-                    await updateGoal(selectedGoalForApproval.goal.id, {
+                    const updatedGoal = await updateGoal(selectedGoalForApproval.goal.id, {
                       managerApproved: true,
                       status: 'completed'
                     });
                     
-                    // Invalidate goal details cache
-                    goalDetailsCache.current.delete(selectedGoalForApproval.goal.id);
+                    // Update cache with new goal data
+                    if (updatedGoal) {
+                      allGoalsCache.current.set(selectedGoalForApproval.goal.id, updatedGoal);
+                    }
                     // Remove from pending list
                     setPendingApprovalGoals(prev => 
                       prev.filter(item => item.goal.id !== selectedGoalForApproval.goal.id)
@@ -1790,14 +1814,16 @@ export function ManagerPerformanceView() {
                       managerComment: approvalComment.trim()
                     }));
                     
-                    await updateGoal(selectedGoalForApproval.goal.id, {
+                    const updatedGoal = await updateGoal(selectedGoalForApproval.goal.id, {
                       managerReopened: true,
                       status: 'manager_reopened',
                       milestones: updatedMilestones
                     });
                     
-                    // Invalidate goal details cache
-                    goalDetailsCache.current.delete(selectedGoalForApproval.goal.id);
+                    // Update cache with new goal data
+                    if (updatedGoal) {
+                      allGoalsCache.current.set(selectedGoalForApproval.goal.id, updatedGoal);
+                    }
                     
                     // Remove from pending list
                     setPendingApprovalGoals(prev => 
