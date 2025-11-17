@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import { GoalSettingModal, Employee as GoalEmployee } from "./GoalSettingModal";
 import { Progress } from "@/components/ui/progress";
 import { PerformanceCycles } from "./PerformanceCycles";
+import { AdminReviewCycles } from "./AdminReviewCycles";
 import { ReviewForms } from "./ReviewForms";
 import { ContinuousFeedback } from "./ContinuousFeedback";
 import { ManagerSignOff } from "./ManagerSignOff";
@@ -262,7 +263,7 @@ export function AdminPerformanceView() {
         </TabsContent>
 
         <TabsContent value="cycles" className="space-y-4">
-          <PerformanceCycles />
+          <AdminReviewCycles />
         </TabsContent>
 
         <TabsContent value="reviews" className="space-y-4">

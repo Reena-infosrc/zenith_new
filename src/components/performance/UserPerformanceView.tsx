@@ -38,6 +38,7 @@ import { useGoals, Goal, Milestone as APIMilestone } from "@/hooks/use-goals";
 import { useEmployees } from "@/hooks/use-employees";
 import { GoalDetailPanel, GoalDetailSnapshot } from "./GoalDetailPanel";
 import { GoalSummaryCard, GoalSummary } from "./GoalSummaryCard";
+import { EmployeeSelfAssessment } from "./EmployeeSelfAssessment";
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -667,6 +668,7 @@ const normalizeCategory = (category: string): string => {
         <TabsList className="bg-muted/50 backdrop-blur-sm">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="goals">Goals & Timeline</TabsTrigger>
+          <TabsTrigger value="annual-review">Annual Review</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -793,6 +795,10 @@ const normalizeCategory = (category: string): string => {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="annual-review" className="space-y-4">
+          <EmployeeSelfAssessment />
         </TabsContent>
 
         <GoalDetailPanel

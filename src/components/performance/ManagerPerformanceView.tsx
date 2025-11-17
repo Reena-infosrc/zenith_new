@@ -38,6 +38,7 @@ import { useEmployees } from "@/hooks/use-employees";
 import { GoalSettingModal, Employee as GoalEmployee } from "./GoalSettingModal";
 import { GoalDetailPanel, GoalDetailSnapshot } from "./GoalDetailPanel";
 import { ReviewForms } from "./ReviewForms";
+import { ManagerReviewWorkspace } from "./ManagerReviewWorkspace";
 import { ContinuousFeedback } from "./ContinuousFeedback";
 import { ManagerSignOff } from "./ManagerSignOff";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
@@ -1489,7 +1490,7 @@ export function ManagerPerformanceView() {
         </TabsContent>
 
         <TabsContent value="reviews" className="space-y-4">
-          <ReviewForms />
+          <ManagerReviewWorkspace />
         </TabsContent>
 
         <TabsContent value="feedback" className="space-y-4">
