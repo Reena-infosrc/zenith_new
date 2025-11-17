@@ -16,9 +16,9 @@ const CATEGORY_COLORS: Record<string, { base: string; light: string; dark: strin
     dark: "hsl(150, 60%, 40%)"
   },
   "Functional/Behavioral Competencies": {
-    base: "hsl(210, 98%, 65%)", // Bright blue
-    light: "hsl(210, 98%, 75%)",
-    dark: "hsl(210, 98%, 55%)"
+    base: "#00f2fe", // Cyan blue
+    light: "#33f5ff",
+    dark: "#00c9d4"
   },
   "Innovation/Initiatives/Collaboration": {
     base: "hsl(40, 90%, 58%)", // Warm yellow-orange blend

@@ -122,7 +122,13 @@ const COMPETENCIES = [
   { id: 'innovation_initiatives', name: 'Innovation / Initiatives / Collaboration', weightage: 20 }
 ];
 
-export function ManagerReviewWorkspace() {
+interface ManagerReviewWorkspaceProps {
+  initialEmployeeId?: string;
+  hideHeader?: boolean;
+  onSaveDraftRef?: React.MutableRefObject<(() => void) | null>;
+}
+
+export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, onSaveDraftRef }: ManagerReviewWorkspaceProps = {}) {
   const { user } = useAuth();
   const { employees, isLoading: employeesLoading } = useEmployees();
   const { toast } = useToast();
@@ -148,7 +154,6 @@ export function ManagerReviewWorkspace() {
   });
   const [clarificationRequests, setClarificationRequests] = useState<ClarificationRequest[]>([]);
   const [showClarificationModal, setShowClarificationModal] = useState(false);
-  const [showReviewModal, setShowReviewModal] = useState(false);
 
   // Fetch direct reports
   const fetchDirectReports = useCallback(async () => {
@@ -260,6 +265,17 @@ export function ManagerReviewWorkspace() {
     }
   }, [toast]);
 
+  // Auto-select initial employee if provided
+  useEffect(() => {
+    if (initialEmployeeId && directReports.length > 0 && !selectedEmployee) {
+      const employee = directReports.find(rep => rep.id === initialEmployeeId);
+      if (employee) {
+        setSelectedEmployee(employee);
+        fetchEmployeeReview(employee.id);
+      }
+    }
+  }, [initialEmployeeId, directReports, selectedEmployee, fetchEmployeeReview]);
+
   const filteredReports = directReports.filter(report => {
     const matchesStatus = filterStatus === 'all' || report.reviewStatus === filterStatus;
     const matchesSearch = report.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -288,8 +304,67 @@ export function ManagerReviewWorkspace() {
   const handleViewReview = (employee: DirectReport) => {
     setSelectedEmployee(employee);
     fetchEmployeeReview(employee.id);
-    setShowReviewModal(true);
   };
+
+  const handleCloseReview = () => {
+    setSelectedEmployee(null);
+    setEmployeeSelfReview(null);
+    setGoalReviews([]);
+    setCompetencyReviews([]);
+    setFinalRating({
+      summaryFeedback: '',
+      developmentRecommendations: '',
+      developmentNeed: '',
+      actionPlan: '',
+      evidenceLinks: [],
+      evidenceFiles: []
+    });
+  };
+
+  const handleSaveDraft = useCallback(async () => {
+    if (!selectedEmployee) return;
+    
+    try {
+      setLoading(true);
+      // TODO: API call to save draft
+      // await authenticatedFetch(`${API_BASE_URL}/reviews/draft`, {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({
+      //     employeeId: selectedEmployee.id,
+      //     goalReviews,
+      //     competencyReviews,
+      //     finalRating
+      //   })
+      // });
+
+      toast({
+        title: "Draft Saved",
+        description: "Your review has been saved as a draft"
+      });
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save draft",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedEmployee, goalReviews, competencyReviews, finalRating, toast]);
+
+  // Expose save draft function via ref
+  useEffect(() => {
+    if (onSaveDraftRef) {
+      onSaveDraftRef.current = handleSaveDraft;
+    }
+    return () => {
+      if (onSaveDraftRef) {
+        onSaveDraftRef.current = null;
+      }
+    };
+  }, [onSaveDraftRef, handleSaveDraft]);
 
   const handleRatingChange = (goalId: string, rating: number) => {
     setGoalReviews(prev => prev.map(goal => 
@@ -371,7 +446,6 @@ export function ManagerReviewWorkspace() {
           : rep
       ));
 
-      setShowReviewModal(false);
       setSelectedEmployee(null);
     } catch (error) {
       console.error('Error submitting review:', error);
@@ -414,149 +488,158 @@ export function ManagerReviewWorkspace() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
-            Performance Reviews
-          </h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Review and rate your direct reports' performance
-          </p>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 shadow-lg">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search employees..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 bg-background/50"
-              />
+      {/* Header - hidden when embedded in My Team */}
+      {!hideHeader && (
+        <>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+                Performance Reviews
+              </h2>
+              <p className="text-muted-foreground text-sm mt-1">
+                Review and rate your direct reports' performance
+              </p>
             </div>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[200px] bg-background/50">
-                <Filter className="h-4 w-4 mr-2" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="not_started">Not Started</SelectItem>
-                <SelectItem value="self_submitted">Self Review Submitted</SelectItem>
-                <SelectItem value="manager_reviewing">Under Review</SelectItem>
-                <SelectItem value="clarification_requested">Clarification Requested</SelectItem>
-                <SelectItem value="manager_submitted">Submitted to HR</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Direct Reports List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredReports.map((report) => (
-          <Card
-            key={report.id}
-            className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all duration-300 shadow-lg hover:shadow-xl"
-          >
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4 mb-4">
-                <Avatar className="h-12 w-12 border-2 border-primary/20">
-                  <AvatarImage src={report.photoUrl} />
-                  <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                    {report.name.split(' ').map(n => n[0]).join('')}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-lg truncate">{report.name}</h3>
-                  <p className="text-sm text-muted-foreground truncate">{report.position}</p>
-                  <p className="text-xs text-muted-foreground truncate">{report.department}</p>
+          {/* Filters */}
+          <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 shadow-lg">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search employees..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9 bg-background/50"
+                  />
                 </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Review Cycle</span>
-                  <Badge variant="outline" className="text-xs">
-                    {report.cycleName}
-                  </Badge>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Status</span>
-                  {getStatusBadge(report.reviewStatus)}
-                </div>
-
-                {report.selfReviewSubmittedAt && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Submitted</span>
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(report.selfReviewSubmittedAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex gap-2 pt-3 border-t border-border/50">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewReview(report)}
-                    className="flex-1 hover:bg-primary/10"
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    View Review
-                  </Button>
-                  {report.reviewStatus === 'self_submitted' && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleViewReview(report)}
-                      className="flex-1 bg-gradient-to-r from-primary to-primary/80"
-                    >
-                      <Star className="h-4 w-4 mr-2" />
-                      Rate
-                    </Button>
-                  )}
-                </div>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="w-[200px] bg-background/50">
+                    <Filter className="h-4 w-4 mr-2" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="not_started">Not Started</SelectItem>
+                    <SelectItem value="self_submitted">Self Review Submitted</SelectItem>
+                    <SelectItem value="manager_reviewing">Under Review</SelectItem>
+                    <SelectItem value="clarification_requested">Clarification Requested</SelectItem>
+                    <SelectItem value="manager_submitted">Submitted to HR</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
-
-      {filteredReports.length === 0 && (
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-          <CardContent className="p-12 text-center">
-            <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-            <p className="text-muted-foreground">No direct reports found</p>
-          </CardContent>
-        </Card>
+        </>
       )}
 
-      {/* Review Workspace Modal */}
-      {selectedEmployee && (
-        <ReviewWorkspaceModal
-          open={showReviewModal}
-          onOpenChange={setShowReviewModal}
-          employee={selectedEmployee}
-          employeeSelfReview={employeeSelfReview}
-          goalReviews={goalReviews}
-          setGoalReviews={setGoalReviews}
-          competencyReviews={competencyReviews}
-          setCompetencyReviews={setCompetencyReviews}
-          finalRating={finalRating}
-          setFinalRating={setFinalRating}
-          onRequestClarification={handleRequestClarification}
-          onSubmit={handleSubmitReview}
-          loading={loading}
-          renderRatingStars={renderRatingStars}
-          handleRatingChange={handleRatingChange}
-          handleCompetencyRatingChange={handleCompetencyRatingChange}
-        />
+      {/* Conditionally render Employee Cards or Review Form */}
+      {!selectedEmployee ? (
+        <>
+          {/* Direct Reports List */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredReports.map((report) => (
+              <Card
+                key={report.id}
+                className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all duration-300 shadow-lg hover:shadow-xl"
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4 mb-4">
+                    <Avatar className="h-12 w-12 border-2 border-primary/20">
+                      <AvatarImage src={report.photoUrl} />
+                      <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+                        {report.name.split(' ').map(n => n[0]).join('')}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-lg truncate">{report.name}</h3>
+                      <p className="text-sm text-muted-foreground truncate">{report.position}</p>
+                      <p className="text-xs text-muted-foreground truncate">{report.department}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Review Cycle</span>
+                      <Badge variant="outline" className="text-xs">
+                        {report.cycleName}
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Status</span>
+                      {getStatusBadge(report.reviewStatus)}
+                    </div>
+
+                    {report.selfReviewSubmittedAt && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Submitted</span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(report.selfReviewSubmittedAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 pt-3 border-t border-border/50">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewReview(report)}
+                        className="flex-1 hover:bg-primary/10"
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        View Review
+                      </Button>
+                      {report.reviewStatus === 'self_submitted' && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleViewReview(report)}
+                          className="flex-1 bg-gradient-to-r from-primary to-primary/80"
+                        >
+                          <Star className="h-4 w-4 mr-2" />
+                          Rate
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {filteredReports.length === 0 && (
+            <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+              <CardContent className="p-12 text-center">
+                <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <p className="text-muted-foreground">No direct reports found</p>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      ) : (
+        /* Inline Review Workspace - Same design as EmployeeSelfAssessment */
+        <div className="space-y-6">
+          <ReviewWorkspaceInline
+            employee={selectedEmployee}
+            employeeSelfReview={employeeSelfReview}
+            goalReviews={goalReviews}
+            setGoalReviews={setGoalReviews}
+            competencyReviews={competencyReviews}
+            setCompetencyReviews={setCompetencyReviews}
+            finalRating={finalRating}
+            setFinalRating={setFinalRating}
+            onRequestClarification={handleRequestClarification}
+            onSubmit={handleSubmitReview}
+            onSaveDraft={handleSaveDraft}
+            onBack={handleCloseReview}
+            loading={loading}
+            renderRatingStars={renderRatingStars}
+            handleRatingChange={handleRatingChange}
+            handleCompetencyRatingChange={handleCompetencyRatingChange}
+          />
+        </div>
       )}
 
       {/* Clarification Request Modal */}
@@ -571,12 +654,10 @@ export function ManagerReviewWorkspace() {
   );
 }
 
-// Review Workspace Modal Component
+// Review Workspace Inline Component - Same design as EmployeeSelfAssessment
 type ReviewSection = 'employee-details' | 'self-review' | 'goals' | 'competencies' | 'final-rating';
 
-interface ReviewWorkspaceModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+interface ReviewWorkspaceInlineProps {
   employee: DirectReport;
   employeeSelfReview: EmployeeSelfReview | null;
   goalReviews: GoalReview[];
@@ -587,15 +668,15 @@ interface ReviewWorkspaceModalProps {
   setFinalRating: Dispatch<SetStateAction<ManagerFinalRating>>;
   onRequestClarification: () => void;
   onSubmit: () => void;
+  onSaveDraft: () => void;
+  onBack: () => void;
   loading: boolean;
   renderRatingStars: (value: number | undefined, onChange: (value: number) => void, disabled?: boolean) => JSX.Element;
   handleRatingChange: (goalId: string, rating: number) => void;
   handleCompetencyRatingChange: (competencyId: string, rating: number) => void;
 }
 
-function ReviewWorkspaceModal({
-  open,
-  onOpenChange,
+function ReviewWorkspaceInline({
   employee,
   employeeSelfReview,
   goalReviews,
@@ -606,14 +687,32 @@ function ReviewWorkspaceModal({
   setFinalRating,
   onRequestClarification,
   onSubmit,
+  onSaveDraft,
+  onBack,
   loading,
   renderRatingStars,
   handleRatingChange,
   handleCompetencyRatingChange
-}: ReviewWorkspaceModalProps) {
-  const [activeSection, setActiveSection] = useState<ReviewSection>('employee-details');
+}: ReviewWorkspaceInlineProps) {
+  const [activeSection, setActiveSection] = useState<number>(0);
+  const [saving, setSaving] = useState(false);
   const { preserveScroll } = usePreserveScroll();
-  const tabOrder: ReviewSection[] = ['employee-details', 'self-review', 'goals', 'competencies', 'final-rating'];
+  
+  const sections = [
+    { id: 'employee-details', label: 'Employee & Goals Overview', description: `${employee.position} • ${employee.department}`, icon: User },
+    { id: 'self-review', label: 'Self Review', description: 'Share your accomplishments and growth', icon: FileText },
+    { id: 'goals', label: 'Goals Review', description: 'Rate and comment on employee goals', icon: Target },
+    { id: 'final-rating', label: 'Final Rating', description: 'Rate yourself and sign the form', icon: Star }
+  ];
+
+  const handleSaveDraftClick = async () => {
+    setSaving(true);
+    try {
+      await onSaveDraft();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleAddEvidenceLink = () => {
     const link = prompt("Enter Google Drive link:");
@@ -635,339 +734,395 @@ function ReviewWorkspaceModal({
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 max-w-6xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-2xl">Manager Review - {employee.name}</DialogTitle>
-          <DialogDescription>
-            Complete the performance review for {employee.name}
-          </DialogDescription>
-        </DialogHeader>
+  const goToSection = (index: number) => {
+    setActiveSection(index);
+    preserveScroll();
+  };
 
-        <Tabs
-          value={activeSection}
-          onValueChange={(value) => {
-            setActiveSection(value as ReviewSection);
-            preserveScroll();
-          }}
-          className="w-full"
-        >
-          <TabsList className="h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-5">
-            <TabsTrigger value="employee-details" className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">Employee Details</TabsTrigger>
-            <TabsTrigger value="self-review" className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">Self Review</TabsTrigger>
-            <TabsTrigger value="goals" className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">Goals</TabsTrigger>
-            <TabsTrigger value="competencies" className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">Competencies</TabsTrigger>
-            <TabsTrigger value="final-rating" className="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">Final Rating</TabsTrigger>
-          </TabsList>
+  const goToNext = () => {
+    if (activeSection < sections.length - 1) {
+      goToSection(activeSection + 1);
+    }
+  };
+
+  const goToPrevious = () => {
+    if (activeSection > 0) {
+      goToSection(activeSection - 1);
+    }
+  };
+
+  const getStepCardClasses = (index: number) => {
+    if (activeSection === index) {
+      return 'border-primary/60 bg-primary/5 shadow-lg text-primary';
+    }
+    return 'border-border/60 bg-muted/20 text-muted-foreground';
+  };
+
+  const getStepBadgeClasses = (index: number) => {
+    if (activeSection === index) {
+      return 'bg-primary text-primary-foreground';
+    }
+    return 'bg-background border border-border/50 text-muted-foreground';
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col lg:flex-row gap-6">
+        <div className="lg:w-1/3 space-y-3">
+          {sections.map((section, index) => (
+            <div
+              key={section.id}
+              className={cn(
+                "rounded-2xl border p-4 flex items-start justify-between gap-3 transition-all cursor-pointer",
+                getStepCardClasses(index)
+              )}
+              onClick={() => goToSection(index)}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    "h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all",
+                    getStepBadgeClasses(index)
+                  )}
+                >
+                  {index + 1}
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground/90">{section.label}</p>
+                  {section.description && (
+                    <p className="text-sm text-muted-foreground mt-0.5">{section.description}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex-1 space-y-8">
 
           {/* Employee Details Section */}
-          <TabsContent value="employee-details" className="space-y-4 mt-4">
-            <Card className="bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-sm border-border/40 shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2.5 bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-                  <div className="p-1.5 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/20">
-                    <User className="h-4 w-4 text-primary" />
-                  </div>
-                  Employee Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-4">
-                  <Avatar className="h-16 w-16 border-2 border-primary/30">
-                    <AvatarImage src={employee.photoUrl} />
-                    <AvatarFallback className="bg-primary/10 text-primary text-xl font-semibold">
-                      {employee.name.split(' ').map(n => n[0]).join('')}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <h3 className="text-xl font-semibold">{employee.name}</h3>
-                    <p className="text-muted-foreground">{employee.position}</p>
-                    <p className="text-sm text-muted-foreground">{employee.department}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border/50">
-                  <div>
-                    <Label className="text-sm text-muted-foreground">Employee ID</Label>
-                    <p className="font-medium">{employee.id}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm text-muted-foreground">Review Period</Label>
-                    <p className="font-medium">{employee.cycleName}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm text-muted-foreground">Email</Label>
-                    <p className="font-medium">{employee.email}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm text-muted-foreground">Manager</Label>
-                    <p className="font-medium">You</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Self Review Section */}
-          <TabsContent value="self-review" className="space-y-4 mt-4">
-            {employeeSelfReview ? (
-              <div className="space-y-4">
-                <Card className="bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-sm border-border/40 shadow-lg">
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-xl flex items-center gap-2.5 bg-gradient-to-r from-blue-500 to-primary/70 bg-clip-text text-transparent">
-                      <div className="p-1.5 rounded-lg bg-blue-500/15 border border-blue-500/20">
-                        <FileText className="h-4 w-4 text-blue-500" />
-                      </div>
-                      Employee Self-Review
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div>
-                      <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                        1. Key Accomplishments Since Last Review
-                      </Label>
-                      <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                        {employeeSelfReview.keyAccomplishments}
-                      </p>
+          {activeSection === 0 && (
+            <>
+            <div className="transition-all duration-300 animate-in fade-in slide-in-from-right-4">
+              <Card className="bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-sm border-border/40 shadow-lg">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-xl flex items-center gap-2.5 bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+                    <div className="p-1.5 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/20">
+                      <Target className="h-4 w-4 text-primary" />
                     </div>
-
-                    <div>
-                      <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                        2. Contributions Beyond Job Responsibilities
-                      </Label>
-                      <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                        {employeeSelfReview.beyondResponsibilities}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                        3. Challenges Faced (with Examples)
-                      </Label>
-                      <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                        {employeeSelfReview.challenges}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                        4. Areas for Development / Improvement
-                      </Label>
-                      <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                        {employeeSelfReview.areasToImprove}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                        5. New Skills or Knowledge Acquired
-                      </Label>
-                      <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                        {employeeSelfReview.skillsAcquired}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                        6. Certifications or Trainings Completed Last Year
-                      </Label>
-                      <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                        {employeeSelfReview.trainingsCompleted}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                        7. Trainings / Certifications Employee Wants to Pursue Next
-                      </Label>
-                      <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                        {employeeSelfReview.trainingsToPursue}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                        Tools & Technologies
-                      </Label>
-                      <div className="border border-border/50 rounded-lg overflow-hidden">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="bg-muted/30">
-                              <TableHead>Test Type</TableHead>
-                              <TableHead>Tool</TableHead>
-                              <TableHead>Rating (1-3)</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {employeeSelfReview.toolsAndTechnologies.map((tool, idx) => (
-                              <TableRow key={idx}>
-                                <TableCell>{tool.testType}</TableCell>
-                                <TableCell>{tool.tool}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-1">
-                                    {[1, 2, 3].map((rating) => (
-                                      <Star
-                                        key={rating}
-                                        className={cn(
-                                          "h-4 w-4",
-                                          rating <= tool.rating ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"
-                                        )}
-                                      />
-                                    ))}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            ) : (
-              <Card className="bg-muted/30 border-border/50">
-                <CardContent className="p-8 text-center">
-                  <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                  <p className="text-muted-foreground">Self-review not yet submitted</p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          {/* Goals Review Section */}
-          <TabsContent value="goals" className="space-y-4 mt-4">
-            <Card className="bg-background/50 border-border/50">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Target className="h-5 w-5 text-primary" />
-                  Goals Review
-                </CardTitle>
-                <CardDescription>
-                  Rate each goal from the Appraisal Form (5 = Outstanding, 1 = Needs Improvement)
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="border border-border/50 rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/30">
-                        <TableHead>Goal Description</TableHead>
-                        <TableHead>Weightage</TableHead>
-                        <TableHead>Employee Rating</TableHead>
-                        <TableHead>Manager Rating *</TableHead>
-                        <TableHead>Comments</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {goalReviews.map((goal) => (
-                        <TableRow key={goal.goalId}>
-                          <TableCell className="max-w-md">
-                            <p className="text-sm font-medium">{goal.goalDescription}</p>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{goal.weightage}%</Badge>
-                          </TableCell>
-                          <TableCell>
-                            {goal.employeeRating ? (
-                              <div className="flex items-center gap-1">
-                                {[5, 4, 3, 2, 1].map((rating) => (
-                                  <Star
-                                    key={rating}
-                                    className={cn(
-                                      "h-4 w-4",
-                                      rating <= goal.employeeRating! ? "fill-blue-400 text-blue-400" : "text-muted-foreground"
-                                    )}
-                                  />
-                                ))}
-                                <span className="ml-2 text-xs text-muted-foreground">{goal.employeeRating}</span>
-                              </div>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {renderRatingStars(goal.managerRating, (rating) => handleRatingChange(goal.goalId, rating))}
-                          </TableCell>
-                          <TableCell>
-                            <Textarea
-                              value={goal.managerComments || ''}
-                              onChange={(e) => {
-                                setGoalReviews(prev => prev.map(g => 
-                                  g.goalId === goal.goalId ? { ...g, managerComments: e.target.value } : g
-                                ));
-                              }}
-                              placeholder="Add comments..."
-                              className="min-h-[60px] bg-background/50 text-sm"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Competency Assessment Section */}
-          <TabsContent value="competencies" className="space-y-4 mt-4">
-            <Card className="bg-background/50 border-border/50">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Award className="h-5 w-5 text-primary" />
-                  Competency Assessment
-                </CardTitle>
-                <CardDescription>
-                  Rate each competency category (5 = Outstanding, 1 = Needs Improvement)
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {competencyReviews.map((comp) => (
-                  <Card key={comp.competencyId} className="bg-background/30 border-border/50">
-                    <CardContent className="p-4 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="font-semibold">{comp.competencyName}</h4>
-                          <p className="text-sm text-muted-foreground">Weightage: {comp.weightage}%</p>
-                        </div>
-                        <div className="flex-1 max-w-xs">
-                          {renderRatingStars(comp.managerRating, (rating) => handleCompetencyRatingChange(comp.competencyId, rating))}
-                        </div>
+                    Goals Assessment
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="mb-5">
+                    <div className="rounded-2xl border border-border/40 bg-background/40 p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Employee Name</Label>
+                        <p className="font-medium">{employee.name}</p>
                       </div>
                       <div>
-                        <Label className="text-sm text-muted-foreground mb-2 block">Comments</Label>
-                        <Textarea
-                          value={comp.managerComments || ''}
-                          onChange={(e) => {
-                            setCompetencyReviews(prev => prev.map(c => 
-                              c.competencyId === comp.competencyId ? { ...c, managerComments: e.target.value } : c
-                            ));
-                          }}
-                          placeholder="Add comments for this competency..."
-                          className="min-h-[80px] bg-background/50"
-                        />
+                        <Label className="text-sm text-muted-foreground">Employee ID</Label>
+                        <p className="font-medium">{employee.id}</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Position</Label>
+                        <p className="font-medium">{employee.position}</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Department</Label>
+                        <p className="font-medium">{employee.department}</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Reporting Manager</Label>
+                        <p className="font-medium">You</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Review Period</Label>
+                        <p className="font-medium">{employee.cycleName}</p>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Goals will be displayed here - need to fetch them */}
+                  <div className="grid gap-3">
+                    <Card className="bg-gradient-to-br from-muted/40 via-muted/20 to-muted/40 backdrop-blur-sm border-border/30 shadow-inner">
+                      <CardContent className="p-12 text-center">
+                        <div className="p-4 rounded-full bg-primary/10 w-fit mx-auto mb-4">
+                          <Target className="h-8 w-8 text-primary/50" />
+                        </div>
+                        <p className="text-muted-foreground text-sm">Goals will be displayed in the Goals Review section</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <div className="flex justify-between mt-4">
+              <Button variant="outline" onClick={goToPrevious} className="h-10" disabled={activeSection === 0}>
+                <ChevronLeft className="h-4 w-4 mr-2" />
+                Previous
+              </Button>
+              <Button onClick={goToNext} className="bg-gradient-to-r from-primary to-primary/80 shadow-lg h-10">
+                Next: Self Review
+                <ChevronRight className="h-4 w-4 ml-2" />
+              </Button>
+            </div>
+            </>
+          )}
+
+          {/* Self Review Section */}
+          {activeSection === 1 && (
+            <>
+            <div className="transition-all duration-300 animate-in fade-in slide-in-from-right-4">
+              {employeeSelfReview ? (
+                <div className="space-y-4">
+                  <Card className="bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-sm border-border/40 shadow-lg">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-xl flex items-center gap-2.5 bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+                        <div className="p-1.5 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/20">
+                          <FileText className="h-4 w-4 text-primary" />
+                        </div>
+                        Self-Review
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div>
+                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
+                          1. Key Accomplishments Since Last Review
+                        </Label>
+                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
+                          {employeeSelfReview.keyAccomplishments}
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
+                          2. Contributions Beyond Job Responsibilities
+                        </Label>
+                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
+                          {employeeSelfReview.beyondResponsibilities}
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
+                          3. Challenges Faced (with Examples)
+                        </Label>
+                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
+                          {employeeSelfReview.challenges}
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
+                          4. Areas for Development / Improvement
+                        </Label>
+                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
+                          {employeeSelfReview.areasToImprove}
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
+                          5. New Skills or Knowledge Acquired
+                        </Label>
+                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
+                          {employeeSelfReview.skillsAcquired}
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
+                          6. Certifications or Trainings Completed Last Year
+                        </Label>
+                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
+                          {employeeSelfReview.trainingsCompleted}
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
+                          7. Trainings / Certifications Employee Wants to Pursue Next
+                        </Label>
+                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
+                          {employeeSelfReview.trainingsToPursue}
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
+                          Tools & Technologies
+                        </Label>
+                        <div className="border border-border/50 rounded-lg overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-muted/30">
+                                <TableHead>Test Type</TableHead>
+                                <TableHead>Tool</TableHead>
+                                <TableHead>Rating (1-3)</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {employeeSelfReview.toolsAndTechnologies.map((tool, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell>{tool.testType}</TableCell>
+                                  <TableCell>{tool.tool}</TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-1">
+                                      {[1, 2, 3].map((rating) => (
+                                        <Star
+                                          key={rating}
+                                          className={cn(
+                                            "h-4 w-4",
+                                            rating <= tool.rating ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"
+                                          )}
+                                        />
+                                      ))}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                </div>
+              ) : (
+                <Card className="bg-muted/30 border-border/50">
+                  <CardContent className="p-8 text-center">
+                    <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <p className="text-muted-foreground">Self-review not yet submitted</p>
+                  </CardContent>
+                </Card>
+              )}
+              </div>
+              <div className="flex justify-between mt-4">
+                <Button variant="outline" onClick={goToPrevious} className="h-10">
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  Previous
+                </Button>
+                <Button onClick={goToNext} className="bg-gradient-to-r from-primary to-primary/80 shadow-lg h-10">
+                  Next: Goals Review
+                  <ChevronRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* Goals Review Section */}
+          {activeSection === 2 && (
+            <>
+            <div className="transition-all duration-300 animate-in fade-in slide-in-from-right-4">
+              <Card className="bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-sm border-border/40 shadow-lg">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-xl flex items-center gap-2.5 bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+                    <div className="p-1.5 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/20">
+                      <Target className="h-4 w-4 text-primary" />
+                    </div>
+                    Goals Review
+                  </CardTitle>
+                  <CardDescription className="mt-2">
+                    Rate each goal from the Appraisal Form (5 = Outstanding, 1 = Needs Improvement)
+                  </CardDescription>
+                </CardHeader>
+              <CardContent className="pt-0">
+                <div className="rounded-xl border border-border/40 bg-background/40 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40 border-b border-border/50">
+                          <TableHead className="font-semibold text-foreground/90">Goal Description</TableHead>
+                          <TableHead className="font-semibold text-foreground/90">Weightage</TableHead>
+                          <TableHead className="font-semibold text-foreground/90">Employee Rating</TableHead>
+                          <TableHead className="font-semibold text-foreground/90">Manager Rating</TableHead>
+                          <TableHead className="font-semibold text-foreground/90 min-w-[300px]">Comments</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {goalReviews.map((goal) => (
+                          <TableRow key={goal.goalId} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+                            <TableCell className="max-w-md py-4">
+                              <p className="text-sm font-medium text-foreground leading-relaxed">{goal.goalDescription}</p>
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 font-semibold">
+                                {goal.weightage}%
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="py-4">
+                              {goal.employeeRating ? (
+                                <div className="flex items-center gap-1.5">
+                                  {[5, 4, 3, 2, 1].map((rating) => (
+                                    <Star
+                                      key={rating}
+                                      className={cn(
+                                        "h-4 w-4 transition-colors",
+                                        rating <= goal.employeeRating! ? "fill-blue-400 text-blue-400" : "text-muted-foreground/40"
+                                      )}
+                                    />
+                                  ))}
+                                  <span className="ml-2 text-xs font-medium text-muted-foreground">{goal.employeeRating}</span>
+                                </div>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="py-4">
+                              {renderRatingStars(goal.managerRating, (rating) => handleRatingChange(goal.goalId, rating))}
+                            </TableCell>
+                            <TableCell className="py-4">
+                              <Textarea
+                                value={goal.managerComments || ''}
+                                onChange={(e) => {
+                                  setGoalReviews(prev => prev.map(g => 
+                                    g.goalId === goal.goalId ? { ...g, managerComments: e.target.value } : g
+                                  ));
+                                }}
+                                placeholder="Add your comments and feedback here..."
+                                className="min-h-[120px] bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all text-sm resize-y"
+                                rows={4}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
               </CardContent>
             </Card>
-          </TabsContent>
+            </div>
+            <div className="flex justify-between mt-4">
+              <Button variant="outline" onClick={goToPrevious} className="h-10">
+                <ChevronLeft className="h-4 w-4 mr-2" />
+                Previous
+              </Button>
+              <Button onClick={goToNext} className="bg-gradient-to-r from-primary to-primary/80 shadow-lg h-10">
+                Next: Final Rating
+                <ChevronRight className="h-4 w-4 ml-2" />
+              </Button>
+            </div>
+            </>
+          )}
 
           {/* Final Rating Section */}
-          <TabsContent value="final-rating" className="space-y-4 mt-4">
-            <Card className="bg-background/50 border-border/50">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Star className="h-5 w-5 text-primary" />
-                  Manager Final Rating
-                </CardTitle>
-              </CardHeader>
+          {activeSection === 3 && (
+            <>
+            <div className="transition-all duration-300 animate-in fade-in slide-in-from-right-4">
+              <Card className="bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-sm border-border/40 shadow-lg">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-xl flex items-center gap-2.5 bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+                    <div className="p-1.5 rounded-lg bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/20">
+                      <Star className="h-4 w-4 text-primary" />
+                    </div>
+                    Final Rating
+                  </CardTitle>
+                </CardHeader>
               <CardContent className="space-y-6">
                 <div>
                   <Label className="text-sm font-semibold mb-3 block">
-                    Overall Manager Rating *
+                    Overall Manager Rating
                   </Label>
                   {renderRatingStars(finalRating.overallRating, (rating) => 
                     setFinalRating(prev => ({ ...prev, overallRating: rating }))
@@ -1113,48 +1268,36 @@ function ReviewWorkspaceModal({
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
-
-        <DialogFooter className="mt-6 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
-          <Button
-            variant="outline"
-            onClick={() => {
-              const currentIndex = tabOrder.indexOf(activeSection);
-              if (currentIndex > 0) {
-                const prevValue = tabOrder[currentIndex - 1];
-                setActiveSection(prevValue);
-                preserveScroll();
-              } else {
-                onOpenChange(false);
-              }
-            }}
-            className="h-10 w-full md:w-auto"
-          >
-            <ChevronLeft className="h-4 w-4 mr-2" />
-            Previous
-          </Button>
-          <div className="flex gap-2 w-full md:w-auto">
-            <Button
-              variant="outline"
-              onClick={onRequestClarification}
-              className="h-10 w-full md:w-auto hover:bg-amber-500/10 hover:text-amber-600"
-            >
-              <HelpCircle className="h-4 w-4 mr-2" />
-              Request Clarification
-            </Button>
-            <Button
-              onClick={onSubmit}
-              disabled={loading}
-              className="bg-gradient-to-r from-primary to-primary/80 h-10 w-full md:w-auto"
-            >
-              <Send className="h-4 w-4 mr-2" />
-              Send to HR
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            </div>
+            <div className="flex justify-between mt-4">
+              <Button variant="outline" onClick={goToPrevious} className="h-10">
+                <ChevronLeft className="h-4 w-4 mr-2" />
+                Previous
+              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={onRequestClarification}
+                  className="h-10 hover:bg-amber-500/10 hover:text-amber-600"
+                >
+                  <HelpCircle className="h-4 w-4 mr-2" />
+                  Request Clarification
+                </Button>
+                <Button
+                  onClick={onSubmit}
+                  disabled={loading}
+                  className="bg-gradient-to-r from-primary to-primary/80 h-10"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Send to HR
+                </Button>
+              </div>
+            </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

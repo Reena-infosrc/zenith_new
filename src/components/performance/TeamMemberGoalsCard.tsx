@@ -8,7 +8,8 @@ import {
   Plus,
   Trash2,
   Edit,
-  Loader2
+  Loader2,
+  FileText
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -86,6 +87,7 @@ export interface TeamMemberGoalsCardProps {
   onDeleteGoal: (goalId: string) => Promise<void>;
   onOpenGoal: (goal: TeamGoal, employee: TeamMember, trigger: HTMLButtonElement | null) => void;
   onOpenCategoryGoals?: (category: string, goals: TeamGoal[], employee: TeamMember, trigger: HTMLButtonElement | null) => void;
+  onViewReviews?: () => void;
   activeGoalId?: string | null;
   panelId?: string;
 }
@@ -102,6 +104,7 @@ export function TeamMemberGoalsCard({
   onDeleteGoal,
   onOpenGoal,
   onOpenCategoryGoals,
+  onViewReviews,
   activeGoalId = null,
   panelId
 }: TeamMemberGoalsCardProps) {
@@ -123,119 +126,133 @@ export function TeamMemberGoalsCard({
     setIsFlipped((prev) => !prev);
   };
 
-  const handleFrontKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      handleFlip();
-    }
-  };
 
   const renderFront = () => (
-    <div
-      className="flex h-full flex-col gap-4 p-6 min-w-0 overflow-hidden"
-      role="button"
-      tabIndex={0}
-      onKeyDown={handleFrontKeyDown}
-      onClick={() => handleFlip()}
-    >
-      <div className="flex items-start justify-between gap-2">
+    <div className="flex h-full flex-col gap-5 p-6 min-w-0 overflow-hidden">
+      {/* Employee Header */}
+      <div className="flex items-start gap-4">
+        <div className="flex-shrink-0 relative">
+          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 border-2 border-primary/30 text-xl font-bold text-primary shadow-sm">
+            {employee.name
+              .split(" ")
+              .map((n) => n[0])
+              .join("")}
+          </div>
+        </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3">
-            <div className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-full border-2 border-primary/20 bg-primary/10 text-lg font-semibold text-primary">
-              {employee.name
-                .split(" ")
-                .map((n) => n[0])
-                .join("")}
+          <h3 className="text-lg font-bold text-foreground break-words leading-tight mb-1">
+            {employee.name}
+          </h3>
+          <p className="text-sm font-medium text-muted-foreground break-words mb-2">
+            {employee.position}
+          </p>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <Briefcase className="h-3.5 w-3.5" />
+              <span>{employee.department}</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold break-words">{employee.name}</h3>
-              <p className="text-sm text-muted-foreground break-words">{employee.position}</p>
+            <div className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5" />
+              <span>{experienceLabel}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-sm min-w-0">
-          <Briefcase className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          <span className="text-muted-foreground break-words min-w-0">{employee.department}</span>
-        </div>
-        <div className="flex items-center gap-2 text-sm min-w-0">
-          <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          <span className="text-muted-foreground break-words min-w-0">{experienceLabel}</span>
-        </div>
-        <div className="flex flex-wrap gap-1">
+      {/* Skills */}
+      {skills.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
           {skills.slice(0, 3).map((skill, idx) => (
-            <Badge key={idx} variant="secondary" className="text-xs break-words">
+            <Badge 
+              key={idx} 
+              variant="secondary" 
+              className="text-xs px-2 py-0.5 bg-muted/50 border-border/50"
+            >
               {skill}
             </Badge>
           ))}
           {skills.length > 3 && (
-            <Badge variant="secondary" className="text-xs break-words">
+            <Badge variant="secondary" className="text-xs px-2 py-0.5 bg-muted/50 border-border/50">
               +{skills.length - 3}
             </Badge>
           )}
         </div>
-      </div>
+      )}
 
-      <div className="space-y-4">
-        <div className="rounded-lg border border-border/50 p-4">
-          <div className="flex items-center justify-between text-sm gap-2 min-w-0">
-            <span className="text-muted-foreground flex-shrink-0">Goals Status</span>
-            <div className="flex gap-2 flex-wrap justify-end min-w-0">
-              {summary.total > 0 ? (
-                <>
-                  {summary.active > 0 && (
-                    <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/20 whitespace-nowrap">
-                      {summary.active} Active
-                    </Badge>
-                  )}
-                  {summary.completed > 0 && (
-                    <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/20 whitespace-nowrap">
-                      {summary.completed} Completed
-                    </Badge>
-                  )}
-                  {summary.total > 0 && summary.active === 0 && summary.completed === 0 && (
-                    <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/20 whitespace-nowrap">
-                      {summary.total} Goal{summary.total !== 1 ? "s" : ""}
-                    </Badge>
-                  )}
-                </>
-              ) : (
-                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/20 whitespace-nowrap">
-                  No Goals
-                </Badge>
-              )}
-            </div>
+      {/* Goals Status */}
+      <div className="rounded-xl border border-border/40 bg-gradient-to-br from-background/60 to-background/40 p-4 backdrop-blur-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-muted-foreground">Goals Status</span>
+          <div className="flex gap-1.5 flex-wrap justify-end">
+            {summary.total > 0 ? (
+              <>
+                {summary.active > 0 && (
+                  <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/30 shadow-sm">
+                    {summary.active} Active
+                  </Badge>
+                )}
+                {summary.completed > 0 && (
+                  <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/30 shadow-sm">
+                    {summary.completed} Completed
+                  </Badge>
+                )}
+                {summary.total > 0 && summary.active === 0 && summary.completed === 0 && (
+                  <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30 shadow-sm">
+                    {summary.total} Goal{summary.total !== 1 ? "s" : ""}
+                  </Badge>
+                )}
+              </>
+            ) : (
+              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30 shadow-sm">
+                No Goals
+              </Badge>
+            )}
           </div>
         </div>
+      </div>
 
-        <div className="flex gap-2 flex-wrap">
-          <Button
-            className="flex-1 min-w-0 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleFlip();
-            }}
-            disabled={isFetching}
-          >
-            {isFetching ? (
-              <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
-            ) : (
-              <Eye className="h-4 w-4 flex-shrink-0" />
-            )}
-            <span className="ml-2 truncate">{isFlipped ? "Hide Goals" : summary.total > 0 ? `View Goals (${summary.total})` : "View Goals"}</span>
-          </Button>
+      {/* Action Buttons */}
+      <div className="flex flex-col gap-2 mt-auto">
+        <Button
+          className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-md hover:shadow-lg transition-all duration-200 h-10"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleFlip();
+          }}
+          disabled={isFetching}
+        >
+          {isFetching ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <Eye className="h-4 w-4 mr-2" />
+          )}
+          <span>{isFlipped ? "Hide Goals" : summary.total > 0 ? `View Goals (${summary.total})` : "View Goals"}</span>
+        </Button>
+        <div className="grid grid-cols-2 gap-2">
           <Button
             variant="outline"
-            className="h-10 flex-shrink-0"
+            className="h-10 border-border/50 hover:bg-primary/5 hover:border-primary/30 transition-all"
             onClick={(e) => {
               e.stopPropagation();
               onSetGoals();
             }}
           >
-            <Target className="h-4 w-4 mr-2 flex-shrink-0" />
-            <span className="whitespace-nowrap">Set Goals</span>
+            <Target className="h-4 w-4 mr-2" />
+            <span className="text-sm">Set Goals</span>
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10 border-border/50 hover:bg-primary/5 hover:border-primary/30 transition-all"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onViewReviews) {
+                onViewReviews();
+              }
+            }}
+            disabled={!onViewReviews}
+          >
+            <FileText className="h-4 w-4 mr-2" />
+            <span className="text-sm">View Reviews</span>
           </Button>
         </div>
       </div>
@@ -331,7 +348,7 @@ export function TeamMemberGoalsCard({
   if (prefersReducedMotion) {
     return (
       <Card
-        className="relative h-full"
+        className="relative h-full bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all duration-300"
         role="group"
         aria-label={`${employee.name} goals card`}
       >
@@ -356,7 +373,7 @@ export function TeamMemberGoalsCard({
           style={{ backfaceVisibility: "hidden" }}
           aria-hidden={isFlipped}
         >
-          <Card className="h-full" role="group" aria-label={`${employee.name} goals card`}>
+          <Card className="h-full bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all duration-300" role="group" aria-label={`${employee.name} goals card`}>
             <CardContent className="p-0 h-full flex flex-col">
               {renderFront()}
             </CardContent>
@@ -368,7 +385,7 @@ export function TeamMemberGoalsCard({
           style={{ transform: "rotateY(180deg)", backfaceVisibility: "hidden" }}
           aria-hidden={!isFlipped}
         >
-          <Card className="h-full" role="group" aria-label={`${employee.name} goals details`}>
+          <Card className="h-full bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg" role="group" aria-label={`${employee.name} goals details`}>
             <CardContent className="p-0 h-full flex flex-col">
               {renderBack()}
             </CardContent>

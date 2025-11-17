@@ -17,7 +17,9 @@ import {
   Send,
   RefreshCw,
   X,
-  Loader2
+  Loader2,
+  ChevronLeft,
+  Save
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,6 +43,7 @@ import { ReviewForms } from "./ReviewForms";
 import { ManagerReviewWorkspace } from "./ManagerReviewWorkspace";
 import { ContinuousFeedback } from "./ContinuousFeedback";
 import { ManagerSignOff } from "./ManagerSignOff";
+import { EmployeeSelfAssessment } from "./EmployeeSelfAssessment";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 import { GoalSummaryCard } from "./GoalSummaryCard";
 import {
@@ -246,7 +249,10 @@ export function ManagerPerformanceView() {
   
   const [searchTerm, setSearchTerm] = useState("");
   const [showGoalModal, setShowGoalModal] = useState(false);
-  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'reviews' | 'feedback' | 'signoff'>('my-team');
+  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'feedback' | 'signoff'>('my-team');
+  const [showReviewWorkspace, setShowReviewWorkspace] = useState(false);
+  const [reviewEmployee, setReviewEmployee] = useState<Employee | null>(null);
+  const saveDraftRef = useRef<(() => void) | null>(null);
   const { preserveScroll } = usePreserveScroll();
   
   // Manager approval states
@@ -1087,10 +1093,6 @@ export function ManagerPerformanceView() {
             <Target className="h-4 w-4 mr-2" />
             My Goals
           </TabsTrigger>
-          <TabsTrigger value="reviews">
-            <FileText className="h-4 w-4 mr-2" />
-            Reviews
-          </TabsTrigger>
           <TabsTrigger value="feedback">
             <MessageSquare className="h-4 w-4 mr-2" />
             Feedback
@@ -1102,8 +1104,56 @@ export function ManagerPerformanceView() {
         </TabsList>
 
         <TabsContent value="my-team" className="space-y-4">
-          {/* Pending Approvals Section */}
-          {pendingApprovalGoals.length > 0 && (
+          {/* Review Workspace - shown when View Reviews is clicked */}
+          {showReviewWorkspace && reviewEmployee && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <Button 
+                    variant="outline" 
+                    size="icon"
+                    onClick={() => {
+                      setShowReviewWorkspace(false);
+                      setReviewEmployee(null);
+                    }}
+                    className="h-10 w-10"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div>
+                    <h2 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
+                      Review - {reviewEmployee.name}
+                    </h2>
+                    <p className="text-muted-foreground text-sm mt-1">
+                      2024 Annual Performance Review
+                    </p>
+                  </div>
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    if (saveDraftRef.current) {
+                      saveDraftRef.current();
+                    }
+                  }}
+                >
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Draft
+                </Button>
+              </div>
+              <ManagerReviewWorkspace 
+                initialEmployeeId={reviewEmployee.id} 
+                hideHeader={true}
+                onSaveDraftRef={saveDraftRef}
+              />
+            </div>
+          )}
+
+          {/* Team Members Grid - shown when review workspace is not active */}
+          {!showReviewWorkspace && (
+            <>
+              {/* Pending Approvals Section */}
+              {pendingApprovalGoals.length > 0 && (
             <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 backdrop-blur-sm border-blue-500/20 shadow-lg">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -1257,6 +1307,10 @@ export function ManagerPerformanceView() {
                   }}
                   onOpenGoal={(goal, teamMember, trigger) => handleOpenGoalPanel(goal, teamMember, trigger)}
                   onOpenCategoryGoals={(category, categoryGoals, teamMember, trigger) => handleOpenCategoryGoals(category, categoryGoals, teamMember, trigger)}
+                  onViewReviews={() => {
+                    setReviewEmployee(employee);
+                    setShowReviewWorkspace(true);
+                  }}
                   activeGoalId={goalPanelState.open ? goalPanelState.goalId : null}
                   panelId={goalPanelId}
                 />
@@ -1272,6 +1326,8 @@ export function ManagerPerformanceView() {
               </CardContent>
             </Card>
           )}
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="my-goals" className="space-y-4">
@@ -1281,6 +1337,7 @@ export function ManagerPerformanceView() {
             <TabsList className="bg-muted/50 backdrop-blur-sm">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="goals-timeline">Goals & Timeline</TabsTrigger>
+              <TabsTrigger value="annual-review">Annual Review</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
@@ -1486,11 +1543,11 @@ export function ManagerPerformanceView() {
                 </div>
               )}
             </TabsContent>
-          </Tabs>
-        </TabsContent>
 
-        <TabsContent value="reviews" className="space-y-4">
-          <ManagerReviewWorkspace />
+            <TabsContent value="annual-review" className="space-y-4">
+              <EmployeeSelfAssessment />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="feedback" className="space-y-4">
