@@ -1,19 +1,91 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { AdminPerformanceView } from "@/components/performance/AdminPerformanceView";
 import { ManagerPerformanceView } from "@/components/performance/ManagerPerformanceView";
 import { UserPerformanceView } from "@/components/performance/UserPerformanceView";
 import { Button } from "@/components/ui/button";
-import { Users, UserCheck, UserCircle } from "lucide-react";
+import { UserCheck, UserCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { authenticatedFetch } from "@/utils/auth-utils";
+import { useAuth } from "@/hooks/use-auth";
+import { API_BASE_URL } from "@/config/api";
 
 type ViewMode = 'admin' | 'manager' | 'user';
 
 export default function Performance() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeModule, setActiveModule] = useState<string>("Performance");
-  const [viewMode, setViewMode] = useState<ViewMode>('admin');
+  const [isLoadingViewMode, setIsLoadingViewMode] = useState(false);
+  
+  // Get view mode from URL params
+  const urlViewMode = searchParams.get('view') as ViewMode | null;
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    (urlViewMode && ['admin', 'manager', 'user'].includes(urlViewMode)) ? urlViewMode : 'user'
+  );
+  
+  // Check team members and set view mode if no URL param is provided
+  useEffect(() => {
+    const checkTeamMembersAndSetView = async () => {
+      // If view is explicitly set in URL, use it
+      if (urlViewMode && ['admin', 'manager', 'user'].includes(urlViewMode)) {
+        setViewMode(urlViewMode);
+        return;
+      }
+      
+      // If no view param, check API to determine view mode
+      if (!user?.email) {
+        // Default to user view if no user
+        setViewMode('user');
+        return;
+      }
+      
+      try {
+        setIsLoadingViewMode(true);
+        const response = await authenticatedFetch(`${API_BASE_URL}/employees/check-team-members`);
+        
+        if (!response.ok) {
+          console.error('Failed to check team members:', response.status);
+          setViewMode('user'); // Default to user view on error
+          return;
+        }
+        
+        const data = await response.json();
+        const suggestedView = data.view_mode as ViewMode;
+        
+        if (suggestedView && ['admin', 'manager', 'user'].includes(suggestedView)) {
+          setViewMode(suggestedView);
+          // Update URL to reflect the determined view mode
+          setSearchParams({ view: suggestedView }, { replace: true });
+        } else {
+          setViewMode('user');
+        }
+      } catch (error) {
+        console.error('Error checking team members:', error);
+        setViewMode('user'); // Default to user view on error
+      } finally {
+        setIsLoadingViewMode(false);
+      }
+    };
+    
+    checkTeamMembersAndSetView();
+  }, [user?.email, urlViewMode, setSearchParams]);
+  
+  // Update view mode when URL params change (manual selection)
+  useEffect(() => {
+    if (urlViewMode && ['admin', 'manager', 'user'].includes(urlViewMode)) {
+      setViewMode(urlViewMode);
+    }
+  }, [urlViewMode]);
+  
+  // Update URL when view mode changes
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    setSearchParams({ view: mode });
+  };
   
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   
@@ -76,28 +148,15 @@ export default function Performance() {
               <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-2">
                 Performance Management
               </h1>
-              <p className="text-muted-foreground mb-6">
+              {/* <p className="text-muted-foreground mb-6">
                 {getDescription()}
-              </p>
+              </p> */}
               
               {/* View Mode Selector Buttons */}
               <div className="flex gap-3 mb-6">
                 <Button
-                  variant={viewMode === 'admin' ? 'default' : 'outline'}
-                  onClick={() => setViewMode('admin')}
-                  className={cn(
-                    "flex items-center gap-2 transition-all duration-300",
-                    viewMode === 'admin'
-                      ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg"
-                      : "hover:bg-muted"
-                  )}
-                >
-                  <Users className="h-4 w-4" />
-                  Admin View
-                </Button>
-                <Button
                   variant={viewMode === 'manager' ? 'default' : 'outline'}
-                  onClick={() => setViewMode('manager')}
+                  onClick={() => handleViewModeChange('manager')}
                   className={cn(
                     "flex items-center gap-2 transition-all duration-300",
                     viewMode === 'manager'
@@ -110,7 +169,7 @@ export default function Performance() {
                 </Button>
                 <Button
                   variant={viewMode === 'user' ? 'default' : 'outline'}
-                  onClick={() => setViewMode('user')}
+                  onClick={() => handleViewModeChange('user')}
                   className={cn(
                     "flex items-center gap-2 transition-all duration-300",
                     viewMode === 'user'

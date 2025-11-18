@@ -42,7 +42,6 @@ import { GoalDetailPanel, GoalDetailSnapshot } from "./GoalDetailPanel";
 import { ReviewForms } from "./ReviewForms";
 import { ManagerReviewWorkspace } from "./ManagerReviewWorkspace";
 import { ContinuousFeedback } from "./ContinuousFeedback";
-import { ManagerSignOff } from "./ManagerSignOff";
 import { EmployeeSelfAssessment } from "./EmployeeSelfAssessment";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 import { GoalSummaryCard } from "./GoalSummaryCard";
@@ -249,7 +248,7 @@ export function ManagerPerformanceView() {
   
   const [searchTerm, setSearchTerm] = useState("");
   const [showGoalModal, setShowGoalModal] = useState(false);
-  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'feedback' | 'signoff'>('my-team');
+  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'feedback'>('my-team');
   const [showReviewWorkspace, setShowReviewWorkspace] = useState(false);
   const [reviewEmployee, setReviewEmployee] = useState<Employee | null>(null);
   const saveDraftRef = useRef<(() => void) | null>(null);
@@ -1097,10 +1096,6 @@ export function ManagerPerformanceView() {
             <MessageSquare className="h-4 w-4 mr-2" />
             Feedback
           </TabsTrigger>
-          <TabsTrigger value="signoff">
-            <CheckCircle className="h-4 w-4 mr-2" />
-            Sign-Off
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="my-team" className="space-y-4">
@@ -1427,26 +1422,49 @@ export function ManagerPerformanceView() {
                       <TrendingUp className="h-5 w-5" />
                       Performance Trend
                     </CardTitle>
-                    <CardDescription>6-month performance progression</CardDescription>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-4 pt-6">
                     <ResponsiveContainer width="100%" height={250}>
-                      <AreaChart data={growthData}>
+                      <AreaChart 
+                        data={growthData}
+                        margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                      >
                         <defs>
                           <linearGradient id="colorPerformance" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#4facfe" stopOpacity={0.3}/>
                             <stop offset="95%" stopColor="#4facfe" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                        <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" />
-                        <YAxis stroke="hsl(var(--muted-foreground))" />
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          stroke="hsl(var(--border))" 
+                          opacity={0.3}
+                          vertical={false}
+                        />
+                        <XAxis 
+                          dataKey="month" 
+                          stroke="hsl(var(--muted-foreground))"
+                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                          tickLine={{ stroke: 'hsl(var(--muted-foreground))' }}
+                          axisLine={{ stroke: 'hsl(var(--muted-foreground))' }}
+                        />
+                        <YAxis 
+                          stroke="hsl(var(--muted-foreground))"
+                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                          tickLine={{ stroke: 'hsl(var(--muted-foreground))' }}
+                          axisLine={{ stroke: 'hsl(var(--muted-foreground))' }}
+                          width={50}
+                        />
                         <Tooltip
                           contentStyle={{
-                            backgroundColor: 'hsl(var(--background))',
-                            border: '1px solid hsl(var(--border))',
-                            borderRadius: '8px'
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            border: '1px solid rgba(0, 0, 0, 0.1)',
+                            borderRadius: '8px',
+                            padding: '8px 12px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                            fontSize: '14px'
                           }}
+                          formatter={(value: number) => [`${value}%`, 'Performance']}
                         />
                         <Area
                           type="monotone"
@@ -1454,9 +1472,19 @@ export function ManagerPerformanceView() {
                           stroke="#4facfe"
                           strokeWidth={2}
                           fill="url(#colorPerformance)"
+                          fillOpacity={0.6}
                         />
                       </AreaChart>
                     </ResponsiveContainer>
+                    {/* Chart Information Label */}
+                    <div className="flex items-center justify-center gap-2 pt-2 border-t border-border/30">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/20">
+                        <div className="w-2 h-2 rounded-full bg-[#4facfe] shadow-sm" style={{ boxShadow: '0 0 6px rgba(79, 172, 254, 0.4)' }} />
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Performance percentage tracked over 6 months
+                        </span>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -1466,28 +1494,84 @@ export function ManagerPerformanceView() {
                       <Target className="h-5 w-5" />
                       Goals by Category
                     </CardTitle>
-                    <CardDescription>Distribution of your goals</CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={250}>
+                  <CardContent className="space-y-4">
+                    <ResponsiveContainer width="100%" height={220}>
                       <RechartsPieChart>
+                        <defs>
+                          {categoryData.map((entry, index) => (
+                            <linearGradient key={`gradient-${index}`} id={`gradient-${index}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={entry.color} stopOpacity={1} />
+                              <stop offset="100%" stopColor={entry.color} stopOpacity={0.7} />
+                            </linearGradient>
+                          ))}
+                        </defs>
                         <Pie
                           data={categoryData}
                           cx="50%"
                           cy="50%"
                           labelLine={false}
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          label={false}
                           outerRadius={80}
+                          innerRadius={30}
                           fill="#8884d8"
                           dataKey="value"
+                          stroke="rgba(255, 255, 255, 0.2)"
+                          strokeWidth={2}
+                          animationBegin={0}
+                          animationDuration={800}
+                          animationEasing="ease-out"
                         >
                           {categoryData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={`url(#gradient-${index})`}
+                              style={{
+                                filter: "drop-shadow(0 4px 8px rgba(0, 0, 0, 0.15))",
+                                transition: "all 0.3s ease"
+                              }}
+                            />
                           ))}
                         </Pie>
-                        <Tooltip />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "rgba(255, 255, 255, 0.95)",
+                            border: "1px solid rgba(0, 0, 0, 0.1)",
+                            borderRadius: "8px",
+                            padding: "8px 12px",
+                            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                            fontSize: "14px"
+                          }}
+                          formatter={(value: number, name: string) => [
+                            `${value}%`,
+                            name
+                          ]}
+                        />
                       </RechartsPieChart>
                     </ResponsiveContainer>
+                    {/* Legend - Outside Recharts, inside Card */}
+                    <div className="flex flex-wrap items-center justify-center gap-3 pt-2 border-t border-border/30">
+                      {categoryData.map((entry, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background/50 border border-border/30 hover:bg-background/80 hover:border-primary/30 transition-all duration-200"
+                        >
+                          <div
+                            className="w-3 h-3 rounded-full shadow-sm flex-shrink-0"
+                            style={{
+                              backgroundColor: entry.color,
+                              boxShadow: `0 0 8px ${entry.color}40`
+                            }}
+                          />
+                          <span className="text-sm font-medium text-foreground whitespace-nowrap">
+                            {entry.name}
+                          </span>
+                          <span className="text-xs font-bold text-muted-foreground whitespace-nowrap">
+                            {entry.value}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -1554,9 +1638,6 @@ export function ManagerPerformanceView() {
           <ContinuousFeedback />
         </TabsContent>
 
-        <TabsContent value="signoff" className="space-y-4">
-          <ManagerSignOff />
-        </TabsContent>
       </Tabs>
 
       <GoalDetailPanel

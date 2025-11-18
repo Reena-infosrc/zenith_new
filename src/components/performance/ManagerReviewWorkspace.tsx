@@ -85,6 +85,7 @@ interface GoalReview {
   goalId: string;
   goalDescription: string;
   weightage: number;
+  completion?: number; // Completion percentage
   employeeRating?: number; // 5-1
   managerRating?: number; // 5-1
   managerComments?: string;
@@ -228,18 +229,21 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
           goalId: '1',
           goalDescription: "Complete project X with 100% test coverage",
           weightage: 40,
+          completion: 100,
           employeeRating: 4
         },
         {
           goalId: '2',
           goalDescription: "Improve code quality and reduce technical debt",
           weightage: 30,
+          completion: 67,
           employeeRating: 5
         },
         {
           goalId: '3',
           goalDescription: "Lead team of 5 developers",
           weightage: 30,
+          completion: 100,
           employeeRating: 4
         }
       ];
@@ -461,24 +465,26 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
 
   const renderRatingStars = (value: number | undefined, onChange: (value: number) => void, disabled = false) => {
     return (
-      <div className="flex items-center gap-1">
-        {[1, 2, 3, 4, 5].map((rating) => (
-          <button
-            key={rating}
-            type="button"
-            onClick={() => !disabled && onChange(rating)}
-            disabled={disabled}
-            className={cn(
-              "transition-all duration-200",
-              disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:scale-110",
-              value !== undefined && rating <= value ? "text-yellow-400" : "text-muted-foreground"
-            )}
-          >
-            <Star className={cn("h-5 w-5", value !== undefined && rating <= value ? "fill-current" : "")} />
-          </button>
-        ))}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1">
+          {[1, 2, 3, 4, 5].map((rating) => (
+            <button
+              key={rating}
+              type="button"
+              onClick={() => !disabled && onChange(rating)}
+              disabled={disabled}
+              className={cn(
+                "transition-all duration-200",
+                disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:scale-110",
+                value !== undefined && rating <= value ? "text-yellow-400" : "text-muted-foreground"
+              )}
+            >
+              <Star className={cn("h-5 w-5", value !== undefined && rating <= value ? "fill-current" : "")} />
+            </button>
+          ))}
+        </div>
         {value !== undefined && (
-          <span className="ml-2 text-sm font-medium text-muted-foreground">
+          <span className="text-sm font-medium text-muted-foreground">
             {value === 5 ? 'Outstanding' : value === 4 ? 'Exceeds' : value === 3 ? 'Meets' : value === 2 ? 'Below' : 'Needs Improvement'}
           </span>
         )}
@@ -1033,7 +1039,11 @@ function ReviewWorkspaceInline({
                       <TableHeader>
                         <TableRow className="bg-muted/40 border-b border-border/50">
                           <TableHead className="font-semibold text-foreground/90">Goal Description</TableHead>
-                          <TableHead className="font-semibold text-foreground/90">Weightage</TableHead>
+                          <TableHead className="font-semibold text-foreground/90">
+                            <div className="flex flex-col gap-1">
+                              <span>Weightage</span>
+                            </div>
+                          </TableHead>
                           <TableHead className="font-semibold text-foreground/90">Employee Rating</TableHead>
                           <TableHead className="font-semibold text-foreground/90">Manager Rating</TableHead>
                           <TableHead className="font-semibold text-foreground/90 min-w-[300px]">Comments</TableHead>
@@ -1046,23 +1056,34 @@ function ReviewWorkspaceInline({
                               <p className="text-sm font-medium text-foreground leading-relaxed">{goal.goalDescription}</p>
                             </TableCell>
                             <TableCell className="py-4">
-                              <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 font-semibold">
-                                {goal.weightage}%
-                              </Badge>
+                              <div className="flex flex-col gap-2">
+                                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 font-semibold w-fit">
+                                  {goal.weightage}%
+                                </Badge>
+                                {goal.completion !== undefined && (
+                                  <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30 font-semibold w-fit">
+                                    Completed: {Math.round(goal.completion)}%
+                                  </Badge>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell className="py-4">
                               {goal.employeeRating ? (
-                                <div className="flex items-center gap-1.5">
-                                  {[5, 4, 3, 2, 1].map((rating) => (
-                                    <Star
-                                      key={rating}
-                                      className={cn(
-                                        "h-4 w-4 transition-colors",
-                                        rating <= goal.employeeRating! ? "fill-blue-400 text-blue-400" : "text-muted-foreground/40"
-                                      )}
-                                    />
-                                  ))}
-                                  <span className="ml-2 text-xs font-medium text-muted-foreground">{goal.employeeRating}</span>
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="flex items-center gap-1.5">
+                                    {[5, 4, 3, 2, 1].map((rating) => (
+                                      <Star
+                                        key={rating}
+                                        className={cn(
+                                          "h-4 w-4 transition-colors",
+                                          rating <= goal.employeeRating! ? "fill-blue-400 text-blue-400" : "text-muted-foreground/40"
+                                        )}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-xs font-medium text-muted-foreground">
+                                    Self Rating: {goal.employeeRating}
+                                  </span>
                                 </div>
                               ) : (
                                 <span className="text-sm text-muted-foreground">-</span>
@@ -1131,7 +1152,7 @@ function ReviewWorkspaceInline({
 
                 <div>
                   <Label htmlFor="summary" className="text-sm font-semibold mb-2 block">
-                    Summary Feedback *
+                    Summary Feedback
                   </Label>
                   <Textarea
                     id="summary"

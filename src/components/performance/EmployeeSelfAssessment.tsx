@@ -363,24 +363,26 @@ export function EmployeeSelfAssessment() {
 
   const renderRatingStars = (value: number | undefined, onChange: (value: number) => void, disabled = false) => {
     return (
-      <div className="flex items-center gap-1">
-        {[1, 2, 3, 4, 5].map((rating) => (
-          <button
-            key={rating}
-            type="button"
-            onClick={() => !disabled && onChange(rating)}
-            disabled={disabled}
-            className={cn(
-              "transition-all duration-200",
-              disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:scale-110",
-              value !== undefined && rating <= value ? "text-yellow-400" : "text-muted-foreground"
-            )}
-          >
-            <Star className={cn("h-5 w-5", value !== undefined && rating <= value ? "fill-current" : "")} />
-          </button>
-        ))}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-1">
+          {[1, 2, 3, 4, 5].map((rating) => (
+            <button
+              key={rating}
+              type="button"
+              onClick={() => !disabled && onChange(rating)}
+              disabled={disabled}
+              className={cn(
+                "transition-all duration-200",
+                disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:scale-110",
+                value !== undefined && rating <= value ? "text-yellow-400" : "text-muted-foreground"
+              )}
+            >
+              <Star className={cn("h-5 w-5", value !== undefined && rating <= value ? "fill-current" : "")} />
+            </button>
+          ))}
+        </div>
         {value !== undefined && (
-          <span className="ml-2 text-sm font-medium text-muted-foreground">
+          <span className="text-sm font-medium text-muted-foreground">
             {value === 5 ? 'Outstanding' : value === 4 ? 'Exceeds' : value === 3 ? 'Meets' : value === 2 ? 'Below' : 'Needs Improvement'}
           </span>
         )}
@@ -895,20 +897,26 @@ function SelfAssessmentForm({
                     return (
                       <Card 
                         key={goal.goalId} 
-                        className="group relative overflow-hidden bg-gradient-to-br from-background/60 via-background/40 to-background/60 backdrop-blur-md border-border/40 hover:border-primary/40 transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 hover:-translate-y-0.5"
+                        className="group relative overflow-hidden bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-xl border-2 border-border/50 hover:border-primary/50 transition-all duration-500 hover:shadow-2xl hover:shadow-primary/10 hover:-translate-y-1"
                       >
-                        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                        <CardContent className="relative p-4 space-y-3">
+                        {/* Enhanced Hover Gradient Overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary/8 via-primary/3 to-primary/8 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                        
+                        {/* Subtle Shine Effect */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out" />
+                        
+                        <CardContent className="relative p-5 space-y-4">
+                          {/* Header Section */}
                           <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-sm text-foreground mb-2.5 line-clamp-2 leading-snug">
+                            <div className="flex-1 min-w-0 space-y-3">
+                              <h4 className="font-bold text-base text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors duration-300">
                                 {goal.goalDescription}
                               </h4>
-                              <div className="flex items-center gap-2 flex-wrap">
+                              <div className="flex items-center gap-2.5 flex-wrap">
                                 {getStatusBadge(goal.status)}
                                 <Badge 
                                   variant="outline" 
-                                  className="bg-gradient-to-r from-primary/15 to-primary/8 text-primary border-primary/25 text-[10px] font-medium px-2 py-0.5 shadow-sm"
+                                  className="bg-gradient-to-r from-primary/20 via-primary/12 to-primary/20 text-primary border-primary/35 text-[10px] font-semibold px-2.5 py-1 shadow-md hover:shadow-lg transition-all duration-200"
                                 >
                                   {goal.category}
                                 </Badge>
@@ -916,43 +924,46 @@ function SelfAssessmentForm({
                             </div>
                           </div>
                           
-                          <div className="flex items-center gap-4 text-[11px] text-muted-foreground/90 pt-1">
-                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/30 border border-border/30">
-                              <Calendar className="h-3 w-3 text-muted-foreground/70" />
-                              <span className="font-medium">{new Date(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          {/* Info Pills - Enhanced */}
+                          <div className="flex items-center gap-3 flex-wrap pt-1">
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-br from-background/60 to-background/40 border border-border/40 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200">
+                              <Calendar className="h-3.5 w-3.5 text-primary/80" />
+                              <span className="font-semibold text-xs text-foreground/90">{new Date(goal.targetDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                             </div>
-                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/30 border border-border/30">
-                              <Target className="h-3 w-3 text-muted-foreground/70" />
-                              <span className="font-medium">{goal.weightage}%</span>
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-br from-background/60 to-background/40 border border-border/40 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200">
+                              <Target className="h-3.5 w-3.5 text-primary/80" />
+                              <span className="font-semibold text-xs text-foreground/90">{goal.weightage}%</span>
                             </div>
-                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/30 border border-border/30">
-                              <TrendingUp className="h-3 w-3 text-muted-foreground/70" />
-                              <span className="font-medium">{Math.round(goal.completion)}%</span>
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-br from-background/60 to-background/40 border border-border/40 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200">
+                              <TrendingUp className="h-3.5 w-3.5 text-primary/80" />
+                              <span className="font-semibold text-xs text-foreground/90">{Math.round(goal.completion)}%</span>
                             </div>
                           </div>
                           
+                          {/* Enhanced Progress Bar */}
                           {goal.completion > 0 && (
-                            <div className="relative pt-1">
-                              <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden border border-border/20">
+                            <div className="relative pt-2">
+                              <div className="h-2 rounded-full bg-muted/50 overflow-hidden border border-border/30 shadow-inner">
                                 <div 
-                                  className="h-full bg-gradient-to-r from-primary via-primary/90 to-primary rounded-full transition-all duration-500 ease-out shadow-sm shadow-primary/20"
+                                  className="h-full bg-gradient-to-r from-primary via-primary/95 to-primary rounded-full transition-all duration-700 ease-out shadow-lg shadow-primary/30 relative overflow-hidden"
                                   style={{ width: `${Math.min(goal.completion, 100)}%` }}
                                 />
                               </div>
                             </div>
                           )}
                           
+                          {/* Enhanced Milestones Section */}
                           {goal.milestones && goal.milestones.length > 0 && (
-                            <div className="flex items-center justify-between pt-1">
-                              <div className="text-[11px] text-muted-foreground/80 font-medium">
-                                <span className="text-foreground/70">{goal.milestones.filter((m: any) => m.completed).length}</span>
-                                <span className="mx-1">/</span>
-                                <span>{goal.milestones.length}</span>
-                                <span className="ml-1.5">milestones</span>
+                            <div className="flex items-center justify-between pt-2 border-t border-border/30">
+                              <div className="text-xs text-muted-foreground/90 font-semibold">
+                                <span className="text-foreground font-bold">{goal.milestones.filter((m: any) => m.completed).length}</span>
+                                <span className="mx-1.5 text-muted-foreground/60">/</span>
+                                <span className="text-foreground/80">{goal.milestones.length}</span>
+                                <span className="ml-2 text-muted-foreground/70">milestones</span>
                               </div>
-                              <div className="h-1.5 w-16 rounded-full bg-muted/30 overflow-hidden border border-border/20">
+                              <div className="h-2 w-20 rounded-full bg-muted/40 overflow-hidden border border-border/30 shadow-inner">
                                 <div 
-                                  className="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full"
+                                  className="h-full bg-gradient-to-r from-green-500 via-green-400 to-green-500 rounded-full transition-all duration-500 shadow-md shadow-green-500/30"
                                   style={{ width: `${(goal.milestones.filter((m: any) => m.completed).length / goal.milestones.length) * 100}%` }}
                                 />
                               </div>

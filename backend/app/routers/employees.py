@@ -470,6 +470,98 @@ async def get_employees(
         print(f"Full traceback: {error_details}")
         raise HTTPException(status_code=500, detail=f"Error fetching employees: {str(e)}")
 
+@router.get("/check-team-members", tags=["employees"])
+async def check_team_members(current_user: dict = Depends(get_current_active_user)):
+    """
+    Check if the current user has team members (direct reports).
+    Returns whether the user should see manager view or user view.
+    
+    **Security:**
+    - Requires valid JWT Bearer token in Authorization header
+    - Token is validated via get_current_active_user dependency
+    - Returns 401 Unauthorized if token is missing or invalid
+    - Only returns data for the authenticated user
+    
+    **Request Headers:**
+    - Authorization: Bearer <jwt_token>
+    
+    **Response:**
+    - has_team_members: bool - Whether user has direct reports
+    - view_mode: str - "manager" or "user" based on team membership
+    - team_count: int - Number of direct reports
+    """
+    try:
+        user_email = current_user.get("email") or current_user.get("preferred_username")
+        if not user_email:
+            return {
+                "has_team_members": False,
+                "view_mode": "user",
+                "team_count": 0
+            }
+        
+        table = await get_employees_table()
+        
+        # Normalize email to lowercase for consistent comparison
+        normalized_email = user_email.lower().strip()
+        
+        # Find current user's employee record using EmailIndex GSI
+        user_response = await table.query(
+            IndexName="EmailIndex",
+            KeyConditionExpression="email = :email",
+            ExpressionAttributeValues={
+                ":email": normalized_email
+            },
+            Limit=1
+        )
+        
+        if not user_response.get("Items"):
+            return {
+                "has_team_members": False,
+                "view_mode": "user",
+                "team_count": 0
+            }
+        
+        current_employee = parse_dynamodb_item(user_response["Items"][0])
+        current_employee_id = current_employee.get("id")
+        
+        if not current_employee_id:
+            return {
+                "has_team_members": False,
+                "view_mode": "user",
+                "team_count": 0
+            }
+        
+        # Check for direct reports (employees who report to current user)
+        # Note: reporting_to is not indexed, so we need to scan
+        # But we can limit the scan to reduce cost
+        reports_scan = await table.scan(
+            FilterExpression="reporting_to = :manager_id",
+            ExpressionAttributeValues={
+                ":manager_id": current_employee_id
+            }
+        )
+        
+        team_members = [parse_dynamodb_item(item) for item in reports_scan.get("Items", [])]
+        has_team = len(team_members) > 0
+        
+        return {
+            "has_team_members": has_team,
+            "view_mode": "manager" if has_team else "user",
+            "team_count": len(team_members)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error checking team members: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Default to user view on error
+        return {
+            "has_team_members": False,
+            "view_mode": "user",
+            "team_count": 0,
+            "error": str(e)
+        }
+
 @router.get("/{employee_id}", response_model=EmployeeInDB)
 async def get_employee(employee_id: str, current_user: dict = Depends(get_current_active_user)):
     """Get a specific employee by ID"""

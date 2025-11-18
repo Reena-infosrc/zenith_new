@@ -177,16 +177,25 @@ export function GoalWaterJarVisualizer({
 
   return (
     <div className={cn("flex flex-col items-center justify-center w-full", className)}>
-      <div className="relative w-full max-w-[130px] mx-auto flex-shrink-0" style={{ paddingBottom: "2px" }}>
-        {/* Battery Container - Cylindrical Standing */}
-        <div className="relative w-full rounded-lg border-2 border-border/70 bg-background/50 backdrop-blur-sm shadow-xl overflow-hidden" style={{ boxSizing: "border-box", height: "180px", maxHeight: "180px" }}>
-          {/* Battery Top Cap */}
-          <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-8 h-3 rounded-t-lg border-2 border-border/70 bg-background/50 z-[20]" />
+      <div className="relative w-full max-w-[140px] mx-auto flex-shrink-0">
+        {/* Battery Container - Modern Glassmorphism Design */}
+        <div className="relative w-full rounded-2xl border-2 border-white/20 dark:border-border/40 bg-gradient-to-b from-white/10 via-white/5 to-white/10 dark:from-background/90 dark:via-background/70 dark:to-background/90 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.3)] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.15)] dark:hover:shadow-[0_12px_48px_rgba(0,0,0,0.4)] hover:scale-[1.02]" style={{ boxSizing: "border-box", height: "200px", maxHeight: "200px" }}>
+          {/* Battery Top Cap - Enhanced */}
+          <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-5 rounded-t-2xl border-2 border-white/20 dark:border-border/40 bg-gradient-to-b from-white/15 to-white/5 dark:from-background/80 dark:to-background/60 z-[20] shadow-[0_4px_16px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.3)]" />
           
-          {/* Empty Space at Top */}
+          {/* Outer Glow Ring */}
+          <div className="absolute -inset-1 rounded-2xl bg-gradient-to-br from-primary/20 via-primary/10 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-500 pointer-events-none blur-xl z-[-1]" />
+          
+          {/* Inner Glass Effect */}
+          <div className="absolute inset-0 pointer-events-none z-[1]">
+            <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-transparent rounded-2xl" />
+            <div className="absolute top-0 left-0 right-0 h-1/3 bg-gradient-to-b from-white/15 to-transparent rounded-t-2xl" />
+          </div>
+          
+          {/* Empty Space at Top - Enhanced */}
           {emptySpace > 0 && (
             <div
-              className="absolute top-0 left-0 right-0 bg-gradient-to-b from-background/30 to-transparent"
+              className="absolute top-0 left-0 right-0 bg-gradient-to-b from-background/40 via-background/20 to-transparent rounded-t-2xl"
               style={{
                 height: `${emptySpace}%`
               }}
@@ -212,17 +221,29 @@ export function GoalWaterJarVisualizer({
               <div
                 key={layer.name}
                 className={cn(
-                  "absolute left-0 right-0 bottom-0 cursor-pointer transition-all duration-300",
-                  isHighlighted && "ring-2 ring-primary ring-offset-2 ring-offset-background z-10",
+                  "absolute left-0 right-0 bottom-0 cursor-pointer transition-all duration-700 group/segment",
+                  isHighlighted && "ring-2 ring-white/80 dark:ring-primary/60 ring-offset-2 ring-offset-background z-10 shadow-[0_0_30px_rgba(0,0,0,0.3)]",
                   !hasGoals && "opacity-50 cursor-not-allowed",
-                  !prefersReducedMotion.current && isAnimating && "animate-water-fill"
+                  !prefersReducedMotion.current && isAnimating && "animate-water-fill",
+                  "hover:brightness-[1.15] hover:saturate-110"
                 )}
                 style={{
                   height: `${layer.height}%`,
                   bottom: `${layer.y}%`,
-                  background: `linear-gradient(to top, ${colors.dark}, ${colors.base}, ${colors.light})`,
+                  background: `linear-gradient(to top, 
+                    ${colors.dark} 0%, 
+                    ${colors.dark} 15%,
+                    ${colors.base} 35%, 
+                    ${colors.light} 55%,
+                    ${colors.base} 75%,
+                    ${colors.light} 90%,
+                    ${colors.base} 100%
+                  )`,
                   clipPath: "inset(0 0 0 0)",
-                  animationDelay: prefersReducedMotion.current ? "0s" : `${layer.index * 150}ms`
+                  animationDelay: prefersReducedMotion.current ? "0s" : `${layer.index * 150}ms`,
+                  boxShadow: isHighlighted 
+                    ? `inset 0 0 30px ${colors.base}50, inset 0 -10px 20px ${colors.dark}30, 0 0 30px ${colors.base}40` 
+                    : `inset 0 4px 12px ${colors.dark}25, inset 0 -2px 8px ${colors.dark}15`
                 }}
                 onClick={() => handleSegmentClick(layer.name)}
                 onMouseEnter={() => handleSegmentHover(layer.name)}
@@ -237,70 +258,165 @@ export function GoalWaterJarVisualizer({
                   }
                 }}
               >
-                {/* Energy Level Label */}
-                {layer.height > 15 && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center px-1.5 pointer-events-none z-[5]">
-                    <span
-                      className={cn(
-                        "text-[8px] font-semibold drop-shadow text-center leading-tight w-full",
-                        textClassName,
-                        layer.height < 25 && "text-[7px]",
-                        "break-words hyphens-auto"
-                      )}
-                      style={{
-                        wordBreak: "break-word",
-                        overflowWrap: "break-word",
-                        maxWidth: "100%",
-                        lineHeight: "1.1"
-                      }}
-                    >
-                      {layer.name}
-                    </span>
-                    <span
-                      className={cn(
-                        "text-sm font-bold drop-shadow mt-0.5",
-                        textClassName,
-                        layer.height < 25 && "text-xs"
-                      )}
-                    >
-                      {layer.value}%
-                    </span>
+                {/* Animated Wave Effect */}
+                <div 
+                  className="absolute top-0 left-0 right-0 h-2 opacity-70 group-hover/segment:opacity-100 transition-opacity duration-500 pointer-events-none"
+                  style={{
+                    background: `linear-gradient(to right, 
+                      transparent 0%, 
+                      ${colors.light}80 25%,
+                      ${colors.base} 50%,
+                      ${colors.light}80 75%,
+                      transparent 100%
+                    )`,
+                    boxShadow: `0 -4px 12px ${colors.light}70, 0 -2px 6px ${colors.base}50`,
+                    filter: "blur(0.5px)"
+                  }}
+                />
+
+                {/* Shimmer Effect - Enhanced */}
+                <div 
+                  className="absolute inset-0 opacity-0 group-hover/segment:opacity-100 transition-opacity duration-700 pointer-events-none"
+                  style={{
+                    background: `linear-gradient(
+                      135deg,
+                      transparent 0%,
+                      rgba(255, 255, 255, 0.4) 30%,
+                      rgba(255, 255, 255, 0.5) 50%,
+                      rgba(255, 255, 255, 0.4) 70%,
+                      transparent 100%
+                    )`,
+                    backgroundSize: "200% 200%"
+                  }}
+                />
+
+                {/* Bottom Glow */}
+                <div 
+                  className="absolute bottom-0 left-0 right-0 h-3 opacity-50 group-hover/segment:opacity-80 transition-opacity"
+                  style={{
+                    background: `radial-gradient(ellipse at center, ${colors.dark}80, transparent 70%)`,
+                    filter: "blur(4px)"
+                  }}
+                />
+
+                {/* Energy Level Label - Center Aligned */}
+                {layer.height > 12 && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center px-2 pointer-events-none z-[5]">
+                    <div className="relative w-full flex flex-col items-center justify-center">
+                      {/* Text Background Glow - Enhanced */}
+                      <div 
+                        className="absolute -inset-4 blur-xl opacity-40 group-hover/segment:opacity-60 transition-opacity"
+                        style={{
+                          background: `radial-gradient(circle, ${colors.base}90, transparent 70%)`,
+                        }}
+                      />
+                      
+                      {/* Category Name - Center Aligned */}
+                      <span
+                        className={cn(
+                          "relative text-[10px] font-bold text-center leading-tight w-full block",
+                          textClassName,
+                          layer.height < 20 && "text-[9px]",
+                          layer.height < 15 && "text-[8px]",
+                          "break-words hyphens-auto"
+                        )}
+                        style={{
+                          wordBreak: "break-word",
+                          overflowWrap: "break-word",
+                          maxWidth: "100%",
+                          lineHeight: "1.3",
+                          textAlign: "center",
+                          textShadow: textClassName === "text-white" 
+                            ? "0 2px 4px rgba(0,0,0,0.7), 0 0 10px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.8)" 
+                            : "0 1px 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.6)"
+                        }}
+                      >
+                        {layer.name}
+                      </span>
+                      
+                      {/* Percentage - Center Aligned */}
+                      <span
+                        className={cn(
+                          "relative text-lg font-black block mt-1.5 text-center",
+                          textClassName,
+                          layer.height < 20 && "text-base",
+                          layer.height < 15 && "text-sm"
+                        )}
+                        style={{
+                          textAlign: "center",
+                          textShadow: textClassName === "text-white" 
+                            ? "0 3px 8px rgba(0,0,0,0.8), 0 0 16px rgba(0,0,0,0.6), 0 2px 4px rgba(0,0,0,0.9)" 
+                            : "0 2px 5px rgba(255,255,255,1), 0 0 10px rgba(255,255,255,0.8)"
+                        }}
+                      >
+                        {layer.value}%
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
             );
           })}
 
-          {/* Glowing Thunderbolt Symbol in Center - Dynamic color based on total fill */}
+          {/* Glowing Thunderbolt Symbol in Center - Enhanced */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[15]">
             <div className="relative">
-              {/* Glow Effect */}
+              {/* Outer Glow Rings */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div 
+                  className="absolute w-16 h-16 rounded-full animate-pulse"
+                  style={{
+                    background: `radial-gradient(circle, ${thunderboltColor.rgbaLight} 0%, transparent 70%)`,
+                    filter: "blur(8px)"
+                  }}
+                />
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div 
+                  className="absolute w-12 h-12 rounded-full animate-pulse"
+                  style={{
+                    background: `radial-gradient(circle, ${thunderboltColor.rgba} 0%, transparent 70%)`,
+                    filter: "blur(4px)",
+                    animationDelay: "0.5s"
+                  }}
+                />
+              </div>
+              {/* Main Glow */}
               <div className="absolute inset-0 flex items-center justify-center">
                 <Zap 
-                  className="h-10 w-10 blur-sm animate-pulse" 
+                  className="h-12 w-12 blur-md animate-pulse" 
                   style={{ 
-                    filter: "blur(6px)",
                     color: thunderboltColor.base,
-                    opacity: 0.4
+                    opacity: 0.5,
+                    filter: "blur(8px)"
                   }}
                 />
               </div>
               {/* Main Thunderbolt */}
               <Zap 
-                className="h-10 w-10 drop-shadow-2xl relative z-10 animate-pulse"
+                className="h-12 w-12 relative z-10 animate-pulse"
                 style={{
                   color: thunderboltColor.base,
-                  filter: `drop-shadow(0 0 6px ${thunderboltColor.base}) drop-shadow(0 0 12px ${thunderboltColor.rgba}) drop-shadow(0 0 18px ${thunderboltColor.rgbaLight})`,
-                  animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite"
+                  filter: `drop-shadow(0 0 8px ${thunderboltColor.base}) drop-shadow(0 0 16px ${thunderboltColor.rgba}) drop-shadow(0 0 24px ${thunderboltColor.rgbaLight})`,
+                  animation: "pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite"
                 }}
               />
             </div>
           </div>
 
-          {/* Battery Reflection Effect */}
+          {/* Enhanced Reflection Effects */}
           <div className="absolute inset-0 pointer-events-none z-[5]">
-            <div className="absolute left-0 top-0 bottom-0 w-1/3 bg-gradient-to-r from-white/15 to-transparent rounded-lg" />
+            <div className="absolute left-0 top-0 bottom-0 w-2/5 bg-gradient-to-r from-white/25 via-white/15 to-transparent rounded-2xl" />
+            <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-black/8 via-black/4 to-transparent rounded-2xl" />
+            <div className="absolute top-0 left-0 right-0 h-1/4 bg-gradient-to-b from-white/20 via-white/10 to-transparent rounded-t-2xl" />
           </div>
+          
+          {/* Bottom Energy Glow */}
+          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-primary/30 via-primary/15 to-transparent pointer-events-none z-[3] rounded-b-2xl" style={{ filter: "blur(2px)" }} />
+          
+          {/* Side Border Highlights */}
+          <div className="absolute left-0 top-1/4 bottom-1/4 w-1 bg-gradient-to-b from-white/30 via-white/20 to-white/30 rounded-full pointer-events-none z-[6]" />
+          <div className="absolute right-0 top-1/4 bottom-1/4 w-1 bg-gradient-to-b from-white/20 via-white/10 to-white/20 rounded-full pointer-events-none z-[6]" />
         </div>
       </div>
     </div>

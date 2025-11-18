@@ -46,6 +46,15 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
 
   const adminItems = [
     {
+      icon: <Users className="w-4 h-4" />,
+      label: "Performance Management",
+      description: "Access performance management",
+      action: () => {
+        navigate('/performance?view=admin');
+        setIsOpen(false);
+      }
+    },
+    {
       icon: <Flag className="w-4 h-4" />,
       label: "Feature Flags",
       description: "Manage module visibility and functionality",
@@ -83,7 +92,8 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
   // Add feature flags to each item
   const adminItemsWithFlags = adminItems.map(item => ({
     ...item,
-    featureFlag: item.label === "Feature Flags" ? "feature_flag_management" :
+    featureFlag: item.label === "Admin View" ? undefined :
+                  item.label === "Feature Flags" ? "feature_flag_management" :
                   item.label === "User Management" ? "user_management" :
                   item.label === "System Analytics" ? "system_analytics" :
                   item.label === "Data Management" ? "data_management" :
