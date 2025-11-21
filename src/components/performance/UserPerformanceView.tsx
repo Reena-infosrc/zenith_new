@@ -20,7 +20,12 @@ import {
   RefreshCw,
   Plus,
   Briefcase,
-  Loader2
+  Loader2,
+  Star,
+  Save,
+  SquarePen,
+  ChevronLeft,
+  Users
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +62,8 @@ import {
 import { cn } from "@/lib/utils";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 import { calculateGoalDistribution } from "@/utils/goal-distribution";
+import { authenticatedFetch } from "@/utils/auth-utils";
+import { API_BASE_URL } from "@/config/api";
 
 interface PerformanceGoal {
   id: string;
@@ -129,6 +136,36 @@ export function UserPerformanceView() {
   const [goals, setGoals] = useState<PerformanceGoal[]>([]);
   const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [activeCycle, setActiveCycle] = useState<any | null>(null);
+  const [loadingActiveCycle, setLoadingActiveCycle] = useState(false);
+  const [showSelfAssessmentForm, setShowSelfAssessmentForm] = useState(false);
+  const [selfAssessmentSaveDraft, setSelfAssessmentSaveDraft] = useState<(() => void) | null>(null);
+  const [selfAssessmentSaving, setSelfAssessmentSaving] = useState(false);
+  const [selfAssessmentReadOnly, setSelfAssessmentReadOnly] = useState(false);
+  useEffect(() => {
+    if (!showSelfAssessmentForm) {
+      setSelfAssessmentSaveDraft(null);
+      setSelfAssessmentSaving(false);
+      setSelfAssessmentReadOnly(false);
+    }
+  }, [showSelfAssessmentForm]);
+
+  const handleRegisterSelfSaveDraft = useCallback((handler: (() => void) | null) => {
+    if (handler) {
+      setSelfAssessmentSaveDraft(() => handler);
+    } else {
+      setSelfAssessmentSaveDraft(null);
+    }
+  }, []);
+
+  const handleSelfAssessmentReadOnlyChange = useCallback((readOnly: boolean) => {
+    setSelfAssessmentReadOnly(readOnly);
+  }, []);
+  const [selectedCycleYear, setSelectedCycleYear] = useState<string | null>(null);
+  const [allCycles, setAllCycles] = useState<any[]>([]);
+  const [loadingAllCycles, setLoadingAllCycles] = useState(false);
 
   const currentEmployeeSummary = useMemo(() => {
     if (!currentEmployeeId) return null;
@@ -269,6 +306,83 @@ export function UserPerformanceView() {
     }
   }, [currentEmployeeId, getEmployeeGoals, toast, refreshGoalPanelState]);
 
+  // Fetch reviews for Annual Reviews section
+  const fetchReviews = useCallback(async () => {
+    if (!currentEmployeeId || !user?.email) return;
+    
+    try {
+      setLoadingReviews(true);
+      
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}`,
+        { method: 'GET' }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          // Sort by cycle year and created date (most recent first)
+          const sortedReviews = data.sort((a: any, b: any) => {
+            if (a.cycleYear !== b.cycleYear) {
+              return b.cycleYear.localeCompare(a.cycleYear);
+            }
+            return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+          });
+          setReviews(sortedReviews);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load reviews",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingReviews(false);
+    }
+  }, [currentEmployeeId, user, toast]);
+
+  useEffect(() => {
+    if (currentEmployeeId) {
+      fetchReviews();
+    }
+  }, [currentEmployeeId, fetchReviews]);
+
+  // Fetch all review cycles
+  useEffect(() => {
+    const fetchCycles = async () => {
+      try {
+        setLoadingActiveCycle(true);
+        setLoadingAllCycles(true);
+        
+        const response = await authenticatedFetch(
+          `${API_BASE_URL}/reviews/cycles`,
+          { method: 'GET' }
+        );
+        
+        if (response.ok) {
+          const cycles = await response.json();
+          // Sort by year descending (most recent first)
+          const sortedCycles = cycles.sort((a: any, b: any) => b.year.localeCompare(a.year));
+          setAllCycles(sortedCycles);
+          
+          // Find the active cycle (status === 'open' in backend, 'active' in frontend)
+          const active = sortedCycles.find((cycle: any) => cycle.status === 'open' || cycle.status === 'active');
+          setActiveCycle(active || null);
+        }
+      } catch (error) {
+        console.error("Error fetching cycles:", error);
+      } finally {
+        setLoadingActiveCycle(false);
+        setLoadingAllCycles(false);
+      }
+    };
+
+    if (currentEmployeeId) {
+      fetchCycles();
+    }
+  }, [currentEmployeeId]);
 
   const growthData: GrowthData[] = [
     { month: "Jan", performance: 65, goalsCompleted: 1 },
@@ -887,7 +1001,264 @@ const normalizeCategory = (category: string): string => {
         </TabsContent>
 
         <TabsContent value="annual-review" className="space-y-4">
-          <EmployeeSelfAssessment />
+          {!showSelfAssessmentForm ? (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold mb-4">Annual Review Cycles</h3>
+              
+              {loadingAllCycles ? (
+                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+                  <CardContent className="p-12 text-center">
+                    <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin text-primary" />
+                    <p className="text-muted-foreground">Loading review cycles...</p>
+                  </CardContent>
+                </Card>
+              ) : allCycles.length > 0 ? (
+                <div className="space-y-3">
+                  {allCycles.map((cycle) => {
+                    const isActive = cycle.status === 'open' || cycle.status === 'active';
+                    
+                    // Find review for this cycle
+                    const cycleReview = reviews.find((r: any) => 
+                      r.cycleYear === cycle.year && 
+                      r.reviewType === 'self' &&
+                      r.employeeId === currentEmployeeId
+                    );
+                    
+                    // Determine review status
+                    let reviewStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' = 'not_started';
+                    if (cycleReview) {
+                      if (cycleReview.isDraft) {
+                        reviewStatus = 'draft';
+                      } else if (cycleReview.submittedAt) {
+                        // Check metadata status for more specific status
+                        const metadataStatus = cycleReview.metadata?.status;
+                        if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing') {
+                          reviewStatus = 'under_manager_review';
+                        } else {
+                          reviewStatus = 'submitted';
+                        }
+                      }
+                    }
+                    
+                    // Enable button only if cycle is active and review is not submitted
+                    const isEnabled = isActive && (reviewStatus === 'not_started' || reviewStatus === 'draft');
+                    
+                    // Determine badge status and styling
+                    let badgeConfig: { label: string; className: string; icon: any } = {
+                      label: 'Active',
+                      className: 'bg-green-500/10 text-green-600 border-green-500/20',
+                      icon: CheckCircle2
+                    };
+                    
+                    if (reviewStatus === 'under_manager_review' || reviewStatus === 'submitted') {
+                      badgeConfig = {
+                        label: reviewStatus === 'under_manager_review' ? 'Under Review' : 'Submitted',
+                        className: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+                        icon: FileText
+                      };
+                    } else if (reviewStatus === 'draft') {
+                      badgeConfig = {
+                        label: 'Draft',
+                        className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+                        icon: SquarePen
+                      };
+                    } else if (isActive) {
+                      badgeConfig = {
+                        label: 'Active',
+                        className: 'bg-green-500/10 text-green-600 border-green-500/20',
+                        icon: CheckCircle2
+                      };
+                    } else if (cycle.status === 'draft') {
+                      badgeConfig = {
+                        label: 'Draft',
+                        className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+                        icon: SquarePen
+                      };
+                    } else {
+                      badgeConfig = {
+                        label: 'Closed',
+                        className: 'bg-muted/50 text-muted-foreground',
+                        icon: Clock
+                      };
+                    }
+                    
+                    const BadgeIcon = badgeConfig.icon;
+                    
+                    return (
+                      <div
+                        key={cycle.cycleId || cycle.year}
+                        className="group relative rounded-xl border bg-gradient-to-r from-background/95 via-background/90 to-background/95 backdrop-blur-sm border-border/50 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-300 overflow-hidden"
+                      >
+                        {/* Subtle gradient overlay on hover */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                        
+                        <div className="relative flex items-center justify-between p-4 gap-4">
+                          {/* Left Section - Cycle Info */}
+                          <div className="flex items-center gap-4 flex-1 min-w-0">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors">
+                                  {cycle.name || `${cycle.year} Annual Performance Review`}
+                                </h3>
+                                <Badge 
+                                  variant="outline" 
+                                  className={cn(
+                                    "rounded-full border px-2.5 py-0.5 text-xs font-semibold flex items-center gap-1.5 flex-shrink-0",
+                                    badgeConfig.className
+                                  )}
+                                >
+                                  <BadgeIcon className="h-3 w-3" />
+                                  {badgeConfig.label}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                {cycle.startDate && cycle.endDate && (
+                                  <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    {new Date(cycle.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - {new Date(cycle.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </p>
+                                )}
+                                {cycle.metadata?.selfReviewEnabled && (
+                                  <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2">
+                                    <FileText className="h-3 w-3" /> Self Review
+                                  </Badge>
+                                )}
+                                {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' ? (
+                                  <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-purple-500/10 text-purple-600 border-purple-500/20">
+                                    <Send className="h-3 w-3" /> Submitted to Manager
+                                  </Badge>
+                                ) : reviewStatus === 'draft' ? (
+                                  <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                    <SquarePen className="h-3 w-3" /> In Progress
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Right Section - Action Button */}
+                          <div className="flex-shrink-0">
+                            <Button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                console.log('Review button clicked for cycle:', cycle.year, 'status:', reviewStatus);
+                                
+                                setSelectedCycleYear(cycle.year);
+                                setShowSelfAssessmentForm(true);
+                                
+                                // Scroll to the self-assessment section
+                                setTimeout(() => {
+                                  const selfAssessmentSection = document.querySelector('[data-section="self-assessment"]');
+                                  if (selfAssessmentSection) {
+                                    selfAssessmentSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }
+                                }, 100);
+                              }}
+                              className={cn(
+                                "transition-all duration-300",
+                                isEnabled 
+                                  ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg hover:shadow-xl hover:scale-105" 
+                                  : "hover:bg-accent"
+                              )}
+                              type="button"
+                              disabled={false}
+                              variant={isEnabled ? "default" : "outline"}
+                              size="sm"
+                            >
+                              {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' ? (
+                                <>
+                                  <FileText className="h-4 w-4 mr-2" />
+                                  View Review
+                                </>
+                              ) : reviewStatus === 'draft' ? (
+                                <>
+                                  <SquarePen className="h-4 w-4 mr-2" />
+                                  Continue
+                                </>
+                              ) : (
+                                <>
+                                  <SquarePen className="h-4 w-4 mr-2" />
+                                  Start
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+                  <CardContent className="p-8 text-center">
+                    <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <p className="text-muted-foreground">No annual review cycles available yet</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          ) : (
+            <div data-section="self-assessment">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="text-lg font-semibold">Self Assessment</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  {!selfAssessmentReadOnly && (
+                    <Button
+                      variant="outline"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!selfAssessmentSaveDraft) return;
+                        try {
+                          await selfAssessmentSaveDraft();
+                        } catch (error) {
+                          console.error('Self assessment save draft failed:', error);
+                        }
+                      }}
+                      className="flex items-center gap-2"
+                      type="button"
+                      disabled={!selfAssessmentSaveDraft || selfAssessmentSaving}
+                    >
+                      {selfAssessmentSaving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4" />
+                          {selfAssessmentSaveDraft ? 'Save Draft' : 'Preparing...'}
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      setShowSelfAssessmentForm(false);
+                      setSelectedCycleYear(null);
+                      setSelfAssessmentSaveDraft(null);
+                      setSelfAssessmentSaving(false);
+                      setSelfAssessmentReadOnly(false);
+                      // Refresh reviews to get updated status
+                      await fetchReviews();
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Back to Cycles
+                  </Button>
+                </div>
+              </div>
+              <EmployeeSelfAssessment
+                initialSection="form"
+                onRegisterSaveDraft={handleRegisterSelfSaveDraft}
+                onSavingStateChange={setSelfAssessmentSaving}
+                onReadOnlyChange={handleSelfAssessmentReadOnlyChange}
+              />
+            </div>
+          )}
         </TabsContent>
 
         <GoalDetailPanel

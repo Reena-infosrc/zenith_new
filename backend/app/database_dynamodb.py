@@ -21,7 +21,8 @@ class DynamoDBService:
             "feedback": os.getenv("DYNAMODB_TABLE_FEEDBACK", "zenith-hr-feedback"),
             "recruitment": os.getenv("DYNAMODB_TABLE_RECRUITMENT", "zenith-hr-recruitment"),
             "feature_flags": os.getenv("DYNAMODB_TABLE_FEATURE_FLAGS", "zenith-hr-feature-flags"),
-            "admins": os.getenv("DYNAMODB_TABLE_ADMINS", "zenith-hr-admin")
+            "admins": os.getenv("DYNAMODB_TABLE_ADMINS", "zenith-hr-admin"),
+            "reviews": os.getenv("DYNAMODB_TABLE_REVIEWS", "zenith-hr-review"),
         }
         self.session = None
         self.dynamodb = None
@@ -315,6 +316,46 @@ class DynamoDBService:
                     }
                 ],
                 "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+            },
+            "reviews": {
+                "KeySchema": [
+                    {"AttributeName": "pk", "KeyType": "HASH"},
+                    {"AttributeName": "sk", "KeyType": "RANGE"}
+                ],
+                "AttributeDefinitions": [
+                    {"AttributeName": "pk", "AttributeType": "S"},
+                    {"AttributeName": "sk", "AttributeType": "S"},
+                    {"AttributeName": "entityType", "AttributeType": "S"},
+                    {"AttributeName": "reviewId", "AttributeType": "S"},
+                    {"AttributeName": "employeeId", "AttributeType": "S"}
+                ],
+                "GlobalSecondaryIndexes": [
+                    {
+                        "IndexName": "EntityTypeIndex",
+                        "KeySchema": [
+                            {"AttributeName": "entityType", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "ReviewIdIndex",
+                        "KeySchema": [
+                            {"AttributeName": "reviewId", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "EmployeeIndex",
+                        "KeySchema": [
+                            {"AttributeName": "employeeId", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    }
+                ],
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
             }
         }
         
@@ -373,6 +414,11 @@ async def get_admins_table():
     async with dynamodb_service as db:
         return await db.get_table("admins")
 
+async def get_reviews_table():
+    """Get reviews table"""
+    async with dynamodb_service as db:
+        return await db.get_table("reviews")
+
 # Utility functions for DynamoDB operations
 def generate_id() -> str:
     """Generate a unique ID for DynamoDB items"""
@@ -409,7 +455,8 @@ def parse_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Parse item from DynamoDB storage"""
     parsed_item = {}
     # Fields that should remain as strings (not converted to datetime)
-    string_date_fields = ['created_at', 'updated_at', 'targetDate', 'dueDate', 'completedDate']
+    string_date_fields = ['created_at', 'updated_at', 'targetDate', 'dueDate', 'completedDate', 
+                          'startDate', 'endDate', 'createdAt', 'updatedAt', 'submittedAt']
     
     for key, value in item.items():
         # Keep specific date fields as strings for Pydantic compatibility

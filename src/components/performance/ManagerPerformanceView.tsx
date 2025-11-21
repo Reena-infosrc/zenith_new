@@ -19,7 +19,9 @@ import {
   X,
   Loader2,
   ChevronLeft,
-  Save
+  Save,
+  Star,
+  SquarePen
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,6 +64,8 @@ import {
 } from "recharts";
 import { TeamMemberGoalsCard } from "./TeamMemberGoalsCard";
 import { calculateGoalDistribution } from "@/utils/goal-distribution";
+import { authenticatedFetch } from "@/utils/auth-utils";
+import { API_BASE_URL } from "@/config/api";
 
 interface Employee {
   id: string;
@@ -226,6 +230,16 @@ export function ManagerPerformanceView() {
   const [loadingGoalEmployeeId, setLoadingGoalEmployeeId] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState("Loading...");
+  const [reviewsCount, setReviewsCount] = useState<number>(0);
+  const [loadingReviewsCount, setLoadingReviewsCount] = useState(false);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [activeCycle, setActiveCycle] = useState<any | null>(null);
+  const [loadingActiveCycle, setLoadingActiveCycle] = useState(false);
+  const [allCycles, setAllCycles] = useState<any[]>([]);
+  const [showSelfAssessmentForm, setShowSelfAssessmentForm] = useState(false);
+  const [selectedCycleYear, setSelectedCycleYear] = useState<string | null>(null);
+  const [loadingAllCycles, setLoadingAllCycles] = useState(false);
   // Store all goals from employee goals endpoint - no need for separate getGoal calls
   const allGoalsCache = useRef<Map<string, APIGoal>>(new Map());
   
@@ -676,6 +690,152 @@ export function ManagerPerformanceView() {
     }
   }, [initialLoading, currentManagerEmployeeId, directReports, employeeGoals]);
 
+  // Fetch reviews count for team members
+  useEffect(() => {
+    const fetchReviewsCount = async () => {
+      if (initialLoading || !currentManagerEmployeeId || directReports.length === 0) return;
+      
+      try {
+        setLoadingReviewsCount(true);
+        let totalReviews = 0;
+        
+        // Fetch reviews for each team member
+        for (const report of directReports) {
+          try {
+            // Query reviews by employeeId using the EmployeeIndex GSI
+            const response = await authenticatedFetch(
+              `${API_BASE_URL}/reviews?employeeId=${report.id}`,
+              { method: 'GET' }
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              // Count non-draft reviews (reviews that have been set/submitted)
+              const nonDraftReviews = Array.isArray(data) 
+                ? data.filter((r: any) => !r.isDraft && r.reviewType === 'manager')
+                : [];
+              totalReviews += nonDraftReviews.length;
+            }
+          } catch (error) {
+            console.error(`Error fetching reviews for employee ${report.id}:`, error);
+          }
+        }
+        
+        setReviewsCount(totalReviews);
+      } catch (error) {
+        console.error("Error fetching reviews count:", error);
+      } finally {
+        setLoadingReviewsCount(false);
+      }
+    };
+
+    if (!initialLoading && currentManagerEmployeeId && directReports.length > 0) {
+      fetchReviewsCount();
+    }
+  }, [initialLoading, currentManagerEmployeeId, directReports]);
+
+  // Fetch reviews for Annual Reviews section
+  useEffect(() => {
+    const fetchReviews = async () => {
+      if (!user?.email || employees.length === 0) return;
+      
+      try {
+        setLoadingReviews(true);
+        
+        // Find current user's employee record
+        const currentUser = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
+        if (!currentUser) {
+          setLoadingReviews(false);
+          return;
+        }
+        
+        // For manager view: fetch reviews for direct reports
+        // For user view: fetch reviews for the current user
+        const employeeIds = currentManagerEmployeeId 
+          ? directReports.map(r => r.id) // Manager: get direct reports
+          : [currentUser.id]; // User: get own reviews
+        
+        const allReviews: any[] = [];
+        
+        for (const empId of employeeIds) {
+          try {
+            const response = await authenticatedFetch(
+              `${API_BASE_URL}/reviews?employeeId=${empId}`,
+              { method: 'GET' }
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (Array.isArray(data)) {
+                allReviews.push(...data);
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching reviews for employee ${empId}:`, error);
+          }
+        }
+        
+        // Sort by cycle year and created date (most recent first)
+        allReviews.sort((a, b) => {
+          if (a.cycleYear !== b.cycleYear) {
+            return b.cycleYear.localeCompare(a.cycleYear);
+          }
+          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        });
+        
+        setReviews(allReviews);
+      } catch (error) {
+        console.error("Error fetching reviews:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load reviews",
+          variant: "destructive"
+        });
+      } finally {
+        setLoadingReviews(false);
+      }
+    };
+
+    if (!initialLoading && user?.email && employees.length > 0) {
+      fetchReviews();
+    }
+  }, [initialLoading, user, employees, currentManagerEmployeeId, directReports, toast]);
+
+  // Fetch all review cycles
+  useEffect(() => {
+    const fetchCycles = async () => {
+      try {
+        setLoadingActiveCycle(true);
+        setLoadingAllCycles(true);
+        
+        const response = await authenticatedFetch(
+          `${API_BASE_URL}/reviews/cycles`,
+          { method: 'GET' }
+        );
+        
+        if (response.ok) {
+          const cycles = await response.json();
+          // Sort by year descending (most recent first)
+          const sortedCycles = cycles.sort((a: any, b: any) => b.year.localeCompare(a.year));
+          setAllCycles(sortedCycles);
+          
+          // Find the active cycle (status === 'open' in backend, 'active' in frontend)
+          const active = sortedCycles.find((cycle: any) => cycle.status === 'open' || cycle.status === 'active');
+          setActiveCycle(active || null);
+        }
+      } catch (error) {
+        console.error("Error fetching cycles:", error);
+      } finally {
+        setLoadingActiveCycle(false);
+        setLoadingAllCycles(false);
+      }
+    };
+
+    if (!initialLoading) {
+      fetchCycles();
+    }
+  }, [initialLoading]);
+
   const filteredReports = directReports.filter(emp => {
     return emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
            emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1043,7 +1203,7 @@ export function ManagerPerformanceView() {
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Individual goal set</p>
                 <p className="text-3xl font-bold mt-2">
-                  {Array.from(employeeGoals.values()).flat().filter(g => g.status === 'published').length}
+                  {Array.from(employeeGoals.values()).flat().length}
                 </p>
               </div>
               <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
@@ -1059,7 +1219,11 @@ export function ManagerPerformanceView() {
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Performance Review's Set</p>
                 <p className="text-3xl font-bold mt-2">
-                  {0}
+                  {loadingReviewsCount ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  ) : (
+                    reviewsCount
+                  )}
                 </p>
               </div>
               <div className="h-12 w-12 rounded-full bg-orange-500/10 flex items-center justify-center">
@@ -1126,11 +1290,31 @@ export function ManagerPerformanceView() {
                 </div>
                 <Button 
                   variant="outline" 
-                  onClick={() => {
-                    if (saveDraftRef.current) {
-                      saveDraftRef.current();
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('=== Save Draft Button Clicked ===');
+                    console.log('saveDraftRef:', saveDraftRef);
+                    console.log('saveDraftRef.current:', saveDraftRef.current);
+                    console.log('reviewEmployee:', reviewEmployee);
+                    
+                    if (!saveDraftRef.current) {
+                      console.error('❌ saveDraftRef.current is null or undefined!');
+                      alert('Save Draft function is not available. Please ensure you are viewing a review.');
+                      return;
+                    }
+                    
+                    console.log('✅ Calling saveDraftRef.current()...');
+                    try {
+                      await saveDraftRef.current();
+                      console.log('✅ saveDraftRef.current() completed successfully');
+                    } catch (error) {
+                      console.error('❌ Error calling saveDraftRef.current():', error);
+                      alert('Error saving draft: ' + (error instanceof Error ? error.message : String(error)));
                     }
                   }}
+                  type="button"
+                  className="border border-input bg-background hover:bg-accent hover:text-accent-foreground"
                 >
                   <Save className="h-4 w-4 mr-2" />
                   Save Draft
@@ -1629,7 +1813,138 @@ export function ManagerPerformanceView() {
             </TabsContent>
 
             <TabsContent value="annual-review" className="space-y-4">
-              <EmployeeSelfAssessment />
+              {!showSelfAssessmentForm ? (
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold mb-4">Annual Review Cycles</h3>
+                  
+                  {loadingAllCycles ? (
+                    <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+                      <CardContent className="p-12 text-center">
+                        <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin text-primary" />
+                        <p className="text-muted-foreground">Loading review cycles...</p>
+                      </CardContent>
+                    </Card>
+                  ) : allCycles.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {allCycles.map((cycle) => {
+                        const isActive = cycle.status === 'open' || cycle.status === 'active';
+                        const isEnabled = isActive;
+                        
+                        return (
+                          <Card
+                            key={cycle.cycleId || cycle.year}
+                            className="rounded-lg border bg-card text-card-foreground bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 shadow-lg"
+                          >
+                            <CardHeader className="flex flex-col space-y-1.5 p-6">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <h3 className="font-semibold tracking-tight text-2xl">
+                                    {cycle.name || `${cycle.year} Annual Performance Review`}
+                                  </h3>
+                                  {cycle.startDate && cycle.endDate && (
+                                    <p className="text-sm text-muted-foreground mt-2">
+                                      {new Date(cycle.startDate).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })} - {new Date(cycle.endDate).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}
+                                    </p>
+                                  )}
+                                </div>
+                                <Badge 
+                                  variant="outline" 
+                                  className={cn(
+                                    "rounded-full border px-2.5 py-0.5 text-xs font-semibold flex items-center gap-1",
+                                    isActive
+                                      ? "bg-green-500/10 text-green-600 border-green-500/20"
+                                      : cycle.status === 'draft'
+                                      ? "bg-blue-500/10 text-blue-600 border-blue-500/20"
+                                      : "bg-muted/50 text-muted-foreground"
+                                  )}
+                                >
+                                  {isActive ? (
+                                    <>
+                                      <CheckCircle2 className="h-3 w-3" />
+                                      Active
+                                    </>
+                                  ) : cycle.status === 'draft' ? (
+                                    <>
+                                      <SquarePen className="h-3 w-3" />
+                                      Draft
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Clock className="h-3 w-3" />
+                                      Closed
+                                    </>
+                                  )}
+                                </Badge>
+                              </div>
+                            </CardHeader>
+                            <CardContent className="p-6 pt-0 space-y-4">
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                {cycle.metadata?.selfReviewEnabled && (
+                                  <Badge variant="outline" className="flex items-center gap-1">
+                                    <FileText className="h-3 w-3" /> Self Review
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex gap-3 pt-4">
+                                <Button
+                                  onClick={(e) => {
+                                    if (!isEnabled) return;
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('Continue button clicked for cycle:', cycle.year);
+                                    
+                                    setSelectedCycleYear(cycle.year);
+                                    setShowSelfAssessmentForm(true);
+                                    
+                                    // Scroll to the self-assessment section
+                                    setTimeout(() => {
+                                      const selfAssessmentSection = document.querySelector('[data-section="self-assessment"]');
+                                      if (selfAssessmentSection) {
+                                        selfAssessmentSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                      }
+                                    }, 100);
+                                  }}
+                                  className="bg-gradient-to-r from-primary to-primary/80 shadow-lg"
+                                  type="button"
+                                  disabled={!isEnabled}
+                                >
+                                  <SquarePen className="h-4 w-4 mr-2" />
+                                  Continue
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+                      <CardContent className="p-8 text-center">
+                        <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                        <p className="text-muted-foreground">No annual review cycles available yet</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              ) : (
+                <div data-section="self-assessment">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold">Self Assessment</h3>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setShowSelfAssessmentForm(false);
+                        setSelectedCycleYear(null);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Back to Cycles
+                    </Button>
+                  </div>
+                  <EmployeeSelfAssessment initialSection="form" />
+                </div>
+              )}
             </TabsContent>
           </Tabs>
         </TabsContent>

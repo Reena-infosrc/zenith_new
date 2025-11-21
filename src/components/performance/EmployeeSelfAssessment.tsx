@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   FileText,
-  Save,
   Send,
   Clock,
   CheckCircle2,
@@ -115,7 +114,16 @@ interface ClarificationRequest {
 }
 
 
-export function EmployeeSelfAssessment() {
+interface EmployeeSelfAssessmentProps {
+  initialSection?: 'home' | 'form';
+  onSectionChange?: (section: 'home' | 'form') => void;
+  onRegisterSaveDraft?: (handler: (() => void) | null) => void;
+  onSavingStateChange?: (isSaving: boolean) => void;
+  onReadOnlyChange?: (readOnly: boolean) => void;
+}
+
+export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) {
+  const { initialSection = 'home', onSectionChange, onRegisterSaveDraft, onSavingStateChange, onReadOnlyChange } = props;
   const { user } = useAuth();
   const { employees, isLoading: employeesLoading } = useEmployees();
   const { getEmployeeGoals } = useGoals();
@@ -126,7 +134,27 @@ export function EmployeeSelfAssessment() {
   const [employeeInfo, setEmployeeInfo] = useState<EmployeeInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState('home');
+  const [activeSection, setActiveSection] = useState<'home' | 'form'>(initialSection);
+  
+  // Update activeSection when initialSection prop changes
+  useEffect(() => {
+    if (initialSection && initialSection !== activeSection) {
+      setActiveSection(initialSection);
+    }
+  }, [initialSection, activeSection]);
+  
+  // Notify parent of section changes
+  useEffect(() => {
+    onSectionChange?.(activeSection);
+  }, [activeSection, onSectionChange]);
+  
+  // Notify parent about read-only status
+  useEffect(() => {
+    if (onReadOnlyChange && reviewCycle) {
+      const isReadOnly = reviewCycle.status === 'submitted' || reviewCycle.status === 'under_manager_review' || reviewCycle.status === 'finalized';
+      onReadOnlyChange(isReadOnly);
+    }
+  }, [reviewCycle?.status, onReadOnlyChange]);
   
   // Form data
   const [goalAssessments, setGoalAssessments] = useState<GoalAssessment[]>([]);
@@ -149,8 +177,13 @@ export function EmployeeSelfAssessment() {
   const [selfRating, setSelfRating] = useState<number | undefined>(undefined);
   const [clarificationRequests, setClarificationRequests] = useState<ClarificationRequest[]>([]);
   
-  const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedRef = useRef<Date | null>(null);
+  const saveDraftFnRef = useRef<(showToast?: boolean) => Promise<void>>(async () => {});
+  const saveDraftInFlightRef = useRef(false);
+  const pendingCycleYearRef = useRef<string | null>(null);
+  const goalsInitializedRef = useRef(false);
+  const draftLoadedRef = useRef(false);
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
 
   // Fetch review cycle and employee info
   useEffect(() => {
@@ -175,19 +208,66 @@ export function EmployeeSelfAssessment() {
           managerId: manager?.id || ''
         });
 
-        // TODO: Fetch active review cycle from API
-        // const response = await authenticatedFetch(`${API_BASE_URL}/review-cycles/active`);
-        // const cycle = await response.json();
-        
-        // Mock data
-        const mockCycle: ReviewCycle = {
-          id: '1',
-          name: '2024 Annual Performance Review',
-          startDate: '2024-01-01',
-          endDate: '2024-12-31',
-          status: 'draft'
-        };
-        setReviewCycle(mockCycle);
+        // Fetch active review cycle from API
+        try {
+          const cyclesResponse = await authenticatedFetch(`${API_BASE_URL}/reviews/cycles`, {
+            method: 'GET'
+          });
+          
+          if (cyclesResponse.ok) {
+            const cycles = await cyclesResponse.json();
+            // Find the active cycle (status === 'open' in backend)
+            let selectedCycle = cycles.find((c: any) => c.status === 'open' || c.status === 'active');
+            
+            if (!selectedCycle && cycles.length > 0) {
+              // If no active cycle, use the most recent one
+              selectedCycle = cycles.sort((a: any, b: any) => 
+                b.year.localeCompare(a.year)
+              )[0];
+            }
+            
+            if (selectedCycle) {
+              // Check if user has an existing review for this cycle
+              let reviewStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' = 'not_started';
+              const targetCycleYear = selectedCycle.year;
+              
+              try {
+                const reviewsResponse = await authenticatedFetch(
+                  `${API_BASE_URL}/reviews?employeeId=${currentUser.id}&reviewerId=${user.email}&cycleYear=${selectedCycle.year}&reviewType=self`,
+                  { method: 'GET' }
+                );
+                
+                if (reviewsResponse.ok) {
+                  const reviews = await reviewsResponse.json();
+                  if (Array.isArray(reviews) && reviews.length > 0) {
+                    const userReview = reviews[0];
+                    if (userReview.isDraft) {
+                      reviewStatus = 'draft';
+                    } else if (userReview.submittedAt) {
+                      reviewStatus = 'submitted';
+                    }
+                  }
+                }
+              } catch (reviewError) {
+                console.error('Error checking for existing review:', reviewError);
+              }
+              
+              setReviewCycle({
+                id: selectedCycle.cycleId || selectedCycle.year,
+                name: selectedCycle.name || `${selectedCycle.year} Annual Performance Review`,
+                startDate: selectedCycle.startDate || '',
+                endDate: selectedCycle.endDate || '',
+                status: reviewStatus
+              });
+              
+              // Defer loadDraft until goal assessments are initialized (below)
+              pendingCycleYearRef.current = targetCycleYear;
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching review cycles:', error);
+          // Don't set review cycle if fetch fails
+        }
 
         // Initialize goal assessments from goals API
         const employeeGoals = await getEmployeeGoals(currentUser.id);
@@ -205,9 +285,15 @@ export function EmployeeSelfAssessment() {
           evidenceLinks: []
         }));
         setGoalAssessments(initialGoalAssessments);
+        goalsInitializedRef.current = true;
 
-        // Load draft if exists
-        await loadDraft();
+        // Load draft once goals are seeded
+        if (pendingCycleYearRef.current) {
+          await loadDraft(pendingCycleYearRef.current, initialGoalAssessments);
+          pendingCycleYearRef.current = null;
+        } else {
+          await loadDraft(undefined, initialGoalAssessments);
+        }
       } catch (error) {
         console.error('Error fetching data:', error);
         toast({
@@ -224,60 +310,318 @@ export function EmployeeSelfAssessment() {
   }, [user, employees, toast]);
 
 
-  // Autosave functionality
   useEffect(() => {
-    if (reviewCycle?.status === 'draft') {
-      autosaveTimerRef.current = setInterval(() => {
-        saveDraft();
-      }, 10000); // Autosave every 10 seconds
+    onSavingStateChange?.(saving);
+  }, [saving, onSavingStateChange]);
 
-      return () => {
-        if (autosaveTimerRef.current) {
-          clearInterval(autosaveTimerRef.current);
-        }
-      };
+  const saveDraft = useCallback(async (showToast: boolean = false) => {
+    if (saveDraftInFlightRef.current) {
+      console.log('saveDraft skipped - request already in flight');
+      return;
     }
-  }, [reviewCycle?.status, goalAssessments, selfReviewFields, toolsAndTechnologies, developmentPlan, selfRating, signature]);
-
-  const saveDraft = async () => {
-    if (!reviewCycle || !employeeInfo) return;
+    console.log('saveDraft called', { showToast, reviewCycle: !!reviewCycle, employeeInfo: !!employeeInfo, userEmail: !!user?.email });
+    if (!reviewCycle || !employeeInfo || !user?.email) {
+      console.warn('saveDraft: Missing required data', { reviewCycle: !!reviewCycle, employeeInfo: !!employeeInfo, userEmail: !!user?.email });
+      return;
+    }
     
     try {
+      saveDraftInFlightRef.current = true;
       setSaving(true);
-      // TODO: API call to save draft
-      // await authenticatedFetch(`${API_BASE_URL}/self-assessments/draft`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     cycleId: reviewCycle.id,
-      //     employeeId: employeeInfo.id,
-      //     goalAssessments,
-      //     selfReviewFields,
-      //     toolsAndTechnologies,
-      //     developmentPlan,
-      //     selfRating,
-      //     signature
-      //   })
-      // });
+      console.log('Starting saveDraft API call...');
+      
+      // Extract cycle year from review cycle name or use current year
+      const cycleYearMatch = reviewCycle.name?.match(/\d{4}/);
+      const cycleYear = cycleYearMatch ? cycleYearMatch[0] : new Date().getFullYear().toString();
+      
+      // Build goal ratings from goal assessments
+      const goalRatings: Record<string, number | null> = {};
+      goalAssessments.forEach(goal => {
+        goalRatings[goal.goalId] = goal.employeeRating || null;
+      });
+      
+      // Build ratings object
+      const ratings: Record<string, any> = {
+        overall: selfRating || null,
+        goals: goalRatings,
+        competencies: {} // Can be populated if needed
+      };
+      
+      // Build comments from self-review fields
+      const comments = [
+        selfReviewFields.significantAccomplishments && `Most Significant Accomplishments: ${selfReviewFields.significantAccomplishments}`,
+        selfReviewFields.beyondRoleContributions && `Beyond Role Contributions: ${selfReviewFields.beyondRoleContributions}`,
+        selfReviewFields.challengesAndSolutions && `Challenges and Solutions: ${selfReviewFields.challengesAndSolutions}`,
+        selfReviewFields.areasNeedingImprovement && `Areas Needing Improvement: ${selfReviewFields.areasNeedingImprovement}`,
+        selfReviewFields.newSkillsAcquired && `New Skills Acquired: ${selfReviewFields.newSkillsAcquired}`,
+        selfReviewFields.certificationsCompleted && `Certifications Completed: ${selfReviewFields.certificationsCompleted}`,
+        selfReviewFields.certificationsPlanned && `Certifications Planned: ${selfReviewFields.certificationsPlanned}`
+      ].filter(Boolean).join('\n\n');
+      
+      // Extract strengths and improvements
+      const strengths: string[] = [];
+      const improvements: string[] = [];
+      
+      if (selfReviewFields.significantAccomplishments) {
+        strengths.push(selfReviewFields.significantAccomplishments);
+      }
+      if (selfReviewFields.beyondRoleContributions) {
+        strengths.push(selfReviewFields.beyondRoleContributions);
+      }
+      if (selfReviewFields.areasNeedingImprovement) {
+        improvements.push(selfReviewFields.areasNeedingImprovement);
+      }
+      
+      // Build metadata with all detailed self-review data
+      const metadata: Record<string, any> = {
+        selfReviewFields,
+        toolsAndTechnologies,
+        developmentPlan,
+        goalAssessments: goalAssessments.map(goal => ({
+          goalId: goal.goalId,
+          goalDescription: goal.goalDescription,
+          weightage: goal.weightage,
+          completion: goal.completion,
+          employeeRating: goal.employeeRating,
+          comments: goal.comments,
+          evidenceLinks: goal.evidenceLinks,
+          evidenceFiles: goal.evidenceFiles.map(f => ({ name: f.name, size: f.size, type: f.type }))
+        })),
+        selfRating,
+        signature,
+        status: 'self_draft'
+      };
+      
+      // Build the review payload
+      const payload = {
+        cycleYear,
+        employeeId: employeeInfo.id,
+        reviewerId: user.email, // Self-review, so reviewer is the employee
+        reviewType: 'self' as const,
+        goalIds: goalAssessments.map(g => g.goalId),
+        ratings,
+        comments: comments || undefined,
+        strengths,
+        improvements,
+        attachments: [],
+        metadata,
+        isDraft: true,
+        submittedAt: undefined
+      };
+      
+      // Determine endpoint and method
+      const endpoint = activeReviewId
+        ? `${API_BASE_URL}/reviews/${activeReviewId}`
+        : `${API_BASE_URL}/reviews`;
+      const method = activeReviewId ? 'PUT' : 'POST';
+      
+      console.log('Saving self-review draft:', { endpoint, method, payload });
+      
+      const response = await authenticatedFetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to save draft' }));
+        const errorMessage = errorData?.detail || errorData?.message || 'Failed to save draft';
+        throw new Error(errorMessage);
+      }
+      
+      const data = await response.json();
+      if (data?.reviewId) {
+        setActiveReviewId(data.reviewId);
+      }
 
       lastSavedRef.current = new Date();
+      
+      console.log('Draft saved successfully:', data);
+      
+      // Show success toast if manually triggered
+      if (showToast) {
+        toast({
+          title: "Draft Saved",
+          description: "Your self-review has been saved as a draft"
+        });
+      }
     } catch (error) {
       console.error('Error saving draft:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save draft",
+        variant: "destructive"
+      });
     } finally {
+      saveDraftInFlightRef.current = false;
       setSaving(false);
     }
-  };
+  }, [
+    reviewCycle,
+    employeeInfo,
+    user,
+    goalAssessments,
+    selfReviewFields,
+    toolsAndTechnologies,
+    developmentPlan,
+    selfRating,
+    signature,
+    toast,
+    activeReviewId
+  ]);
 
-  const loadDraft = async () => {
-    if (!reviewCycle || !employeeInfo) return;
+  useEffect(() => {
+    saveDraftFnRef.current = saveDraft;
+  }, [saveDraft]);
+
+  const manualSaveDraft = useCallback(() => saveDraftFnRef.current(true), []);
+
+  useEffect(() => {
+    if (!onRegisterSaveDraft) return;
+
+    if (reviewCycle) {
+      onRegisterSaveDraft(manualSaveDraft);
+      return () => onRegisterSaveDraft(null);
+    }
+
+    onRegisterSaveDraft(null);
+    return () => {
+      onRegisterSaveDraft(null);
+    };
+  }, [onRegisterSaveDraft, manualSaveDraft, reviewCycle]);
+
+  const loadDraft = async (cycleYearOverride?: string, baseGoalAssessments?: GoalAssessment[]) => {
+    if ((!reviewCycle && !cycleYearOverride) || !employeeInfo || !user?.email) return;
     
     try {
-      // TODO: API call to load draft
-      // const response = await authenticatedFetch(`${API_BASE_URL}/self-assessments/draft/${reviewCycle.id}`);
-      // const draft = await response.json();
+      // Extract cycle year from review cycle name or use current year
+      const cycleYear = cycleYearOverride
+        || reviewCycle?.name?.match(/\d{4}/)?.[0]
+        || reviewCycle?.id
+        || new Date().getFullYear().toString();
       
-      // Mock: Load from localStorage as fallback
-      const savedDraft = localStorage.getItem(`self-assessment-draft-${reviewCycle.id}`);
+      // Fetch existing self-review (both draft and submitted)
+      // First try to get submitted review, then fallback to draft
+      let response = await authenticatedFetch(
+        `${API_BASE_URL}/reviews?employeeId=${employeeInfo.id}&reviewerId=${user.email}&cycleYear=${cycleYear}&reviewType=self`,
+        { method: 'GET' }
+      );
+      
+      if (response.ok) {
+        const reviews = await response.json();
+        if (Array.isArray(reviews) && reviews.length > 0) {
+          // Prefer submitted review over draft
+          const submittedReview = reviews.find((r: any) => !r.isDraft && r.submittedAt);
+          const draftReview = reviews.find((r: any) => r.isDraft);
+          const review = submittedReview || draftReview || reviews[0];
+          
+          draftLoadedRef.current = true;
+          
+          // Set the review ID for future updates
+          if (review.reviewId) {
+            setActiveReviewId(review.reviewId);
+          }
+          
+          // Load metadata
+          if (review.metadata) {
+            const meta = review.metadata;
+            
+            // Load self-review fields
+            if (meta.selfReviewFields) {
+              setSelfReviewFields(meta.selfReviewFields);
+            }
+            
+            // Load tools and technologies
+            if (meta.toolsAndTechnologies) {
+              setToolsAndTechnologies(meta.toolsAndTechnologies);
+            }
+            
+            // Load development plan
+            if (meta.developmentPlan) {
+              setDevelopmentPlan(meta.developmentPlan);
+            }
+            
+            // Load self rating
+            if (meta.selfRating !== undefined) {
+              setSelfRating(meta.selfRating);
+            }
+            
+            // Load signature
+            if (meta.signature) {
+              setSignature(meta.signature);
+            }
+            
+            // Load goal assessments
+            if (meta.goalAssessments && Array.isArray(meta.goalAssessments)) {
+              const mergeGoals = (source: GoalAssessment[]) => {
+                return source.map(goal => {
+                  const savedGoal = meta.goalAssessments.find((g: any) => g.goalId === goal.goalId);
+                  if (savedGoal) {
+                    return {
+                      ...goal,
+                      employeeRating: savedGoal.employeeRating,
+                      comments: savedGoal.comments || goal.comments || '',
+                      evidenceLinks: savedGoal.evidenceLinks || goal.evidenceLinks || [],
+                      completion: savedGoal.completion !== undefined ? savedGoal.completion : goal.completion,
+                      weightage: savedGoal.weightage !== undefined ? savedGoal.weightage : goal.weightage,
+                      // Note: evidenceFiles can't be restored from API, user will need to re-upload
+                    };
+                  }
+                  return goal;
+                });
+              };
+
+              if (baseGoalAssessments && baseGoalAssessments.length > 0) {
+                setGoalAssessments(mergeGoals(baseGoalAssessments));
+              } else {
+                setGoalAssessments(prev => mergeGoals(prev));
+              }
+            }
+          }
+          
+          // Load ratings
+          if (review.ratings) {
+            if (review.ratings.overall !== null && review.ratings.overall !== undefined) {
+              setSelfRating(review.ratings.overall);
+            }
+            
+            // Update goal ratings
+            if (review.ratings.goals) {
+              setGoalAssessments(prev => {
+                return prev.map(goal => ({
+                  ...goal,
+                  employeeRating: review.ratings.goals[goal.goalId] || goal.employeeRating
+                }));
+              });
+            }
+          }
+          
+          // Load comments (parse back into self-review fields if possible)
+          // This is a fallback if metadata doesn't have the structured data
+          if (review.comments && !review.metadata?.selfReviewFields) {
+            // Try to parse comments back into fields (basic attempt)
+            const lines = review.comments.split('\n\n');
+            lines.forEach(line => {
+              if (line.startsWith('Most Significant Accomplishments:')) {
+                setSelfReviewFields(prev => ({
+                  ...prev,
+                  significantAccomplishments: line.replace('Most Significant Accomplishments: ', '')
+                }));
+              }
+              // Add more parsing as needed
+            });
+          }
+          
+          console.log('Review loaded successfully:', review);
+          return;
+        }
+        draftLoadedRef.current = true;
+      }
+      
+      // Fallback: Load from localStorage if API doesn't have a draft
+      const savedDraftKey = reviewCycle?.id ? `self-assessment-draft-${reviewCycle.id}` : undefined;
+      if (!savedDraftKey) return;
+      const savedDraft = localStorage.getItem(savedDraftKey);
       if (savedDraft) {
         const draft = JSON.parse(savedDraft);
         if (draft.goalAssessments) setGoalAssessments(draft.goalAssessments);
@@ -287,22 +631,88 @@ export function EmployeeSelfAssessment() {
         if (draft.selfRating !== undefined) setSelfRating(draft.selfRating);
         if (draft.signature) setSignature(draft.signature);
       }
+      draftLoadedRef.current = true;
     } catch (error) {
       console.error('Error loading draft:', error);
+      // Silently fail - user can start fresh
     }
   };
 
-  const handleSubmit = async () => {
-    if (!reviewCycle || !employeeInfo) return;
+  // Track the last loaded cycle to reset flag when cycle changes
+  const lastLoadedCycleRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    if (!goalsInitializedRef.current) return;
+    if (!reviewCycle) return;
 
-    // Validate required fields
-    const hasAllSelfReviewFields = Object.values(selfReviewFields).every(field => field.trim().length > 0);
+    const cycleYear = reviewCycle.id || reviewCycle.name?.match(/\d{4}/)?.[0] || undefined;
+    const cycleKey = `${cycleYear}-${reviewCycle.status}`;
+    
+    // Reset loaded flag if cycle changed
+    if (lastLoadedCycleRef.current !== cycleKey) {
+      draftLoadedRef.current = false;
+      lastLoadedCycleRef.current = cycleKey;
+    }
+    
+    if (draftLoadedRef.current) return;
+
+    loadDraft(cycleYear, goalAssessments).catch((err) => {
+      console.error('Error auto-loading draft:', err);
+    });
+  }, [reviewCycle, goalAssessments]);
+
+  const handleSubmit = async () => {
+    console.log('handleSubmit called', { reviewCycle: !!reviewCycle, employeeInfo: !!employeeInfo, userEmail: !!user?.email });
+    
+    if (!reviewCycle || !employeeInfo || !user?.email) {
+      console.warn('handleSubmit: Missing required data', { reviewCycle: !!reviewCycle, employeeInfo: !!employeeInfo, userEmail: !!user?.email });
+      toast({
+        title: "Error",
+        description: "Missing required information. Please refresh the page and try again.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate required fields - only 5 fields are required based on API response
+    const requiredFields = {
+      significantAccomplishments: selfReviewFields.significantAccomplishments.trim().length > 0,
+      beyondRoleContributions: selfReviewFields.beyondRoleContributions.trim().length > 0,
+      challengesAndSolutions: selfReviewFields.challengesAndSolutions.trim().length > 0,
+      areasNeedingImprovement: selfReviewFields.areasNeedingImprovement.trim().length > 0,
+      certificationsCompleted: selfReviewFields.certificationsCompleted.trim().length > 0,
+    };
+    
+    // Optional fields (not required for submission)
+    // - newSkillsAcquired
+    // - certificationsPlanned
+    
+    const hasAllRequiredFields = Object.values(requiredFields).every(filled => filled);
     const hasSignature = signature.trim().length > 0;
 
-    if (!hasAllSelfReviewFields || !hasSignature) {
+    console.log('Validation check:', { requiredFields, hasAllRequiredFields, hasSignature, selfReviewFields, signature: signature.length });
+
+    if (!hasAllRequiredFields || !hasSignature) {
+      const missingFields = Object.entries(requiredFields)
+        .filter(([_, filled]) => !filled)
+        .map(([key]) => {
+          const labels: Record<string, string> = {
+            significantAccomplishments: 'Most Significant Accomplishments',
+            beyondRoleContributions: 'Beyond Role Contributions',
+            challengesAndSolutions: 'Challenges and Solutions',
+            areasNeedingImprovement: 'Areas Needing Improvement',
+            certificationsCompleted: 'Certifications Completed',
+          };
+          return labels[key] || key;
+        });
+      
+      const missingList = missingFields.length > 0 ? missingFields.join(', ') : '';
+      const missingSignature = !hasSignature ? 'Signature' : '';
+      const allMissing = [missingList, missingSignature].filter(Boolean).join(', ');
+      
       toast({
         title: "Incomplete Form",
-        description: "Please complete all required fields before submitting",
+        description: `Please complete all required fields. Missing: ${allMissing}`,
         variant: "destructive"
       });
       return;
@@ -310,23 +720,121 @@ export function EmployeeSelfAssessment() {
 
     try {
       setLoading(true);
-      // TODO: API call
-      // await authenticatedFetch(`${API_BASE_URL}/self-assessments/submit`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     cycleId: reviewCycle.id,
-      //     employeeId: employeeInfo.id,
-      //     goalAssessments,
-      //     competencyAssessments,
-      //     selfReviewFields,
-      //     toolsAndTechnologies,
-      //     developmentPlan,
-      //     signature
-      //   })
-      // });
+      console.log('Submitting self-review to manager...');
+      
+      // Extract cycle year from review cycle name or use current year
+      const cycleYearMatch = reviewCycle.name?.match(/\d{4}/);
+      const cycleYear = cycleYearMatch ? cycleYearMatch[0] : new Date().getFullYear().toString();
+      
+      // Build goal ratings from goal assessments
+      const goalRatings: Record<string, number | null> = {};
+      goalAssessments.forEach(goal => {
+        goalRatings[goal.goalId] = goal.employeeRating || null;
+      });
+      
+      // Build ratings object
+      const ratings: Record<string, any> = {
+        overall: selfRating || null,
+        goals: goalRatings,
+        competencies: {} // Can be populated if needed
+      };
+      
+      // Build comments from self-review fields
+      const comments = [
+        selfReviewFields.significantAccomplishments && `Most Significant Accomplishments: ${selfReviewFields.significantAccomplishments}`,
+        selfReviewFields.beyondRoleContributions && `Beyond Role Contributions: ${selfReviewFields.beyondRoleContributions}`,
+        selfReviewFields.challengesAndSolutions && `Challenges and Solutions: ${selfReviewFields.challengesAndSolutions}`,
+        selfReviewFields.areasNeedingImprovement && `Areas Needing Improvement: ${selfReviewFields.areasNeedingImprovement}`,
+        selfReviewFields.newSkillsAcquired && `New Skills Acquired: ${selfReviewFields.newSkillsAcquired}`,
+        selfReviewFields.certificationsCompleted && `Certifications Completed: ${selfReviewFields.certificationsCompleted}`,
+        selfReviewFields.certificationsPlanned && `Certifications Planned: ${selfReviewFields.certificationsPlanned}`
+      ].filter(Boolean).join('\n\n');
+      
+      // Extract strengths and improvements
+      const strengths: string[] = [];
+      const improvements: string[] = [];
+      
+      if (selfReviewFields.significantAccomplishments) {
+        strengths.push(selfReviewFields.significantAccomplishments);
+      }
+      if (selfReviewFields.beyondRoleContributions) {
+        strengths.push(selfReviewFields.beyondRoleContributions);
+      }
+      if (selfReviewFields.areasNeedingImprovement) {
+        improvements.push(selfReviewFields.areasNeedingImprovement);
+      }
+      
+      // Build metadata with all detailed self-review data
+      const metadata: Record<string, any> = {
+        selfReviewFields,
+        toolsAndTechnologies,
+        developmentPlan,
+        goalAssessments: goalAssessments.map(goal => ({
+          goalId: goal.goalId,
+          goalDescription: goal.goalDescription,
+          weightage: goal.weightage,
+          completion: goal.completion,
+          employeeRating: goal.employeeRating,
+          comments: goal.comments,
+          evidenceLinks: goal.evidenceLinks,
+          evidenceFiles: goal.evidenceFiles.map(f => ({ name: f.name, size: f.size, type: f.type }))
+        })),
+        selfRating,
+        signature,
+        status: 'self_submitted'
+      };
+      
+      // Build the review payload for submission (not draft)
+      const payload = {
+        cycleYear,
+        employeeId: employeeInfo.id,
+        reviewerId: user.email, // Self-review, so reviewer is the employee
+        reviewType: 'self' as const,
+        goalIds: goalAssessments.map(g => g.goalId),
+        ratings,
+        comments: comments || undefined,
+        strengths,
+        improvements,
+        attachments: [],
+        metadata,
+        isDraft: false,
+        submittedAt: new Date().toISOString()
+      };
+      
+      // Determine endpoint and method
+      const endpoint = activeReviewId
+        ? `${API_BASE_URL}/reviews/${activeReviewId}`
+        : `${API_BASE_URL}/reviews`;
+      const method = activeReviewId ? 'PUT' : 'POST';
+      
+      console.log('Submitting self-review:', { endpoint, method, payload });
+      
+      const response = await authenticatedFetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to submit review' }));
+        const errorMessage = errorData?.detail || errorData?.message || 'Failed to submit review';
+        throw new Error(errorMessage);
+      }
+      
+      const data = await response.json();
+      if (data?.reviewId) {
+        setActiveReviewId(data.reviewId);
+      }
 
-      setReviewCycle(prev => prev ? { ...prev, status: 'submitted', submittedAt: new Date().toISOString() } : null);
+      // Update local state to reflect submission
+      setReviewCycle(prev => prev ? { 
+        ...prev, 
+        status: 'submitted', 
+        submittedAt: new Date().toISOString() 
+      } : null);
+      
+      console.log('Review submitted successfully:', data);
+      
       toast({
         title: "Success",
         description: "Self-assessment submitted successfully to manager"
@@ -335,7 +843,7 @@ export function EmployeeSelfAssessment() {
       console.error('Error submitting assessment:', error);
       toast({
         title: "Error",
-        description: "Failed to submit assessment",
+        description: error instanceof Error ? error.message : "Failed to submit assessment",
         variant: "destructive"
       });
     } finally {
@@ -546,14 +1054,21 @@ export function EmployeeSelfAssessment() {
           setSelfRating={setSelfRating}
           clarificationRequests={clarificationRequests}
           onBack={() => setActiveSection('home')}
-          onSubmit={reviewCycle.status === 'under_manager_review' ? handleResubmit : handleSubmit}
-          onSaveDraft={saveDraft}
+          onSubmit={() => {
+            console.log('Submit button clicked', { status: reviewCycle.status });
+            if (reviewCycle.status === 'under_manager_review') {
+              handleResubmit();
+            } else {
+              handleSubmit();
+            }
+          }}
           loading={loading}
           saving={saving}
           renderRatingStars={renderRatingStars}
           addToolsRow={addToolsRow}
           removeToolsRow={removeToolsRow}
           updateToolsRow={updateToolsRow}
+          readOnly={reviewCycle.status === 'submitted' || reviewCycle.status === 'under_manager_review' || reviewCycle.status === 'finalized'}
         />
       )}
     </div>
@@ -579,13 +1094,13 @@ interface SelfAssessmentFormProps {
   clarificationRequests: ClarificationRequest[];
   onBack: () => void;
   onSubmit: () => void;
-  onSaveDraft: () => void;
   loading: boolean;
   saving: boolean;
   renderRatingStars: (value: number | undefined, onChange: (value: number) => void, disabled?: boolean) => JSX.Element;
   addToolsRow: () => void;
   removeToolsRow: (index: number) => void;
   updateToolsRow: (index: number, field: keyof ToolsAndTechnology, value: string | number) => void;
+  readOnly?: boolean;
 }
 
 function SelfAssessmentForm({
@@ -606,13 +1121,13 @@ function SelfAssessmentForm({
   clarificationRequests,
   onBack,
   onSubmit,
-  onSaveDraft,
   loading,
   saving,
   renderRatingStars,
   addToolsRow,
   removeToolsRow,
-  updateToolsRow
+  updateToolsRow,
+  readOnly = false
 }: SelfAssessmentFormProps) {
   const [activeSection, setActiveSection] = useState(0);
   const [completedSections, setCompletedSections] = useState<Set<number>>(new Set());
@@ -624,6 +1139,30 @@ function SelfAssessmentForm({
     { id: 'tools', label: 'Tools & Technologies', icon: TrendingUp },
     { id: 'submission', label: 'Final Submission', icon: Send }
   ];
+
+  // Debug: Log state when final submission section is active
+  useEffect(() => {
+    if (activeSection === 3) {
+      // Only check the 5 required fields
+      const requiredFieldChecks = {
+        significantAccomplishments: selfReviewFields.significantAccomplishments.trim().length > 0,
+        beyondRoleContributions: selfReviewFields.beyondRoleContributions.trim().length > 0,
+        challengesAndSolutions: selfReviewFields.challengesAndSolutions.trim().length > 0,
+        areasNeedingImprovement: selfReviewFields.areasNeedingImprovement.trim().length > 0,
+        certificationsCompleted: selfReviewFields.certificationsCompleted.trim().length > 0,
+      };
+      console.log('Final Submission Section - Validation State:', {
+        requiredFieldChecks,
+        selfReviewFields,
+        signature: signature.length,
+        selfRating,
+        allRequiredFieldsValid: Object.values(requiredFieldChecks).every(v => v),
+        signatureValid: signature.trim().length > 0,
+        ratingValid: selfRating !== undefined,
+        formReady: Object.values(requiredFieldChecks).every(v => v) && signature.trim().length > 0 && selfRating !== undefined
+      });
+    }
+  }, [activeSection, selfReviewFields, signature, selfRating]);
 
   // Check if section is completed
   const checkSectionCompletion = (sectionIndex: number): boolean => {
@@ -764,23 +1303,12 @@ function SelfAssessmentForm({
     <div className="space-y-6">
       {/* Header with Navigation */}
       <div className="flex items-center justify-between">
-        <Button variant="outline" size="icon" onClick={onBack} className="h-10 w-10">
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex items-center gap-2">
-          {saving && (
-            <span className="text-sm text-muted-foreground flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              Saving...
-            </span>
-          )}
-          {reviewCycle.status === 'draft' && (
-            <Button variant="outline" onClick={onSaveDraft} className="h-10">
-              <Save className="h-4 w-4 mr-2" />
-              Save Draft
-            </Button>
-          )}
-        </div>
+        {saving && (
+          <span className="text-sm text-muted-foreground flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            Saving...
+          </span>
+        )}
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
@@ -809,7 +1337,7 @@ function SelfAssessmentForm({
               </div>
               {status !== 'current' && (
                 <Button variant="link" size="sm" className="text-primary px-0" onClick={() => goToSection(index)}>
-                  Edit
+                  {readOnly ? 'View' : 'Edit'}
                 </Button>
               )}
             </div>
@@ -1025,6 +1553,7 @@ function SelfAssessmentForm({
                   onChange={(e) => setSelfReviewFields({ ...selfReviewFields, significantAccomplishments: e.target.value })}
                   placeholder="Describe your most significant accomplishments..."
                   className="min-h-[120px] bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
+                  disabled={readOnly}
                 />
               </div>
 
@@ -1047,6 +1576,7 @@ function SelfAssessmentForm({
                   onChange={(e) => setSelfReviewFields({ ...selfReviewFields, beyondRoleContributions: e.target.value })}
                   placeholder="Describe contributions beyond your role..."
                   className="min-h-[120px] bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
+                  disabled={readOnly}
                 />
               </div>
 
@@ -1069,6 +1599,7 @@ function SelfAssessmentForm({
                   onChange={(e) => setSelfReviewFields({ ...selfReviewFields, challengesAndSolutions: e.target.value })}
                   placeholder="Describe challenges faced and solutions implemented with examples..."
                   className="min-h-[120px] bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
+                  disabled={readOnly}
                 />
               </div>
 
@@ -1091,6 +1622,7 @@ function SelfAssessmentForm({
                   onChange={(e) => setSelfReviewFields({ ...selfReviewFields, areasNeedingImprovement: e.target.value })}
                   placeholder="Describe areas that need improvement..."
                   className="min-h-[120px] bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
+                  disabled={readOnly}
                 />
               </div>
 
@@ -1117,6 +1649,7 @@ function SelfAssessmentForm({
                   id="certifications-completed"
                   value={selfReviewFields.certificationsCompleted}
                   onChange={(e) => setSelfReviewFields({ ...selfReviewFields, certificationsCompleted: e.target.value })}
+                  disabled={readOnly}
                   placeholder="List certifications or trainings completed..."
                   className="min-h-[120px] bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
                 />
@@ -1180,6 +1713,7 @@ function SelfAssessmentForm({
                             onChange={(e) => updateToolsRow(index, 'testType', e.target.value)}
                             placeholder="e.g., Unit Test"
                             className="bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
+                            disabled={readOnly}
                           />
                         </TableCell>
                         <TableCell>
@@ -1188,6 +1722,7 @@ function SelfAssessmentForm({
                             onChange={(e) => updateToolsRow(index, 'tool', e.target.value)}
                             placeholder="e.g., Jest"
                             className="bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
+                            disabled={readOnly}
                           />
                         </TableCell>
                         <TableCell>
@@ -1195,6 +1730,7 @@ function SelfAssessmentForm({
                             <Select
                               value={tool.rating.toString()}
                               onValueChange={(value) => updateToolsRow(index, 'rating', parseInt(value))}
+                              disabled={readOnly}
                             >
                               <SelectTrigger className="bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all w-20">
                                 <SelectValue />
@@ -1213,28 +1749,32 @@ function SelfAssessmentForm({
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeToolsRow(index)}
-                            className="h-8 w-8 p-0"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
+                          {!readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeToolsRow(index)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
-              <Button
-                variant="outline"
-                onClick={addToolsRow}
-                className="mt-4 hover:bg-primary/10 border-primary/20 hover:border-primary/40 transition-all shadow-sm"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Row
-              </Button>
+              {!readOnly && (
+                <Button
+                  variant="outline"
+                  onClick={addToolsRow}
+                  className="mt-4 hover:bg-primary/10 border-primary/20 hover:border-primary/40 transition-all shadow-sm"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Row
+                </Button>
+              )}
             </CardContent>
           </Card>
           <div className="flex justify-between mt-4">
@@ -1270,7 +1810,7 @@ function SelfAssessmentForm({
                 <Label className="text-sm font-semibold mb-3 block">
                   Rate Yourself
                 </Label>
-                {renderRatingStars(selfRating, (rating) => setSelfRating(rating))}
+                {renderRatingStars(selfRating, (rating) => setSelfRating(rating), readOnly)}
               </div>
 
               <div>
@@ -1283,6 +1823,7 @@ function SelfAssessmentForm({
                   onChange={(e) => setSignature(e.target.value)}
                   placeholder="Type your full name to sign"
                   className="bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
+                  disabled={readOnly}
                 />
                 <p className="text-xs text-muted-foreground mt-2">
                   By signing, you confirm that all information provided is accurate
@@ -1290,12 +1831,72 @@ function SelfAssessmentForm({
               </div>
 
               <div className="pt-4 border-t border-border/50">
-                <Button
-                  onClick={onSubmit}
-                  disabled={loading || signature.trim().length === 0 || selfRating === undefined}
-                  className="w-full bg-gradient-to-r from-primary to-primary/80 shadow-lg"
-                  size="lg"
-                >
+                {(() => {
+                  // Only check the 5 required fields (based on API response)
+                  const requiredFieldChecks = {
+                    significantAccomplishments: selfReviewFields.significantAccomplishments.trim().length > 0,
+                    beyondRoleContributions: selfReviewFields.beyondRoleContributions.trim().length > 0,
+                    challengesAndSolutions: selfReviewFields.challengesAndSolutions.trim().length > 0,
+                    areasNeedingImprovement: selfReviewFields.areasNeedingImprovement.trim().length > 0,
+                    certificationsCompleted: selfReviewFields.certificationsCompleted.trim().length > 0,
+                  };
+                  
+                  // Optional fields (not required for submission)
+                  // - newSkillsAcquired
+                  // - certificationsPlanned
+                  
+                  const missingFields = Object.entries(requiredFieldChecks)
+                    .filter(([_, filled]) => !filled)
+                    .map(([key]) => {
+                      const labels: Record<string, string> = {
+                        significantAccomplishments: 'Most Significant Accomplishments',
+                        beyondRoleContributions: 'Beyond Role Contributions',
+                        challengesAndSolutions: 'Challenges and Solutions',
+                        areasNeedingImprovement: 'Areas Needing Improvement',
+                        certificationsCompleted: 'Certifications Completed',
+                      };
+                      return labels[key] || key;
+                    });
+                  
+                  const hasAllRequiredFields = Object.values(requiredFieldChecks).every(filled => filled);
+                  const hasSignature = signature.trim().length > 0;
+                  const hasRating = selfRating !== undefined;
+                  const isDisabled = loading || !hasAllRequiredFields || !hasSignature || !hasRating;
+                  
+                  // Debug logging
+                  if (!hasAllRequiredFields) {
+                    console.log('Missing required self-review fields:', missingFields);
+                    console.log('Field values:', selfReviewFields);
+                  }
+                  
+                  return (
+                    <>
+                      {isDisabled && !loading && !readOnly && (
+                        <div className="text-xs text-muted-foreground mb-2 space-y-1">
+                          {!hasAllRequiredFields && (
+                            <p>
+                              Please complete all required self-review fields. Missing: {missingFields.join(', ')}
+                            </p>
+                          )}
+                          {!hasSignature && <p>Please provide your signature.</p>}
+                          {!hasRating && <p>Please rate yourself.</p>}
+                        </div>
+                      )}
+                      {!readOnly && (
+                        <Button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('Submit button onClick fired', { isDisabled, loading, hasAllRequiredFields, hasSignature, hasRating, missingFields });
+                            if (!isDisabled) {
+                              onSubmit();
+                            }
+                          }}
+                          disabled={isDisabled}
+                          className="w-full bg-gradient-to-r from-primary to-primary/80 shadow-lg"
+                          size="lg"
+                          type="button"
+                        >
                   {loading ? (
                     <>
                       <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -1312,7 +1913,16 @@ function SelfAssessmentForm({
                       Submit to Manager
                     </>
                   )}
-                </Button>
+                        </Button>
+                      )}
+                      {readOnly && (
+                        <div className="text-sm text-muted-foreground p-4 bg-muted/50 rounded-lg border border-border/50 text-center">
+                          This review has been submitted and cannot be edited.
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </CardContent>
           </Card>

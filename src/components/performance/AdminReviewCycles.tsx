@@ -180,48 +180,50 @@ export function AdminReviewCycles() {
   const fetchCycles = useCallback(async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      // const response = await authenticatedFetch(`${API_BASE_URL}/review-cycles`);
-      // const data = await response.json();
+      console.log('Fetching review cycles from API...');
       
-      // Mock data for now
-      const mockCycles: ReviewCycle[] = [
-        {
-          id: '1',
-          name: '2024 Annual Performance Review',
-          startDate: '2024-01-01',
-          endDate: '2024-12-31',
-          status: 'active',
-          createdAt: '2023-12-15',
+      const response = await authenticatedFetch(`${API_BASE_URL}/reviews/cycles`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch cycles' }));
+        throw new Error(errorData?.detail || errorData?.message || 'Failed to fetch cycles');
+      }
+      
+      const apiCycles = await response.json();
+      console.log('Fetched cycles from API:', apiCycles);
+      
+      // Map API response to local ReviewCycle format
+      const mappedCycles: ReviewCycle[] = apiCycles.map((cycle: any) => ({
+        id: cycle.cycleId || cycle.year,
+        name: cycle.name || `${cycle.year} Annual Performance Review`,
+        startDate: cycle.startDate || '',
+        endDate: cycle.endDate || '',
+        status: cycle.status === 'open' ? 'active' : cycle.status || 'draft', // Map 'open' to 'active'
+        createdAt: cycle.createdAt || new Date().toISOString().split('T')[0],
           createdBy: 'HR Admin',
-          employeeCount: 150,
-          completionRate: 72,
-          selfReviewEnabled: true,
-          managerReviewEnabled: true,
-          competencyWeightages: {
-            technical: 20,
-            communication: 15,
-            leadership: 15,
-            collaboration: 15,
-            problem_solving: 15,
-            initiative: 10,
-            adaptability: 10
-          }
-        }
-      ];
-      setCycles(mockCycles);
-      calculateStats(mockCycles);
+        employeeCount: cycle.metadata?.assignments?.length || 0,
+        completionRate: 0, // TODO: Calculate from reviews
+        selfReviewEnabled: cycle.metadata?.selfReviewEnabled ?? true,
+        managerReviewEnabled: cycle.metadata?.managerReviewEnabled ?? true,
+        competencyWeightages: cycle.metadata?.competencyWeightages || {},
+        assignments: cycle.metadata?.assignments || []
+      }));
+      
+      setCycles(mappedCycles);
+      calculateStats(mappedCycles);
     } catch (error) {
       console.error('Error fetching cycles:', error);
       toast({
         title: "Error",
-        description: "Failed to load review cycles",
+        description: error instanceof Error ? error.message : "Failed to load review cycles",
         variant: "destructive"
       });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     fetchCycles();
@@ -282,25 +284,74 @@ export function AdminReviewCycles() {
   const handleCreateCycle = async () => {
     try {
       setLoading(true);
-      // TODO: API call
-      // const response = await authenticatedFetch(`${API_BASE_URL}/review-cycles`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData)
-      // });
-
-      const newCycle: ReviewCycle = {
-        id: Date.now().toString(),
+      
+      // Extract year from cycle name or start date
+      let year: string;
+      const yearMatch = formData.name.match(/\d{4}/);
+      if (yearMatch) {
+        year = yearMatch[0];
+      } else if (formData.startDate) {
+        const startYear = new Date(formData.startDate).getFullYear();
+        if (!isNaN(startYear) && startYear >= 2000 && startYear <= 2100) {
+          year = startYear.toString();
+        } else {
+          year = new Date().getFullYear().toString();
+        }
+      } else {
+        year = new Date().getFullYear().toString();
+      }
+      
+      // Validate year format (must be 4 digits)
+      if (!/^\d{4}$/.test(year)) {
+        throw new Error('Invalid year format. Year must be 4 digits (e.g., 2024)');
+      }
+      
+      // Build the API payload
+      const payload = {
+        year: year,
         name: formData.name,
+        description: `Review cycle for ${year}`,
+        status: 'draft',
         startDate: formData.startDate,
         endDate: formData.endDate,
-        status: 'draft',
-        createdAt: new Date().toISOString().split('T')[0],
-        createdBy: 'Current User',
+        metadata: {
         selfReviewEnabled: formData.selfReviewEnabled,
         managerReviewEnabled: formData.managerReviewEnabled,
         competencyWeightages: formData.competencyWeightages,
         assignments: formData.assignments
+        }
+      };
+      
+      console.log('Creating review cycle:', payload);
+      
+      const response = await authenticatedFetch(`${API_BASE_URL}/reviews/cycles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to create review cycle' }));
+        const errorMessage = errorData?.detail || errorData?.message || 'Failed to create review cycle';
+        throw new Error(errorMessage);
+      }
+      
+      const createdCycle = await response.json();
+      console.log('Review cycle created:', createdCycle);
+      
+      // Map the API response to the local ReviewCycle format
+      const newCycle: ReviewCycle = {
+        id: createdCycle.cycleId || year,
+        name: createdCycle.name || formData.name,
+        startDate: createdCycle.startDate || formData.startDate,
+        endDate: createdCycle.endDate || formData.endDate,
+        status: createdCycle.status || 'draft',
+        createdAt: createdCycle.createdAt || new Date().toISOString().split('T')[0],
+        createdBy: 'Current User',
+        selfReviewEnabled: createdCycle.metadata?.selfReviewEnabled ?? formData.selfReviewEnabled,
+        managerReviewEnabled: createdCycle.metadata?.managerReviewEnabled ?? formData.managerReviewEnabled,
+        competencyWeightages: createdCycle.metadata?.competencyWeightages || formData.competencyWeightages,
+        assignments: createdCycle.metadata?.assignments || formData.assignments
       };
 
       setCycles([...cycles, newCycle]);
@@ -314,7 +365,7 @@ export function AdminReviewCycles() {
       console.error('Error creating cycle:', error);
       toast({
         title: "Error",
-        description: "Failed to create review cycle",
+        description: error instanceof Error ? error.message : "Failed to create review cycle",
         variant: "destructive"
       });
     } finally {
@@ -349,23 +400,111 @@ export function AdminReviewCycles() {
 
   const handleActivateCycle = async (cycleId: string) => {
     try {
-      // TODO: API call
+      setLoading(true);
+      
+      // Find the cycle
+      const cycle = cycles.find(c => c.id === cycleId);
+      if (!cycle) {
+        throw new Error('Cycle not found');
+      }
+      
+      // Check if employees are loaded
+      if (employeesLoading || employees.length === 0) {
+        toast({
+          title: "Loading",
+          description: "Please wait while employees are being loaded",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      // Extract year from cycle ID (cycleId is the year)
+      const year = cycleId;
+      
+      // First, close any currently active cycles
+      const activeCycle = cycles.find(c => c.status === 'active');
+      if (activeCycle) {
+        const activeYear = activeCycle.id;
+        console.log('Closing active cycle:', activeYear);
+        await authenticatedFetch(`${API_BASE_URL}/reviews/cycles/${activeYear}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'closed' })
+        });
+      }
+      
+      // Create assignments for all employees
+      const allAssignments: EmployeeAssignment[] = employees.map(emp => {
+        // Find the employee's manager
+        const manager = employees.find(m => m.id === emp.reporting_to);
+        return {
+          employeeId: emp.id,
+          employeeName: emp.name || 'Unknown',
+          managerId: manager?.id || '',
+          managerName: manager?.name || 'Unassigned',
+          status: 'not_started' as const
+        };
+      });
+      
+      // Update cycle status to 'open' and add assignments to metadata
+      const updatePayload = {
+        status: 'open', // Backend uses 'open', frontend displays as 'active'
+        metadata: {
+          selfReviewEnabled: cycle.selfReviewEnabled,
+          managerReviewEnabled: cycle.managerReviewEnabled,
+          competencyWeightages: cycle.competencyWeightages || {},
+          assignments: allAssignments
+        }
+      };
+      
+      console.log('Activating cycle:', year, updatePayload);
+      
+      const response = await authenticatedFetch(`${API_BASE_URL}/reviews/cycles/${year}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to activate cycle' }));
+        throw new Error(errorData?.detail || errorData?.message || 'Failed to activate cycle');
+      }
+      
+      const updatedCycle = await response.json();
+      console.log('Cycle activated:', updatedCycle);
+      
+      // Update local state
       setCycles(cycles.map(c => {
-        if (c.id === cycleId) return { ...c, status: 'active' };
-        if (c.status === 'active') return { ...c, status: 'closed' };
+        if (c.id === cycleId) {
+          return {
+            ...c,
+            status: 'active',
+            assignments: allAssignments,
+            employeeCount: allAssignments.length
+          };
+        }
+        if (c.status === 'active') {
+          return { ...c, status: 'closed' };
+        }
         return c;
       }));
+      
       toast({
         title: "Success",
-        description: "Review cycle activated. Notifications sent to employees."
+        description: `Review cycle activated for ${allAssignments.length} employees. Notifications sent to employees.`
       });
+      
+      // Refresh cycles to get updated data
+      await fetchCycles();
     } catch (error) {
       console.error('Error activating cycle:', error);
       toast({
         title: "Error",
-        description: "Failed to activate review cycle",
+        description: error instanceof Error ? error.message : "Failed to activate review cycle",
         variant: "destructive"
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -445,11 +584,13 @@ export function AdminReviewCycles() {
           </Button>
           <Button
             onClick={() => {
+              console.log('Create Review Cycle button clicked');
               setEditingCycle(null);
               resetForm();
               setShowCreateModal(true);
             }}
             className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg"
+            type="button"
           >
             <Plus className="h-4 w-4 mr-2" />
             Create Review Cycle
@@ -615,15 +756,6 @@ export function AdminReviewCycles() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openRosterModal(cycle)}
-                      className="hover:bg-primary/10"
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Roster
-                    </Button>
                     {cycle.status === 'draft' && (
                       <Button
                         variant="outline"
@@ -802,11 +934,9 @@ function CreateEditCycleModal({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
-            <TabsTrigger value="weightages">Weightages</TabsTrigger>
-            <TabsTrigger value="assignments">Assignments</TabsTrigger>
           </TabsList>
 
           <TabsContent value="basic" className="space-y-4 mt-4">
@@ -969,122 +1099,6 @@ function CreateEditCycleModal({
               </Card>
             )}
           </TabsContent>
-
-          <TabsContent value="weightages" className="space-y-4 mt-4">
-            <Card className="bg-background/50 border-border/50">
-              <CardHeader>
-                <CardTitle className="text-sm">Competency Weightages</CardTitle>
-                <CardDescription>
-                  Set weightages for each competency (must total 100%)
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {DEFAULT_COMPETENCIES.map((comp) => (
-                  <div key={comp.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor={comp.id}>{comp.name}</Label>
-                      <span className="text-sm font-medium text-primary">
-                        {formData.competencyWeightages[comp.id] || 0}%
-                      </span>
-                    </div>
-                    <Input
-                      id={comp.id}
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={formData.competencyWeightages[comp.id] || 0}
-                      onChange={(e) => handleWeightageChange(comp.id, parseInt(e.target.value) || 0)}
-                      className="bg-background/50"
-                    />
-                  </div>
-                ))}
-                <div className="pt-4 border-t border-border/50">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">Total</span>
-                    <span className={cn(
-                      "font-bold text-lg",
-                      totalWeightage === 100 ? "text-green-600" : "text-destructive"
-                    )}>
-                      {totalWeightage}%
-                    </span>
-                  </div>
-                  {totalWeightage !== 100 && (
-                    <p className="text-sm text-destructive mt-2">
-                      Weightages must total exactly 100%
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="assignments" className="space-y-4 mt-4">
-            <Card className="bg-background/50 border-border/50">
-              <CardHeader>
-                <CardTitle className="text-sm">Assign Employees to Managers</CardTitle>
-                <CardDescription>
-                  Select employees and assign their review managers
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="max-h-[400px] overflow-y-auto space-y-2">
-                  {employees.map((employee) => (
-                    <div
-                      key={employee.id}
-                      className={cn(
-                        "flex items-center justify-between p-3 rounded-lg border transition-colors",
-                        selectedEmployees.includes(employee.id)
-                          ? "bg-primary/10 border-primary/30"
-                          : "bg-background/50 border-border/50"
-                      )}
-                    >
-                      <div className="flex items-center gap-3 flex-1">
-                        <input
-                          type="checkbox"
-                          checked={selectedEmployees.includes(employee.id)}
-                          onChange={() => handleEmployeeToggle(employee.id)}
-                          className="rounded border-border"
-                        />
-                        <Avatar className="h-8 w-8">
-                          <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                            {employee.name?.split(' ').map(n => n[0]).join('') || 'E'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{employee.name}</p>
-                          <p className="text-xs text-muted-foreground">{employee.position || employee.department}</p>
-                        </div>
-                      </div>
-                      {selectedEmployees.includes(employee.id) && (
-                        <Select
-                          value={managerAssignments[employee.id] || ''}
-                          onValueChange={(value) => handleManagerAssign(employee.id, value)}
-                        >
-                          <SelectTrigger className="w-[200px] bg-background/50">
-                            <SelectValue placeholder="Select Manager" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {managers.map((manager) => (
-                              <SelectItem key={manager.id} value={manager.id}>
-                                {manager.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <Button
-                  onClick={saveAssignments}
-                  className="w-full bg-gradient-to-r from-primary to-primary/80"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Assignments
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
 
         <DialogFooter className="mt-6">
@@ -1098,9 +1112,7 @@ function CreateEditCycleModal({
               !formData.name ||
               !formData.startDate ||
               !formData.endDate ||
-              (formData.startDate && formData.endDate && new Date(formData.startDate) > new Date(formData.endDate)) ||
-              totalWeightage !== 100 ||
-              formData.assignments.length === 0
+              (formData.startDate && formData.endDate && new Date(formData.startDate) > new Date(formData.endDate))
             }
             className="bg-gradient-to-r from-primary to-primary/80"
           >

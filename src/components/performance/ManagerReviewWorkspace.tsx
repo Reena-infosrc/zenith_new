@@ -27,7 +27,8 @@ import {
   Briefcase,
   Mail,
   Bell,
-  ChevronLeft
+  ChevronLeft,
+  Loader2
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -117,6 +118,22 @@ interface ClarificationRequest {
   status: 'pending' | 'responded' | 'resolved';
 }
 
+interface ReviewPayload {
+  cycleYear: string;
+  employeeId: string;
+  reviewerId: string;
+  reviewType: string;
+  goalIds: string[];
+  ratings: Record<string, any>;
+  comments?: string;
+  strengths?: string[];
+  improvements?: string[];
+  attachments: string[];
+  metadata: Record<string, any>;
+  isDraft: boolean;
+  submittedAt?: string;
+}
+
 const COMPETENCIES = [
   { id: 'business_project', name: 'Business / Project Goals', weightage: 60 },
   { id: 'functional_behavioral', name: 'Functional / Behavioural', weightage: 20 },
@@ -155,6 +172,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
   });
   const [clarificationRequests, setClarificationRequests] = useState<ClarificationRequest[]>([]);
   const [showClarificationModal, setShowClarificationModal] = useState(false);
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
 
   // Fetch direct reports
   const fetchDirectReports = useCallback(async () => {
@@ -307,6 +325,8 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
 
   const handleViewReview = (employee: DirectReport) => {
     setSelectedEmployee(employee);
+    setActiveReviewId(null);
+    setClarificationRequests([]);
     fetchEmployeeReview(employee.id);
   };
 
@@ -323,24 +343,120 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
       evidenceLinks: [],
       evidenceFiles: []
     });
+    setClarificationRequests([]);
+    setActiveReviewId(null);
   };
 
+  const buildReviewPayload = useCallback((overrides: Partial<ReviewPayload> = {}): ReviewPayload => {
+    if (!selectedEmployee) {
+      throw new Error("No employee selected");
+    }
+
+    const cycleMatch = selectedEmployee.cycleName?.match(/\d{4}/);
+    const cycleYear = cycleMatch ? cycleMatch[0] : new Date().getFullYear().toString();
+    const reviewerId = user?.email || user?.id || 'unknown';
+
+    const sanitizedFinalRating = {
+      ...finalRating,
+      evidenceFiles: finalRating.evidenceFiles.map((file) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type
+      }))
+    };
+
+    const payload: ReviewPayload = {
+      cycleYear,
+      employeeId: selectedEmployee.id,
+      reviewerId,
+      reviewType: 'manager',
+      goalIds: goalReviews.map((goal) => goal.goalId),
+      ratings: {
+        overall: finalRating.overallRating ?? null,
+        goals: goalReviews.reduce<Record<string, number | null>>((acc, goal) => {
+          acc[goal.goalId] = goal.managerRating ?? null;
+          return acc;
+        }, {}),
+        competencies: competencyReviews.reduce<Record<string, number | null>>((acc, comp) => {
+          acc[comp.competencyId] = comp.managerRating ?? null;
+          return acc;
+        }, {})
+      },
+      comments: finalRating.summaryFeedback,
+      strengths: [],
+      improvements: [],
+      attachments: finalRating.evidenceLinks,
+      metadata: {
+        goalReviews,
+        competencyReviews,
+        finalRating: sanitizedFinalRating,
+        clarificationRequests
+      },
+      isDraft: true,
+    };
+
+    const mergedPayload: ReviewPayload = {
+      ...payload,
+      ...overrides,
+      metadata: overrides.metadata
+        ? { ...payload.metadata, ...overrides.metadata }
+        : payload.metadata
+    };
+
+    return mergedPayload;
+  }, [selectedEmployee, user, goalReviews, competencyReviews, finalRating, clarificationRequests]);
+
+  const upsertReview = useCallback(
+    async (payload: ReviewPayload) => {
+      const endpoint = activeReviewId
+        ? `${API_BASE_URL}/reviews/${activeReviewId}`
+        : `${API_BASE_URL}/reviews`;
+      const method = activeReviewId ? 'PUT' : 'POST';
+
+      const response = await authenticatedFetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorMessage = await response.text().catch(() => 'Failed to save review');
+        throw new Error(errorMessage || 'Failed to save review');
+      }
+
+      const data = await response.json();
+      if (data?.reviewId) {
+        setActiveReviewId(data.reviewId);
+      }
+      return data;
+    },
+    [activeReviewId]
+  );
+
   const handleSaveDraft = useCallback(async () => {
-    if (!selectedEmployee) return;
-    
+    console.log('handleSaveDraft called, selectedEmployee:', selectedEmployee);
+    if (!selectedEmployee) {
+      console.warn('No employee selected');
+      toast({
+        title: "No employee selected",
+        description: "Please choose an employee before saving a draft",
+        variant: "destructive"
+      });
+      return;
+    }
+  
     try {
+      console.log('Building review payload...');
       setLoading(true);
-      // TODO: API call to save draft
-      // await authenticatedFetch(`${API_BASE_URL}/reviews/draft`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     employeeId: selectedEmployee.id,
-      //     goalReviews,
-      //     competencyReviews,
-      //     finalRating
-      //   })
-      // });
+      const payload = buildReviewPayload({
+        isDraft: true,
+        submittedAt: undefined,
+        metadata: { status: 'manager_draft' }
+      });
+      console.log('Payload built:', payload);
+      console.log('Calling upsertReview...');
+      const result = await upsertReview(payload);
+      console.log('upsertReview result:', result);
 
       toast({
         title: "Draft Saved",
@@ -350,25 +466,27 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
       console.error('Error saving draft:', error);
       toast({
         title: "Error",
-        description: "Failed to save draft",
+        description: error instanceof Error ? error.message : "Failed to save draft",
         variant: "destructive"
       });
     } finally {
       setLoading(false);
     }
-  }, [selectedEmployee, goalReviews, competencyReviews, finalRating, toast]);
+  }, [selectedEmployee, buildReviewPayload, upsertReview, toast]);
 
   // Expose save draft function via ref
   useEffect(() => {
     if (onSaveDraftRef) {
+      console.log('Setting saveDraftRef.current, selectedEmployee:', selectedEmployee);
       onSaveDraftRef.current = handleSaveDraft;
+      console.log('saveDraftRef.current set to:', typeof onSaveDraftRef.current);
     }
     return () => {
       if (onSaveDraftRef) {
         onSaveDraftRef.current = null;
       }
     };
-  }, [onSaveDraftRef, handleSaveDraft]);
+  }, [onSaveDraftRef, handleSaveDraft, selectedEmployee]);
 
   const handleRatingChange = (goalId: string, rating: number) => {
     setGoalReviews(prev => prev.map(goal => 
@@ -426,17 +544,12 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
 
     try {
       setLoading(true);
-      // TODO: API call
-      // await authenticatedFetch(`${API_BASE_URL}/reviews/submit`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     employeeId: selectedEmployee.id,
-      //     goalReviews,
-      //     competencyReviews,
-      //     finalRating
-      //   })
-      // });
+      const payload = buildReviewPayload({
+        isDraft: false,
+        submittedAt: new Date().toISOString(),
+        metadata: { status: 'manager_submitted' }
+      });
+      await upsertReview(payload);
 
       toast({
         title: "Success",
@@ -450,12 +563,12 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
           : rep
       ));
 
-      setSelectedEmployee(null);
+      handleCloseReview();
     } catch (error) {
       console.error('Error submitting review:', error);
       toast({
         title: "Error",
-        description: "Failed to submit review",
+      description: error instanceof Error ? error.message : "Failed to submit review",
         variant: "destructive"
       });
     } finally {
@@ -712,9 +825,28 @@ function ReviewWorkspaceInline({
   ];
 
   const handleSaveDraftClick = async () => {
+    console.log('Save Draft button clicked');
+    console.log('onSaveDraft function exists:', typeof onSaveDraft === 'function');
+    console.log('saving state:', saving);
+    console.log('loading state:', loading);
+    
+    if (!onSaveDraft) {
+      console.error('onSaveDraft is not defined!');
+      return;
+    }
+    
+    if (saving || loading) {
+      console.warn('Button is disabled, saving:', saving, 'loading:', loading);
+      return;
+    }
+    
     setSaving(true);
     try {
+      console.log('Calling onSaveDraft...');
       await onSaveDraft();
+      console.log('onSaveDraft completed');
+    } catch (error) {
+      console.error('Error in handleSaveDraftClick:', error);
     } finally {
       setSaving(false);
     }
@@ -1094,6 +1226,8 @@ function ReviewWorkspaceInline({
                             </TableCell>
                             <TableCell className="py-4">
                               <Textarea
+                                id={`goal-comment-${goal.goalId}`}
+                                name={`goal-comment-${goal.goalId}`}
                                 value={goal.managerComments || ''}
                                 onChange={(e) => {
                                   setGoalReviews(prev => prev.map(g => 
@@ -1291,11 +1425,37 @@ function ReviewWorkspaceInline({
             </Card>
             </div>
             <div className="flex justify-between mt-4">
-              <Button variant="outline" onClick={goToPrevious} className="h-10">
-                <ChevronLeft className="h-4 w-4 mr-2" />
-                Previous
-              </Button>
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Save Draft button onClick fired');
+                    console.log('Button disabled?', saving || loading);
+                    if (!(saving || loading)) {
+                      handleSaveDraftClick();
+                    } else {
+                      console.warn('Button click ignored - button is disabled');
+                    }
+                  }}
+                  disabled={saving || loading}
+                  className="h-10 border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                  type="button"
+                  aria-label="Save Draft"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Draft
+                    </>
+                  )}
+                </Button>
                 <Button
                   variant="outline"
                   onClick={onRequestClarification}
