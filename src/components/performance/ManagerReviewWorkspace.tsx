@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Dispatch, SetStateAction } from "react";
+import { useState, useEffect, useCallback, useMemo, Dispatch, SetStateAction } from "react";
 import {
   Users,
   Search,
@@ -28,7 +28,10 @@ import {
   Mail,
   Bell,
   ChevronLeft,
-  Loader2
+  Edit,
+  Loader2,
+  Check,
+  ChevronDown
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,6 +43,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
@@ -58,7 +62,7 @@ interface DirectReport {
   position: string;
   department: string;
   photoUrl?: string;
-  reviewStatus: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'manager_submitted';
+  reviewStatus: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted';
   selfReviewSubmittedAt?: string;
   cycleId: string;
   cycleName: string;
@@ -116,6 +120,8 @@ interface ClarificationRequest {
   question: string;
   employeeResponse?: string;
   status: 'pending' | 'responded' | 'resolved';
+  requestedAt?: string;
+  requestedBy?: string;
 }
 
 interface ReviewPayload {
@@ -130,8 +136,7 @@ interface ReviewPayload {
   improvements?: string[];
   attachments: string[];
   metadata: Record<string, any>;
-  isDraft: boolean;
-  submittedAt?: string;
+  submittedAt?: string;  // undefined = draft, set timestamp when submitting
 }
 
 const COMPETENCIES = [
@@ -142,11 +147,13 @@ const COMPETENCIES = [
 
 interface ManagerReviewWorkspaceProps {
   initialEmployeeId?: string;
+  initialCycleYear?: string | null;
   hideHeader?: boolean;
   onSaveDraftRef?: React.MutableRefObject<(() => void) | null>;
+  onReviewDataStatusChange?: (hasReviewData: boolean) => void;
 }
 
-export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, onSaveDraftRef }: ManagerReviewWorkspaceProps = {}) {
+export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hideHeader = false, onSaveDraftRef, onReviewDataStatusChange }: ManagerReviewWorkspaceProps = {}) {
   const { user } = useAuth();
   const { employees, isLoading: employeesLoading } = useEmployees();
   const { toast } = useToast();
@@ -173,6 +180,12 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
   const [clarificationRequests, setClarificationRequests] = useState<ClarificationRequest[]>([]);
   const [showClarificationModal, setShowClarificationModal] = useState(false);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
+  const [reviewCycleYear, setReviewCycleYear] = useState<string | null>(null);
+  const [reviewEmployeeId, setReviewEmployeeId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string | null>(null);
+  const [isClarificationRequested, setIsClarificationRequested] = useState(false);
+  const [isClarificationResponded, setIsClarificationResponded] = useState(false);
+  const [employeeSelfReviewId, setEmployeeSelfReviewId] = useState<string | null>(null);
 
   // Fetch direct reports
   const fetchDirectReports = useCallback(async () => {
@@ -194,10 +207,10 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
           position: emp.position || '',
           department: emp.department || '',
           photoUrl: emp.photoUrl,
-          reviewStatus: 'self_submitted' as const, // TODO: Get from API
-          selfReviewSubmittedAt: new Date().toISOString(), // TODO: Get from API
-          cycleId: '1', // TODO: Get active cycle
-          cycleName: '2024 Annual Performance Review' // TODO: Get from API
+          reviewStatus: 'not_started' as const,
+          selfReviewSubmittedAt: undefined,
+          cycleId: initialCycleYear || '',
+          cycleName: initialCycleYear ? `${initialCycleYear} Annual Performance Review` : 'Annual Performance Review'
         }));
 
       setDirectReports(reports);
@@ -211,70 +224,390 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
     } finally {
       setLoading(false);
     }
-  }, [user, employees, toast]);
+  }, [user, employees, toast, initialCycleYear]);
 
   useEffect(() => {
     fetchDirectReports();
   }, [fetchDirectReports]);
 
   // Fetch employee review data
-  const fetchEmployeeReview = useCallback(async (employeeId: string) => {
+  const fetchEmployeeReview = useCallback(async (employeeId: string, cycleYear?: string | null) => {
     try {
+      // Clear previous data immediately
+      setEmployeeSelfReview(null);
+      setGoalReviews([]);
+      setCompetencyReviews(COMPETENCIES.map(comp => ({
+        competencyId: comp.id,
+        competencyName: comp.name,
+        weightage: comp.weightage
+      })));
+      setFinalRating({
+        summaryFeedback: '',
+        developmentRecommendations: '',
+        developmentNeed: '',
+        actionPlan: '',
+        evidenceLinks: [],
+        evidenceFiles: []
+      });
+      setReviewCycleYear(null);
+      setReviewEmployeeId(null);
+      setActiveReviewId(null);
+      setEmployeeSelfReviewId(null);
+      setIsClarificationResponded(false);
+      
       setLoading(true);
-      // TODO: Replace with actual API calls
-      // const response = await authenticatedFetch(`${API_BASE_URL}/reviews/employee/${employeeId}`);
-      // const data = await response.json();
+      
+      // Fetch reviews from API - need both self-review (employee's submission) and manager review
+      let employeeSelfReviewData = null;
+      let managerReviewData = null;
+      
+      if (cycleYear) {
+        // OPTIMIZED: Fetch both manager review and self-review in a single API call
+        // The API now automatically includes self-reviews when querying manager reviews
+        const managerReviewResponse = await authenticatedFetch(
+          `${API_BASE_URL}/reviews?employeeId=${employeeId}&cycleYear=${cycleYear}&reviewType=manager`,
+          { method: 'GET' }
+        );
+        
+        if (managerReviewResponse.ok) {
+          const allReviews = await managerReviewResponse.json();
+          console.log(`Fetched ${allReviews?.length || 0} reviews for employee ${employeeId}, cycle ${cycleYear}:`, allReviews);
+          
+          // Separate manager reviews and self-reviews from the response
+          const managerReviews = allReviews.filter((r: any) => r.reviewType === 'manager');
+          const selfReviews = allReviews.filter((r: any) => r.reviewType === 'self');
+          
+          console.log(`Found ${managerReviews.length} manager review(s) and ${selfReviews.length} self-review(s)`);
+          
+          // Process manager review
+          if (managerReviews.length > 0) {
+            // Prefer submitted review over draft
+            const submittedReview = managerReviews.find((r: any) => !r.isDraft && r.submittedAt);
+            managerReviewData = submittedReview || managerReviews.find((r: any) => r.isDraft) || managerReviews[0];
+            console.log('Selected manager review data:', managerReviewData);
+          }
+          
+          // Process self-review
+          if (selfReviews.length > 0) {
+            // Prefer submitted review over draft
+            const submittedReview = selfReviews.find((r: any) => !r.isDraft && r.submittedAt);
+            employeeSelfReviewData = submittedReview || selfReviews.find((r: any) => r.isDraft) || selfReviews[0];
+            console.log('Selected self-review data:', employeeSelfReviewData);
+            // Store the self-review ID for clarification requests
+            if (employeeSelfReviewData?.reviewId) {
+              setEmployeeSelfReviewId(employeeSelfReviewData.reviewId);
+            }
+          } else {
+            console.log('No self-reviews found in response - employee may not have submitted yet');
+            setEmployeeSelfReviewId(null);
+          }
+        } else {
+          console.error('Failed to fetch reviews:', managerReviewResponse.status, await managerReviewResponse.text());
+        }
+      } else {
+        // Fallback: fetch latest reviews for employee (without cycleYear)
+        // Try to fetch manager reviews first, which should include self-reviews
+        const managerReviewResponse = await authenticatedFetch(
+          `${API_BASE_URL}/reviews?employeeId=${employeeId}&reviewType=manager`,
+          { method: 'GET' }
+        );
+        
+        if (managerReviewResponse.ok) {
+          const allReviews = await managerReviewResponse.json();
+          console.log(`Fetched ${allReviews?.length || 0} reviews (fallback) for employee ${employeeId}:`, allReviews);
+          
+          // Separate manager reviews and self-reviews
+          const managerReviews = allReviews.filter((r: any) => r.reviewType === 'manager');
+          const selfReviews = allReviews.filter((r: any) => r.reviewType === 'self');
+          
+          // Process manager review
+          if (managerReviews.length > 0) {
+            const submittedReview = managerReviews.find((r: any) => !r.isDraft && r.submittedAt);
+            managerReviewData = submittedReview || managerReviews.find((r: any) => r.isDraft) || managerReviews[0];
+          }
+          
+          // Process self-review
+          if (selfReviews.length > 0) {
+            const submittedReview = selfReviews.find((r: any) => !r.isDraft && r.submittedAt);
+            employeeSelfReviewData = submittedReview || selfReviews.find((r: any) => r.isDraft) || selfReviews[0];
+            console.log('Selected self-review data (fallback):', employeeSelfReviewData);
+            // Store the self-review ID for clarification requests
+            if (employeeSelfReviewData?.reviewId) {
+              setEmployeeSelfReviewId(employeeSelfReviewData.reviewId);
+            }
+          } else {
+            // If no self-review in manager response, try fetching self-reviews separately
+            const selfReviewResponse = await authenticatedFetch(
+              `${API_BASE_URL}/reviews?employeeId=${employeeId}&reviewType=self`,
+              { method: 'GET' }
+            );
+            
+            if (selfReviewResponse.ok) {
+              const selfReviewsOnly = await selfReviewResponse.json();
+              if (Array.isArray(selfReviewsOnly) && selfReviewsOnly.length > 0) {
+                const submittedReview = selfReviewsOnly.find((r: any) => !r.isDraft && r.submittedAt);
+                employeeSelfReviewData = submittedReview || selfReviewsOnly.find((r: any) => r.isDraft) || selfReviewsOnly[0];
+                console.log('Selected self-review data (separate fallback):', employeeSelfReviewData);
+              }
+            }
+          }
+        } else {
+          console.error('Failed to fetch reviews (fallback):', managerReviewResponse.status, await managerReviewResponse.text());
+        }
+      }
 
-      // Mock data
-      const mockSelfReview: EmployeeSelfReview = {
+      // Process employee self-review data (for displaying employee's submission)
+      let selfReview: EmployeeSelfReview | null = null;
+      
+      console.log('Processing employee self-review data:', employeeSelfReviewData);
+      
+      if (employeeSelfReviewData) {
+        const selfMeta = employeeSelfReviewData.metadata || {};
+        const selfReviewFields = selfMeta.selfReviewFields || {};
+        
+        // Check if we have any self-review data at all
+        const hasSelfReviewData = 
+          selfReviewFields.significantAccomplishments ||
+          selfReviewFields.beyondRoleContributions ||
+          selfReviewFields.challengesAndSolutions ||
+          selfReviewFields.areasNeedingImprovement ||
+          selfReviewFields.certificationsCompleted ||
+          selfReviewFields.certificationsPlanned ||
+          selfReviewFields.newSkillsAcquired ||
+          selfMeta.toolsAndTechnologies?.length > 0 ||
+          employeeSelfReviewData.comments; // Also check comments field
+        
+        if (hasSelfReviewData) {
+          // Try to extract from comments if metadata fields are empty
+          let accomplishments = selfReviewFields.significantAccomplishments || '';
+          let beyondRole = selfReviewFields.beyondRoleContributions || '';
+          let challenges = selfReviewFields.challengesAndSolutions || '';
+          let improvements = selfReviewFields.areasNeedingImprovement || '';
+          let certifications = selfReviewFields.certificationsCompleted || '';
+          let certificationsPlanned = selfReviewFields.certificationsPlanned || '';
+          
+          // If metadata fields are empty but comments exist, try to parse comments
+          if (employeeSelfReviewData.comments && !accomplishments && !beyondRole) {
+            // Comments might contain the self-review data in a formatted way
+            // For now, we'll use the comments as a fallback display
+            accomplishments = employeeSelfReviewData.comments;
+          }
+          
+          selfReview = {
         employeeId,
-        keyAccomplishments: "Successfully delivered 3 major projects on time. Led a team of 5 developers.",
-        beyondResponsibilities: "Mentored 2 junior developers. Organized team building activities.",
-        challenges: "Faced technical challenges with legacy system integration. Example: Had to refactor 2000+ lines of code.",
-        areasToImprove: "Need to improve time management. Should focus more on documentation.",
-        skillsAcquired: "Learned React, TypeScript, and AWS services. Completed AWS Solutions Architect certification.",
-        trainingsCompleted: "AWS Solutions Architect Associate, React Advanced Patterns, Leadership Training",
-        trainingsToPursue: "AWS Solutions Architect Professional, Kubernetes Administration, Advanced System Design",
-        toolsAndTechnologies: [
-          { testType: "Unit Test", tool: "Jest", rating: 3 },
-          { testType: "Integration Test", tool: "Cypress", rating: 2 },
-          { testType: "E2E Test", tool: "Playwright", rating: 2 }
-        ]
+            keyAccomplishments: accomplishments,
+            beyondResponsibilities: beyondRole,
+            challenges: challenges,
+            areasToImprove: improvements,
+            skillsAcquired: selfReviewFields.newSkillsAcquired || '',
+            trainingsCompleted: certifications,
+            trainingsToPursue: certificationsPlanned,
+            toolsAndTechnologies: selfMeta.toolsAndTechnologies || []
+          };
+          
+          console.log('Extracted self-review:', selfReview);
+        } else {
+          console.log('No self-review data found in response');
+        }
+      }
+
+      // Process manager review data (for manager's ratings and comments)
+      let goalReviews: GoalReview[] = [];
+      let competencyReviews: CompetencyReview[] = [];
+      let finalRatingData: ManagerFinalRating = {
+        summaryFeedback: '',
+        developmentRecommendations: '',
+        developmentNeed: '',
+        actionPlan: '',
+        evidenceLinks: [],
+        evidenceFiles: []
       };
 
-      const mockGoalReviews: GoalReview[] = [
-        {
-          goalId: '1',
-          goalDescription: "Complete project X with 100% test coverage",
-          weightage: 40,
-          completion: 100,
-          employeeRating: 4
-        },
-        {
-          goalId: '2',
-          goalDescription: "Improve code quality and reduce technical debt",
-          weightage: 30,
-          completion: 67,
-          employeeRating: 5
-        },
-        {
-          goalId: '3',
-          goalDescription: "Lead team of 5 developers",
-          weightage: 30,
-          completion: 100,
-          employeeRating: 4
+      if (managerReviewData?.metadata) {
+        const managerMeta = managerReviewData.metadata;
+        
+        // Map goal reviews from manager review metadata
+        if (managerMeta.goalReviews && Array.isArray(managerMeta.goalReviews)) {
+          goalReviews = managerMeta.goalReviews.map((goal: any) => ({
+            goalId: goal.goalId,
+            goalDescription: goal.goalDescription || '',
+            weightage: goal.weightage || 0,
+            completion: goal.completion || 0,
+            employeeRating: goal.employeeRating || undefined,
+            managerRating: goal.managerRating || undefined,
+            managerComments: goal.managerComments || ''
+          }));
+        } else if (employeeSelfReviewData?.metadata?.goalAssessments) {
+          // Fallback: use employee's goal assessments if manager review doesn't have goalReviews
+          const goalAssessments = employeeSelfReviewData.metadata.goalAssessments;
+          goalReviews = goalAssessments.map((goal: any) => ({
+            goalId: goal.goalId,
+            goalDescription: goal.goalDescription || '',
+            weightage: goal.weightage || 0,
+            completion: goal.completion || 0,
+            employeeRating: goal.employeeRating || undefined,
+            managerRating: goal.managerRating || undefined,
+            managerComments: goal.managerComments || ''
+          }));
         }
-      ];
 
-      const mockCompetencyReviews: CompetencyReview[] = COMPETENCIES.map(comp => ({
+        // Map competency reviews from manager review metadata
+        if (managerMeta.competencyReviews && Array.isArray(managerMeta.competencyReviews)) {
+          competencyReviews = managerMeta.competencyReviews.map((comp: any) => ({
+            competencyId: comp.competencyId,
+            competencyName: comp.competencyName || '',
+            weightage: comp.weightage || 0,
+            managerRating: comp.managerRating || undefined
+          }));
+        } else {
+          // Fallback: initialize from COMPETENCIES
+          competencyReviews = COMPETENCIES.map(comp => ({
+            competencyId: comp.id,
+            competencyName: comp.name,
+            weightage: comp.weightage,
+            managerRating: managerReviewData.ratings?.competencies?.[comp.id] || undefined
+          }));
+        }
+
+        // Set final rating from manager review
+        if (managerMeta.finalRating) {
+          finalRatingData = {
+            overallRating: managerReviewData.ratings?.overall || managerMeta.finalRating.overallRating,
+            summaryFeedback: managerMeta.finalRating.summaryFeedback || '',
+            developmentRecommendations: managerMeta.finalRating.developmentRecommendations || '',
+            developmentNeed: managerMeta.finalRating.developmentNeed || '',
+            actionPlan: managerMeta.finalRating.actionPlan || '',
+            evidenceLinks: managerMeta.finalRating.evidenceLinks || [],
+            evidenceFiles: []
+          };
+        }
+      } else if (employeeSelfReviewData?.metadata) {
+        // If no manager review, initialize from employee review structure
+        const empMeta = employeeSelfReviewData.metadata;
+        if (empMeta.goalAssessments && Array.isArray(empMeta.goalAssessments)) {
+          goalReviews = empMeta.goalAssessments.map((goal: any) => ({
+            goalId: goal.goalId,
+            goalDescription: goal.goalDescription || '',
+            weightage: goal.weightage || 0,
+            completion: goal.completion || 0,
+            employeeRating: goal.employeeRating || undefined,
+            managerRating: goal.managerRating || undefined,
+            managerComments: goal.managerComments || ''
+          }));
+        }
+        competencyReviews = COMPETENCIES.map(comp => ({
         competencyId: comp.id,
         competencyName: comp.name,
         weightage: comp.weightage
       }));
+      } else {
+        // No review data found, set empty state
+        setEmployeeSelfReview(null);
+        setGoalReviews([]);
+        setCompetencyReviews(COMPETENCIES.map(comp => ({
+          competencyId: comp.id,
+          competencyName: comp.name,
+          weightage: comp.weightage
+        })));
+        setReviewCycleYear(null);
+        setReviewEmployeeId(null);
+        return;
+      }
 
-      setEmployeeSelfReview(mockSelfReview);
-      setGoalReviews(mockGoalReviews);
-      setCompetencyReviews(mockCompetencyReviews);
+      // Only update self-review if we got new data, otherwise preserve existing
+      // This ensures self-review data persists even after saving manager draft
+      setEmployeeSelfReview(prev => {
+        if (selfReview) {
+          console.log('Setting new self-review data:', selfReview);
+          return selfReview;
+        } else {
+          console.log('No self-review data in response, preserving existing:', prev);
+          // Preserve existing self-review data - don't clear it
+          return prev;
+        }
+      });
+      
+      setGoalReviews(goalReviews);
+      setCompetencyReviews(competencyReviews);
+      setFinalRating(finalRatingData);
+      
+      // Set active review ID for saving (prefer manager review ID)
+      const activeReview = managerReviewData || employeeSelfReviewData;
+      if (activeReview?.reviewId) {
+        setActiveReviewId(activeReview.reviewId);
+      }
+      
+      // Store cycle year and employee ID from review response
+      if (activeReview?.cycleYear) {
+        setReviewCycleYear(activeReview.cycleYear);
+      }
+      if (activeReview?.employeeId || activeReview?.employee_id) {
+        setReviewEmployeeId(activeReview.employeeId || activeReview.employee_id);
+      }
+      
+      // Load clarification requests from self-review metadata
+      const selfReviewMeta = employeeSelfReviewData?.metadata || {};
+      const managerClarificationRequests = selfReviewMeta.clarificationRequests || [];
+      const managerClarificationFields = selfReviewMeta.managerClarificationFields || [];
+      const managerClarificationQuestion = selfReviewMeta.managerClarificationQuestion || '';
+      const managerClarificationRequestedAt = selfReviewMeta.managerClarificationRequestedAt;
+      
+      // Set clarification requests state
+      if (managerClarificationRequests.length > 0) {
+        setClarificationRequests(managerClarificationRequests);
+      }
+      
+      // Check if review was rejected (needs clarification) or if employee responded
+      const metadataStatus = managerReviewData?.metadata?.status || activeReview?.metadata?.status || employeeSelfReviewData?.metadata?.status || '';
+      const hrRejectionReason = managerReviewData?.metadata?.hrRejectionReason || activeReview?.metadata?.hrRejectionReason || null;
+      const employeeClarificationRespondedAt = employeeSelfReviewData?.metadata?.employeeClarificationRespondedAt;
+      
+      // Check if manager has sent clarification request
+      const hasManagerClarificationRequest = managerClarificationRequestedAt || managerClarificationFields.length > 0 || managerClarificationRequests.length > 0;
+      
+      // Check HR rejection separately (independent of manager clarification)
+      if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected') {
+        // HR has rejected - set rejection reason (but don't clear manager clarification)
+        setRejectionReason(hrRejectionReason);
+        // Update direct report status to clarification_requested
+        setDirectReports(prev => prev.map(rep => 
+          rep.id === employeeId 
+            ? { ...rep, reviewStatus: 'clarification_requested' }
+            : rep
+        ));
+      } else {
+        // Only clear rejection reason if it's not an HR rejection
+        // Don't clear it if HR has rejected, even if manager also sent clarification
+        if (!hrRejectionReason) {
+          setRejectionReason(null);
+        }
+      }
+      
+      // Check if employee has responded to clarification
+      if (metadataStatus === 'clarification_responded' || employeeClarificationRespondedAt) {
+        setIsClarificationResponded(true);
+        setIsClarificationRequested(false);
+        // Update direct report status to clarification_responded
+        setDirectReports(prev => prev.map(rep => 
+          rep.id === employeeId 
+            ? { ...rep, reviewStatus: 'clarification_responded' }
+            : rep
+        ));
+      } else if (hasManagerClarificationRequest && metadataStatus === 'clarification_requested') {
+        // Manager has sent clarification request (independent of HR rejection)
+        setIsClarificationRequested(true);
+        setIsClarificationResponded(false);
+        // Update direct report status to clarification_requested
+        setDirectReports(prev => prev.map(rep => 
+          rep.id === employeeId 
+            ? { ...rep, reviewStatus: 'clarification_requested' }
+            : rep
+        ));
+      } else if (!hasManagerClarificationRequest && !hrRejectionReason) {
+        // Only clear these if neither manager clarification nor HR rejection exists
+        setIsClarificationRequested(false);
+        setIsClarificationResponded(false);
+      }
     } catch (error) {
       console.error('Error fetching employee review:', error);
       toast({
@@ -293,10 +626,24 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
       const employee = directReports.find(rep => rep.id === initialEmployeeId);
       if (employee) {
         setSelectedEmployee(employee);
-        fetchEmployeeReview(employee.id);
       }
     }
-  }, [initialEmployeeId, directReports, selectedEmployee, fetchEmployeeReview]);
+  }, [initialEmployeeId, directReports, selectedEmployee]);
+
+  // Fetch review when employee is selected
+  useEffect(() => {
+    if (selectedEmployee) {
+      fetchEmployeeReview(selectedEmployee.id, initialCycleYear);
+    }
+  }, [selectedEmployee, initialCycleYear, fetchEmployeeReview]);
+
+  // Notify parent about review data status
+  useEffect(() => {
+    if (onReviewDataStatusChange) {
+      const hasReviewData = !!(employeeSelfReview || goalReviews.length > 0);
+      onReviewDataStatusChange(hasReviewData);
+    }
+  }, [employeeSelfReview, goalReviews, onReviewDataStatusChange]);
 
   const filteredReports = directReports.filter(report => {
     const matchesStatus = filterStatus === 'all' || report.reviewStatus === filterStatus;
@@ -311,6 +658,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
       self_submitted: { label: 'Self Review Submitted', className: 'bg-blue-500/10 text-blue-600 border-blue-500/20', icon: FileText },
       manager_reviewing: { label: 'Under Review', className: 'bg-purple-500/10 text-purple-600 border-purple-500/20', icon: Eye },
       clarification_requested: { label: 'Clarification Requested', className: 'bg-amber-500/10 text-amber-600 border-amber-500/20', icon: HelpCircle },
+      clarification_responded: { label: 'Response Received', className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 animate-pulse', icon: Bell },
       manager_submitted: { label: 'Submitted to HR', className: 'bg-green-500/10 text-green-600 border-green-500/20', icon: CheckCircle2 }
     };
     const config = variants[status] || variants.not_started;
@@ -392,7 +740,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
         finalRating: sanitizedFinalRating,
         clarificationRequests
       },
-      isDraft: true,
+      submittedAt: undefined,  // undefined = draft
     };
 
     const mergedPayload: ReviewPayload = {
@@ -449,8 +797,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
       console.log('Building review payload...');
       setLoading(true);
       const payload = buildReviewPayload({
-        isDraft: true,
-        submittedAt: undefined,
+        submittedAt: undefined,  // undefined = draft
         metadata: { status: 'manager_draft' }
       });
       console.log('Payload built:', payload);
@@ -462,6 +809,14 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
         title: "Draft Saved",
         description: "Your review has been saved as a draft"
       });
+
+      // Reload the review data after saving to ensure UI is in sync
+      // This will re-fetch both manager review and employee self-review
+      // The fetchEmployeeReview function will preserve existing self-review if new data isn't found
+      if (selectedEmployee) {
+        console.log('Re-fetching employee review after saving draft...');
+        await fetchEmployeeReview(selectedEmployee.id, initialCycleYear || reviewCycleYear);
+      }
     } catch (error) {
       console.error('Error saving draft:', error);
       toast({
@@ -472,7 +827,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
     } finally {
       setLoading(false);
     }
-  }, [selectedEmployee, buildReviewPayload, upsertReview, toast]);
+  }, [selectedEmployee, buildReviewPayload, upsertReview, toast, fetchEmployeeReview, initialCycleYear, reviewCycleYear]);
 
   // Expose save draft function via ref
   useEffect(() => {
@@ -525,47 +880,97 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
   };
 
   const handleSubmitReview = async () => {
-    if (!selectedEmployee) return;
+    try {
+      console.log('=== handleSubmitReview called ===');
+      console.log('selectedEmployee:', selectedEmployee);
+      
+      if (!selectedEmployee) {
+        console.error('No selected employee');
+        toast({
+          title: "Error",
+          description: "No employee selected",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      console.log('=== Validation Check ===');
+      console.log('Goal Reviews:', goalReviews);
+      console.log('Competency Reviews:', competencyReviews);
+      console.log('Final Rating:', finalRating);
 
     // Validate required fields
-    const hasAllGoalRatings = goalReviews.every(goal => goal.managerRating !== undefined);
-    const hasAllCompetencyRatings = competencyReviews.every(comp => comp.managerRating !== undefined);
-    const hasOverallRating = finalRating.overallRating !== undefined;
-    const hasSummaryFeedback = finalRating.summaryFeedback.trim().length > 0;
+      // Only require goal ratings if there are goals
+      const hasAllGoalRatings = goalReviews.length === 0 || goalReviews.every(goal => goal.managerRating !== undefined && goal.managerRating !== null);
+      // Competency ratings are optional - not required
+      const hasOverallRating = finalRating.overallRating !== undefined && finalRating.overallRating !== null;
+      const hasSummaryFeedback = finalRating.summaryFeedback && typeof finalRating.summaryFeedback === 'string' && finalRating.summaryFeedback.trim().length > 0;
 
-    if (!hasAllGoalRatings || !hasAllCompetencyRatings || !hasOverallRating || !hasSummaryFeedback) {
+      console.log('Validation Results:', {
+        hasAllGoalRatings,
+        hasOverallRating,
+        hasSummaryFeedback,
+        goalReviewsCount: goalReviews.length,
+        competencyReviewsCount: competencyReviews.length,
+        overallRatingValue: finalRating.overallRating,
+        summaryFeedbackValue: finalRating.summaryFeedback
+      });
+
+      // Build detailed error message (only for required fields)
+      const missingFields: string[] = [];
+      if (!hasAllGoalRatings && goalReviews.length > 0) {
+        const missingGoals = goalReviews.filter(g => g.managerRating === undefined || g.managerRating === null).map(g => g.goalDescription || g.goalId);
+        missingFields.push(`Goal ratings: ${missingGoals.join(', ')}`);
+      }
+      // Competency ratings are optional - removed from validation
+      if (!hasOverallRating) {
+        missingFields.push('Overall rating');
+      }
+      if (!hasSummaryFeedback) {
+        missingFields.push('Summary feedback');
+      }
+
+      if (!hasAllGoalRatings || !hasOverallRating || !hasSummaryFeedback) {
+        console.error('Validation failed. Missing fields:', missingFields);
       toast({
         title: "Incomplete Review",
-        description: "Please complete all required fields before submitting",
+          description: `Please complete all required fields: ${missingFields.join(', ')}`,
         variant: "destructive"
       });
       return;
     }
 
-    try {
+      console.log('Validation passed. Proceeding with submission...');
+
       setLoading(true);
       const payload = buildReviewPayload({
-        isDraft: false,
-        submittedAt: new Date().toISOString(),
+        submittedAt: new Date().toISOString(),  // Setting submittedAt moves to submitted table
         metadata: { status: 'manager_submitted' }
       });
+      
+      console.log('Submitting payload:', payload);
       await upsertReview(payload);
 
+      console.log('Submission successful');
       toast({
         title: "Success",
         description: "Review submitted successfully to HR"
       });
 
-      // Update status
+      // Update status and clear clarification flags
       setDirectReports(prev => prev.map(rep => 
         rep.id === selectedEmployee.id 
           ? { ...rep, reviewStatus: 'manager_submitted' }
           : rep
       ));
+      
+      // Clear clarification request state
+      setIsClarificationRequested(false);
+      setRejectionReason(null);
 
       handleCloseReview();
     } catch (error) {
-      console.error('Error submitting review:', error);
+      console.error('Error in handleSubmitReview:', error);
       toast({
         title: "Error",
       description: error instanceof Error ? error.message : "Failed to submit review",
@@ -721,6 +1126,16 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
                           Rate
                         </Button>
                       )}
+                      {report.reviewStatus === 'clarification_requested' && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleViewReview(report)}
+                          className="flex-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700"
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Review & Edit
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -740,6 +1155,14 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
       ) : (
         /* Inline Review Workspace - Same design as EmployeeSelfAssessment */
         <div className="space-y-6">
+          {loading ? (
+            <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+              <CardContent className="p-12 text-center">
+                <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-primary" />
+                <p className="text-muted-foreground">Loading review data...</p>
+              </CardContent>
+            </Card>
+          ) : (
           <ReviewWorkspaceInline
             employee={selectedEmployee}
             employeeSelfReview={employeeSelfReview}
@@ -757,7 +1180,17 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
             renderRatingStars={renderRatingStars}
             handleRatingChange={handleRatingChange}
             handleCompetencyRatingChange={handleCompetencyRatingChange}
+              initialCycleYear={initialCycleYear}
+              reviewCycleYear={reviewCycleYear}
+              reviewEmployeeId={reviewEmployeeId}
+              employees={employees}
+              hasReviewData={!!(employeeSelfReview || goalReviews.length > 0)}
+              isClarificationRequested={isClarificationRequested}
+              rejectionReason={rejectionReason}
+              isClarificationResponded={isClarificationResponded}
+              clarificationRequests={clarificationRequests}
           />
+          )}
         </div>
       )}
 
@@ -768,6 +1201,16 @@ export function ManagerReviewWorkspace({ initialEmployeeId, hideHeader = false, 
         employee={selectedEmployee}
         requests={clarificationRequests}
         setRequests={setClarificationRequests}
+        employeeSelfReview={employeeSelfReview}
+        employeeId={reviewEmployeeId}
+        cycleYear={reviewCycleYear}
+        employeeSelfReviewId={employeeSelfReviewId}
+        onClarificationSent={async () => {
+          // Refresh the employee review to show updated status
+          if (selectedEmployee && reviewCycleYear) {
+            await fetchEmployeeReview(selectedEmployee.id, reviewCycleYear);
+          }
+        }}
       />
     </div>
   );
@@ -793,6 +1236,15 @@ interface ReviewWorkspaceInlineProps {
   renderRatingStars: (value: number | undefined, onChange: (value: number) => void, disabled?: boolean) => JSX.Element;
   handleRatingChange: (goalId: string, rating: number) => void;
   handleCompetencyRatingChange: (competencyId: string, rating: number) => void;
+  initialCycleYear?: string | null;
+  reviewCycleYear?: string | null;
+  reviewEmployeeId?: string | null;
+  employees?: any[];
+  hasReviewData?: boolean;
+  isClarificationRequested?: boolean;
+  rejectionReason?: string | null;
+  isClarificationResponded?: boolean;
+  clarificationRequests?: ClarificationRequest[];
 }
 
 function ReviewWorkspaceInline({
@@ -811,8 +1263,20 @@ function ReviewWorkspaceInline({
   loading,
   renderRatingStars,
   handleRatingChange,
-  handleCompetencyRatingChange
+  handleCompetencyRatingChange,
+  initialCycleYear,
+  reviewCycleYear,
+  reviewEmployeeId,
+  employees = [],
+  hasReviewData = false,
+  isClarificationRequested = false,
+  rejectionReason = null,
+  isClarificationResponded = false,
+  clarificationRequests = []
 }: ReviewWorkspaceInlineProps) {
+  // Find the full employee object from employees list to get employeeId
+  const fullEmployee = employees.find(emp => emp.id === employee.id);
+  const employeeIdFromTable = fullEmployee?.employeeId || '';
   const [activeSection, setActiveSection] = useState<number>(0);
   const [saving, setSaving] = useState(false);
   const { preserveScroll } = usePreserveScroll();
@@ -903,8 +1367,218 @@ function ReviewWorkspaceInline({
     return 'bg-background border border-border/50 text-muted-foreground';
   };
 
+  // Show message if no review data is found
+  if (!hasReviewData && !loading) {
   return (
     <div className="space-y-6">
+        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+          <CardContent className="p-12 text-center">
+            <div className="p-4 rounded-full bg-muted/50 w-fit mx-auto mb-4">
+              <FileText className="h-12 w-12 text-muted-foreground opacity-50" />
+            </div>
+            <h3 className="text-lg font-semibold mb-2">No Review Submitted</h3>
+            <p className="text-muted-foreground mb-4">
+              The employee has not yet submitted their review for this cycle.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Enhanced Rejection Reason Banner - Modern Glossy Compact (HR Rejection) */}
+      {rejectionReason && (
+        <Card className="relative overflow-hidden bg-gradient-to-br from-amber-500/20 via-amber-500/10 to-amber-500/5 backdrop-blur-md border border-amber-500/50 shadow-lg shadow-amber-500/10 ring-1 ring-amber-500/20">
+          {/* Glossy overlay effect */}
+          <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-amber-500/5 pointer-events-none"></div>
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(245,158,11,0.4),transparent_60%)]"></div>
+          </div>
+          
+          <CardContent className="p-3 relative z-10">
+            <div className="flex items-start gap-2.5">
+              {/* Compact Glossy Icon */}
+              <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-500/30 to-amber-500/20 shadow-sm border border-amber-500/30 flex-shrink-0 backdrop-blur-sm">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />
+              </div>
+              
+              <div className="flex-1 min-w-0 space-y-1.5">
+                {/* Header with Badge - Ultra Compact */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h3 className="text-xs font-bold text-amber-900 dark:text-amber-100 flex items-center gap-1">
+                    Action Required: HR Changes Requested
+                  </h3>
+                  <Badge className="bg-gradient-to-r from-amber-600 to-amber-700 text-white border-0 shadow-sm text-[10px] px-1.5 py-0 h-4">
+                    Needs Clarification
+                  </Badge>
+                </div>
+                
+                {/* HR Feedback Box - Compact Inline */}
+                <div className="bg-gradient-to-br from-amber-50/80 dark:from-amber-950/40 to-background/60 rounded-md p-2 border border-amber-500/30 shadow-sm">
+                  <div className="flex items-center gap-1 mb-1">
+                    <MessageSquare className="h-2.5 w-2.5 text-amber-700 dark:text-amber-400 flex-shrink-0" />
+                    <p className="text-[10px] font-semibold text-amber-900 dark:text-amber-100 uppercase tracking-tight">
+                      HR Feedback
+                    </p>
+                  </div>
+                  <p className="text-[11px] font-medium text-foreground leading-snug whitespace-pre-wrap">
+                    {rejectionReason}
+                  </p>
+                </div>
+                
+                {/* Action Hint - Ultra Compact */}
+                <div className="flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-300">
+                  <Edit className="h-2.5 w-2.5 flex-shrink-0" />
+                  <span className="font-medium">Edit sections below, then click "Send to HR" to resubmit.</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Manager's Clarification Request Banner - Modern Glossy Compact */}
+      {/* Show this banner independently - can appear alongside HR rejection banner */}
+      {clarificationRequests.length > 0 && !isClarificationResponded && (
+        <Card className="relative overflow-hidden bg-gradient-to-br from-blue-500/20 via-blue-500/10 to-blue-500/5 backdrop-blur-md border border-blue-500/50 shadow-lg shadow-blue-500/10 ring-1 ring-blue-500/20">
+          {/* Glossy overlay effect */}
+          <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-blue-500/5 pointer-events-none"></div>
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(59,130,246,0.4),transparent_60%)]"></div>
+          </div>
+          
+          <CardContent className="p-3 relative z-10">
+            <div className="flex items-start gap-2.5">
+              {/* Compact Glossy Icon */}
+              <div className="p-1.5 rounded-lg bg-gradient-to-br from-blue-500/30 to-blue-500/20 shadow-sm border border-blue-500/30 flex-shrink-0 backdrop-blur-sm">
+                <HelpCircle className="h-3.5 w-3.5 text-blue-700 dark:text-blue-400" />
+              </div>
+              
+              <div className="flex-1 min-w-0 space-y-1.5">
+                {/* Header with Badge - Ultra Compact */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h3 className="text-xs font-bold text-blue-900 dark:text-blue-100 flex items-center gap-1">
+                    Clarification Request Sent
+                  </h3>
+                  <Badge className="bg-gradient-to-r from-blue-600 to-blue-700 text-white border-0 shadow-sm text-[10px] px-1.5 py-0 h-4">
+                    Awaiting Response
+                  </Badge>
+                </div>
+                
+                {/* Clarification Details Box - Compact Inline */}
+                {clarificationRequests.length > 0 && (
+                  <div className="bg-gradient-to-br from-blue-50/80 dark:from-blue-950/40 to-background/60 rounded-md p-2 border border-blue-500/30 shadow-sm space-y-1.5">
+                    <div className="flex items-center gap-1">
+                      <MessageSquare className="h-2.5 w-2.5 text-blue-700 dark:text-blue-400 flex-shrink-0" />
+                      <p className="text-[10px] font-semibold text-blue-900 dark:text-blue-100 uppercase tracking-tight">
+                        Your Request
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold text-foreground mb-0.5">Fields:</p>
+                      <ul className="text-[11px] text-foreground space-y-0.5 list-disc list-inside leading-tight">
+                        {clarificationRequests.map((req, idx) => (
+                          <li key={req.id || idx} className="leading-tight">{req.field}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {clarificationRequests[0]?.question && (
+                      <div className="pt-1 border-t border-blue-500/20">
+                        <p className="text-[10px] font-semibold text-foreground mb-0.5">Question:</p>
+                        <p className="text-[11px] text-foreground leading-snug whitespace-pre-wrap">
+                          {clarificationRequests[0].question}
+                        </p>
+                      </div>
+                    )}
+                    {clarificationRequests[0]?.requestedAt && (
+                      <div className="pt-1 border-t border-blue-500/20">
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(clarificationRequests[0].requestedAt).toLocaleString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Employee Response Notification Banner - Modern Glossy Compact */}
+      {isClarificationResponded && (
+        <Card className="relative overflow-hidden bg-gradient-to-br from-emerald-500/20 via-emerald-500/10 to-emerald-500/5 backdrop-blur-md border border-emerald-500/50 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500/20">
+          {/* Glossy overlay effect */}
+          <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-emerald-500/5 pointer-events-none"></div>
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(16,185,129,0.4),transparent_60%)]"></div>
+          </div>
+          
+          <CardContent className="p-3 relative z-10">
+            <div className="flex items-start gap-2.5">
+              {/* Compact Glossy Icon */}
+              <div className="p-1.5 rounded-lg bg-gradient-to-br from-emerald-500/30 to-emerald-500/20 shadow-sm border border-emerald-500/30 flex-shrink-0 backdrop-blur-sm">
+                <Bell className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
+              </div>
+              
+              <div className="flex-1 min-w-0 space-y-1.5">
+                {/* Header with Badge - Ultra Compact */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h3 className="text-xs font-bold text-emerald-900 dark:text-emerald-100 flex items-center gap-1">
+                    <Bell className="h-3 w-3" />
+                    Employee Has Responded
+                  </h3>
+                  <Badge className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white border-0 shadow-sm text-[10px] px-1.5 py-0 h-4 animate-pulse">
+                    Response Received
+                  </Badge>
+                </div>
+                
+                {/* Instruction Text - Compact */}
+                <p className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 leading-snug">
+                  ✅ Employee updated their self-review. Review changes below.
+                </p>
+                
+                {/* Show original request details - Compact */}
+                {clarificationRequests.length > 0 && (
+                  <div className="bg-gradient-to-br from-emerald-50/80 dark:from-emerald-950/40 to-background/60 rounded-md p-2 border border-emerald-500/30 shadow-sm space-y-1.5">
+                    <div className="flex items-center gap-1">
+                      <MessageSquare className="h-2.5 w-2.5 text-emerald-700 dark:text-emerald-400 flex-shrink-0" />
+                      <p className="text-[10px] font-semibold text-emerald-900 dark:text-emerald-100 uppercase tracking-tight">
+                        Your Original Request
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold text-foreground mb-0.5">Fields:</p>
+                      <ul className="text-[11px] text-foreground space-y-0.5 list-disc list-inside leading-tight">
+                        {clarificationRequests.map((req, idx) => (
+                          <li key={req.id || idx} className="leading-tight">{req.field}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {clarificationRequests[0]?.question && (
+                      <div className="pt-1 border-t border-emerald-500/20">
+                        <p className="text-[10px] font-semibold text-foreground mb-0.5">Question:</p>
+                        <p className="text-[11px] text-foreground leading-snug whitespace-pre-wrap">
+                          {clarificationRequests[0].question}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="lg:w-1/3 space-y-3">
           {sections.map((section, index) => (
@@ -960,7 +1634,7 @@ function ReviewWorkspaceInline({
                       </div>
                       <div>
                         <Label className="text-sm text-muted-foreground">Employee ID</Label>
-                        <p className="font-medium">{employee.id}</p>
+                        <p className="font-medium">{employeeIdFromTable || employee.id}</p>
                       </div>
                       <div>
                         <Label className="text-sm text-muted-foreground">Position</Label>
@@ -976,20 +1650,15 @@ function ReviewWorkspaceInline({
                       </div>
                       <div>
                         <Label className="text-sm text-muted-foreground">Review Period</Label>
-                        <p className="font-medium">{employee.cycleName}</p>
+                        <p className="font-medium">
+                          {reviewCycleYear 
+                            ? `${reviewCycleYear} Annual Performance Review` 
+                            : initialCycleYear 
+                            ? `${initialCycleYear} Annual Performance Review` 
+                            : employee.cycleName || 'N/A'}
+                        </p>
                       </div>
                     </div>
-                  </div>
-                  {/* Goals will be displayed here - need to fetch them */}
-                  <div className="grid gap-3">
-                    <Card className="bg-gradient-to-br from-muted/40 via-muted/20 to-muted/40 backdrop-blur-sm border-border/30 shadow-inner">
-                      <CardContent className="p-12 text-center">
-                        <div className="p-4 rounded-full bg-primary/10 w-fit mx-auto mb-4">
-                          <Target className="h-8 w-8 text-primary/50" />
-                        </div>
-                        <p className="text-muted-foreground text-sm">Goals will be displayed in the Goals Review section</p>
-                      </CardContent>
-                    </Card>
                   </div>
                 </CardContent>
               </Card>
@@ -1025,64 +1694,46 @@ function ReviewWorkspaceInline({
                     <CardContent className="space-y-6">
                       <div>
                         <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                          1. Key Accomplishments Since Last Review
+                          1. Most Significant Accomplishments
                         </Label>
                         <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                          {employeeSelfReview.keyAccomplishments}
+                          {employeeSelfReview.keyAccomplishments || 'Not provided'}
                         </p>
                       </div>
 
                       <div>
                         <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                          2. Contributions Beyond Job Responsibilities
+                          2. Contributions Beyond Role
                         </Label>
                         <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                          {employeeSelfReview.beyondResponsibilities}
+                          {employeeSelfReview.beyondResponsibilities || 'Not provided'}
                         </p>
                       </div>
 
                       <div>
                         <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                          3. Challenges Faced (with Examples)
+                          3. Challenges + Solutions (with examples)
                         </Label>
                         <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                          {employeeSelfReview.challenges}
+                          {employeeSelfReview.challenges || 'Not provided'}
                         </p>
                       </div>
 
                       <div>
                         <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                          4. Areas for Development / Improvement
+                          4. Areas Needing Improvement
                         </Label>
                         <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                          {employeeSelfReview.areasToImprove}
+                          {employeeSelfReview.areasToImprove || 'Not provided'}
                         </p>
                       </div>
 
                       <div>
                         <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                          5. New Skills or Knowledge Acquired
+                          5. Certifications/Trainings Completed Last Year
                         </Label>
                         <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                          {employeeSelfReview.skillsAcquired}
-                        </p>
-                      </div>
-
-                      <div>
-                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                          6. Certifications or Trainings Completed Last Year
-                        </Label>
-                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                          {employeeSelfReview.trainingsCompleted}
-                        </p>
-                      </div>
-
-                      <div>
-                        <Label className="text-sm font-semibold text-muted-foreground mb-2 block">
-                          7. Trainings / Certifications Employee Wants to Pursue Next
-                        </Label>
-                        <p className="text-sm leading-relaxed bg-background/50 p-4 rounded-lg border border-border/50">
-                          {employeeSelfReview.trainingsToPursue}
+                          {employeeSelfReview.trainingsCompleted || 'Not provided'}
                         </p>
                       </div>
 
@@ -1176,7 +1827,6 @@ function ReviewWorkspaceInline({
                               <span>Weightage</span>
                             </div>
                           </TableHead>
-                          <TableHead className="font-semibold text-foreground/90">Employee Rating</TableHead>
                           <TableHead className="font-semibold text-foreground/90">Manager Rating</TableHead>
                           <TableHead className="font-semibold text-foreground/90 min-w-[300px]">Comments</TableHead>
                         </TableRow>
@@ -1198,28 +1848,6 @@ function ReviewWorkspaceInline({
                                   </Badge>
                                 )}
                               </div>
-                            </TableCell>
-                            <TableCell className="py-4">
-                              {goal.employeeRating ? (
-                                <div className="flex flex-col gap-1.5">
-                                  <div className="flex items-center gap-1.5">
-                                    {[5, 4, 3, 2, 1].map((rating) => (
-                                      <Star
-                                        key={rating}
-                                        className={cn(
-                                          "h-4 w-4 transition-colors",
-                                          rating <= goal.employeeRating! ? "fill-blue-400 text-blue-400" : "text-muted-foreground/40"
-                                        )}
-                                      />
-                                    ))}
-                                  </div>
-                                  <span className="text-xs font-medium text-muted-foreground">
-                                    Self Rating: {goal.employeeRating}
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              )}
                             </TableCell>
                             <TableCell className="py-4">
                               {renderRatingStars(goal.managerRating, (rating) => handleRatingChange(goal.goalId, rating))}
@@ -1428,36 +2056,6 @@ function ReviewWorkspaceInline({
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('Save Draft button onClick fired');
-                    console.log('Button disabled?', saving || loading);
-                    if (!(saving || loading)) {
-                      handleSaveDraftClick();
-                    } else {
-                      console.warn('Button click ignored - button is disabled');
-                    }
-                  }}
-                  disabled={saving || loading}
-                  className="h-10 border border-input bg-background hover:bg-accent hover:text-accent-foreground"
-                  type="button"
-                  aria-label="Save Draft"
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4 mr-2" />
-                      Save Draft
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
                   onClick={onRequestClarification}
                   className="h-10 hover:bg-amber-500/10 hover:text-amber-600"
                 >
@@ -1465,7 +2063,17 @@ function ReviewWorkspaceInline({
                   Request Clarification
                 </Button>
                 <Button
-                  onClick={onSubmit}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Send to HR button clicked');
+                    console.log('onSubmit function:', onSubmit);
+                    if (onSubmit) {
+                      onSubmit();
+                    } else {
+                      console.error('onSubmit is not defined!');
+                    }
+                  }}
                   disabled={loading}
                   className="bg-gradient-to-r from-primary to-primary/80 h-10"
                 >
@@ -1489,6 +2097,11 @@ interface ClarificationRequestModalProps {
   employee: DirectReport | null;
   requests: ClarificationRequest[];
   setRequests: (requests: ClarificationRequest[]) => void;
+  employeeSelfReview: EmployeeSelfReview | null;
+  employeeId: string | null;
+  cycleYear: string | null;
+  employeeSelfReviewId: string | null; // The reviewId of the self-review to update
+  onClarificationSent?: () => void; // Callback after clarification is sent
 }
 
 function ClarificationRequestModal({
@@ -1496,49 +2109,189 @@ function ClarificationRequestModal({
   onOpenChange,
   employee,
   requests,
-  setRequests
+  setRequests,
+  employeeSelfReview,
+  employeeId,
+  cycleYear,
+  employeeSelfReviewId,
+  onClarificationSent
 }: ClarificationRequestModalProps) {
-  const [selectedField, setSelectedField] = useState('');
+  const [selectedFields, setSelectedFields] = useState<string[]>([]);
   const [question, setQuestion] = useState('');
+  const [isFieldDropdownOpen, setIsFieldDropdownOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
-  const fields = [
-    'Key Accomplishments',
-    'Beyond Responsibilities',
-    'Challenges',
-    'Areas to Improve',
-    'Skills Acquired',
-    'Trainings Completed',
-    'Trainings to Pursue',
-    'Tools & Technologies'
-  ];
+  // Show all Self-Review fields that match the actual UI labels
+  const availableFields = useMemo(() => {
+    // Match the exact field labels from the Self-Review UI section
+    return [
+      { value: 'Most Significant Accomplishments', label: '1. Most Significant Accomplishments' },
+      { value: 'Contributions Beyond Role', label: '2. Contributions Beyond Role' },
+      { value: 'Challenges + Solutions (with examples)', label: '3. Challenges + Solutions (with examples)' },
+      { value: 'Areas Needing Improvement', label: '4. Areas Needing Improvement' },
+      { value: 'Certifications/Trainings Completed Last Year', label: '5. Certifications/Trainings Completed Last Year' },
+      { value: 'Tools & Technologies', label: '6. Tools & Technologies' }
+    ];
+  }, []);
 
-  const handleSubmit = () => {
-    if (!selectedField || !question.trim()) {
+  const handleFieldToggle = (fieldValue: string) => {
+    setSelectedFields(prev => {
+      if (prev.includes(fieldValue)) {
+        return prev.filter(f => f !== fieldValue);
+      } else {
+        return [...prev, fieldValue];
+      }
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (selectedFields.length === 0 || !question.trim()) {
       toast({
         title: "Required Fields",
-        description: "Please select a field and enter your question",
+        description: "Please select at least one field and enter your question",
         variant: "destructive"
       });
       return;
     }
 
-    const newRequest: ClarificationRequest = {
-      id: Date.now().toString(),
-      field: selectedField,
-      question: question.trim(),
-      status: 'pending'
-    };
+    if (!employeeId || !cycleYear) {
+      toast({
+        title: "Error",
+        description: "Missing employee or cycle information. Please try again.",
+        variant: "destructive"
+      });
+      return;
+    }
 
-    setRequests([...requests, newRequest]);
+    try {
+      setIsSubmitting(true);
+
+      let review;
+      let reviewId = employeeSelfReviewId;
+
+      // If we don't have a review ID, try to fetch the self-review
+      if (!reviewId) {
+        console.log('No review ID found, fetching self-review...', { employeeId, cycleYear });
+        const fetchResponse = await authenticatedFetch(
+          `${API_BASE_URL}/reviews?employeeId=${employeeId}&cycleYear=${cycleYear}&reviewType=self`,
+          { method: 'GET' }
+        );
+
+        if (fetchResponse.ok) {
+          const reviews = await fetchResponse.json();
+          console.log('Fetched reviews for clarification request:', reviews);
+          if (Array.isArray(reviews) && reviews.length > 0) {
+            // Prefer submitted review over draft
+            const submittedReview = reviews.find((r: any) => !r.isDraft && r.submittedAt);
+            const draftReview = reviews.find((r: any) => r.isDraft);
+            const foundReview = submittedReview || draftReview || reviews[0];
+            reviewId = foundReview.reviewId;
+            review = foundReview;
+            console.log('Found self-review:', reviewId, foundReview);
+          } else {
+            console.log('No self-reviews found in response');
+          }
+        } else {
+          console.error('Failed to fetch self-reviews:', await fetchResponse.text());
+        }
+      }
+
+      // If still no review, we need to create one or show a better error
+      if (!reviewId) {
+        toast({
+          title: "No Self-Review Found",
+          description: "The employee has not yet started their self-review. Please ask them to begin their assessment first.",
+          variant: "destructive"
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Fetch the review if we don't have it yet
+      if (!review) {
+        const reviewResponse = await authenticatedFetch(
+          `${API_BASE_URL}/reviews/${reviewId}`,
+          { method: 'GET' }
+        );
+
+        if (!reviewResponse.ok) {
+          throw new Error('Failed to fetch self-review');
+        }
+
+        review = await reviewResponse.json();
+      }
+
+      // Create clarification requests for each selected field
+      const newClarificationRequests = selectedFields.map(field => ({
+        id: `${Date.now()}-${field}`,
+        field: field,
+      question: question.trim(),
+        status: 'pending' as const,
+        requestedAt: new Date().toISOString(),
+        requestedBy: user?.email || 'unknown'
+      }));
+
+      // Update review with clarification requests
+      const existingClarificationRequests = review.metadata?.clarificationRequests || [];
+      const updatedClarificationRequests = [...existingClarificationRequests, ...newClarificationRequests];
+
+      const updatedReview = {
+        ...review,
+        metadata: {
+          ...review.metadata,
+          status: 'clarification_requested',
+          clarificationRequests: updatedClarificationRequests,
+          managerClarificationRequestedAt: new Date().toISOString(),
+          managerClarificationFields: selectedFields,
+          managerClarificationQuestion: question.trim()
+        }
+      };
+
+      // Update the self-review via API
+      const updateResponse = await authenticatedFetch(
+        `${API_BASE_URL}/reviews/${reviewId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(updatedReview)
+        }
+      );
+
+      if (!updateResponse.ok) {
+        const errorText = await updateResponse.text();
+        throw new Error(errorText || 'Failed to send clarification request');
+      }
+
+      // Update local state
+      setRequests([...requests, ...newClarificationRequests]);
+      
     toast({
       title: "Clarification Requested",
-      description: "The employee will be notified to provide clarification"
+        description: `Clarification requested for ${selectedFields.length} field(s). The employee will be notified.`
     });
 
-    setSelectedField('');
+      setSelectedFields([]);
     setQuestion('');
     onOpenChange(false);
+
+      // Call callback to refresh data
+      if (onClarificationSent) {
+        await onClarificationSent();
+      }
+    } catch (error) {
+      console.error('Error sending clarification request:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to send clarification request",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1547,25 +2300,76 @@ function ClarificationRequestModal({
         <DialogHeader>
           <DialogTitle>Request Clarification from {employee?.name}</DialogTitle>
           <DialogDescription>
-            Select the field you need clarification on and ask your question
+            Select one or more fields you need clarification on and ask your question
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           <div>
-            <Label htmlFor="field">Select Field *</Label>
-            <Select value={selectedField} onValueChange={setSelectedField}>
-              <SelectTrigger className="mt-1 bg-background/50">
-                <SelectValue placeholder="Select a field" />
-              </SelectTrigger>
-              <SelectContent>
-                {fields.map((field) => (
-                  <SelectItem key={field} value={field}>
-                    {field}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="field">Select Field(s) *</Label>
+            <Popover open={isFieldDropdownOpen} onOpenChange={setIsFieldDropdownOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between mt-1 bg-background/50 h-10"
+                >
+                  <span className="truncate text-left font-normal">
+                    {selectedFields.length === 0
+                      ? "Select field(s)"
+                      : selectedFields.length === 1
+                      ? availableFields.find(f => f.value === selectedFields[0])?.label || "1 field selected"
+                      : `${selectedFields.length} fields selected`}
+                  </span>
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                <div className="max-h-60 overflow-auto p-2">
+                  {availableFields.map((field) => {
+                    const isSelected = selectedFields.includes(field.value);
+                    return (
+                      <div
+                        key={field.value}
+                        className="flex items-center space-x-2 p-2 rounded-sm hover:bg-accent cursor-pointer"
+                        onClick={() => handleFieldToggle(field.value)}
+                      >
+                        <div className={cn(
+                          "flex h-4 w-4 items-center justify-center rounded-sm border border-primary ring-offset-background",
+                          isSelected && "bg-primary text-primary-foreground"
+                        )}>
+                          {isSelected && (
+                            <Check className="h-3 w-3 text-primary-foreground" />
+                          )}
+                        </div>
+                        <label className="text-sm font-medium leading-none cursor-pointer flex-1">
+                          {field.label}
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+            {selectedFields.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {selectedFields.map((fieldValue) => {
+                  const field = availableFields.find(f => f.value === fieldValue);
+                  return (
+                    <Badge key={fieldValue} variant="secondary" className="text-xs">
+                      {field?.label}
+                      <button
+                        type="button"
+                        onClick={() => handleFieldToggle(fieldValue)}
+                        className="ml-1 hover:text-destructive"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div>
@@ -1593,4 +2397,6 @@ function ClarificationRequestModal({
     </Dialog>
   );
 }
+
+
 

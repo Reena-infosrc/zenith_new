@@ -5,7 +5,6 @@ import {
   Users,
   CheckCircle2,
   Clock,
-  AlertCircle,
   Download,
   Calendar,
   Target,
@@ -38,7 +37,6 @@ interface DashboardStats {
   cycleCompletionRate: number;
   averageRating: number;
   pendingReviews: number;
-  overdueReviews: number;
   completedReviews: number;
 }
 
@@ -63,7 +61,6 @@ export function PerformanceDashboard() {
     cycleCompletionRate: 72,
     averageRating: 3.8,
     pendingReviews: 45,
-    overdueReviews: 12,
     completedReviews: 105
   });
 
@@ -192,9 +189,6 @@ export function PerformanceDashboard() {
           <h2 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
             Performance Dashboard
           </h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Overview of performance reviews, completion rates, and ratings
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={selectedCycle} onValueChange={setSelectedCycle}>
@@ -251,9 +245,6 @@ export function PerformanceDashboard() {
               <div>
                 <p className="text-sm text-muted-foreground">Pending Reviews</p>
                 <p className="text-2xl font-bold">{stats.pendingReviews}</p>
-                <p className="text-xs text-destructive mt-2">
-                  {stats.overdueReviews} overdue
-                </p>
               </div>
               <Clock className="h-8 w-8 text-orange-500/50" />
             </div>
@@ -365,31 +356,6 @@ export function PerformanceDashboard() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Overdue Reviews List */}
-      {stats.overdueReviews > 0 && (
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 border-destructive/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-destructive">
-              <AlertCircle className="h-5 w-5" />
-              Overdue Reviews ({stats.overdueReviews})
-            </CardTitle>
-            <CardDescription>Reviews pending manager sign-off for more than 7 days</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {/* Mock overdue list - replace with actual data */}
-              <div className="flex items-center justify-between p-3 rounded-lg bg-destructive/10 border border-destructive/20">
-                <div>
-                  <p className="font-medium">John Doe</p>
-                  <p className="text-sm text-muted-foreground">Q1 2024 Performance Review</p>
-                </div>
-                <Badge variant="destructive">12 days overdue</Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

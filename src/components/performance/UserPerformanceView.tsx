@@ -25,7 +25,8 @@ import {
   Save,
   SquarePen,
   ChevronLeft,
-  Users
+  Users,
+  AlertCircle
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -126,7 +127,16 @@ interface GrowthData {
   goalsCompleted: number;
 }
 
-export function UserPerformanceView() {
+interface UserPerformanceViewProps {
+  /**
+   * Optional employee ID to use instead of finding from current user.
+   * If provided, this employee's goals and reviews will be displayed.
+   * If not provided, the component will find the employee ID from the current user.
+   */
+  employeeId?: string | null;
+}
+
+export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerformanceViewProps = {}) {
   const { preserveScroll } = usePreserveScroll();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -134,7 +144,7 @@ export function UserPerformanceView() {
   const { employees } = useEmployees();
 
   const [goals, setGoals] = useState<PerformanceGoal[]>([]);
-  const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(null);
+  const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(providedEmployeeId || null);
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState<any[]>([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
@@ -258,7 +268,13 @@ export function UserPerformanceView() {
 
 
   // Get current user's employee ID
+  // Use provided employeeId if available, otherwise find from user
   useEffect(() => {
+    if (providedEmployeeId) {
+      setCurrentEmployeeId(providedEmployeeId);
+      return;
+    }
+
     const fetchEmployeeId = async () => {
       if (!user?.email) return;
 
@@ -276,7 +292,7 @@ export function UserPerformanceView() {
     if (user?.email && employees.length > 0) {
       fetchEmployeeId();
     }
-  }, [user?.email, employees]);
+  }, [providedEmployeeId, user?.email, employees]);
 
   // Fetch goals when employee ID is available
   useEffect(() => {
@@ -1025,14 +1041,16 @@ const normalizeCategory = (category: string): string => {
                     );
                     
                     // Determine review status
-                    let reviewStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' = 'not_started';
+                    let reviewStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' | 'needs_clarification' = 'not_started';
                     if (cycleReview) {
                       if (cycleReview.isDraft) {
                         reviewStatus = 'draft';
                       } else if (cycleReview.submittedAt) {
                         // Check metadata status for more specific status
                         const metadataStatus = cycleReview.metadata?.status;
-                        if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing') {
+                        if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected') {
+                          reviewStatus = 'needs_clarification';
+                        } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing') {
                           reviewStatus = 'under_manager_review';
                         } else {
                           reviewStatus = 'submitted';
@@ -1050,7 +1068,13 @@ const normalizeCategory = (category: string): string => {
                       icon: CheckCircle2
                     };
                     
-                    if (reviewStatus === 'under_manager_review' || reviewStatus === 'submitted') {
+                    if (reviewStatus === 'needs_clarification') {
+                      badgeConfig = {
+                        label: 'Needs Clarification',
+                        className: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+                        icon: AlertCircle
+                      };
+                    } else if (reviewStatus === 'under_manager_review' || reviewStatus === 'submitted') {
                       badgeConfig = {
                         label: reviewStatus === 'under_manager_review' ? 'Under Review' : 'Submitted',
                         className: 'bg-purple-500/10 text-purple-600 border-purple-500/20',

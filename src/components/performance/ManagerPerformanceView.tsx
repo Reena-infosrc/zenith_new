@@ -21,7 +21,8 @@ import {
   ChevronLeft,
   Save,
   Star,
-  SquarePen
+  SquarePen,
+  AlertCircle
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ import { ReviewForms } from "./ReviewForms";
 import { ManagerReviewWorkspace } from "./ManagerReviewWorkspace";
 import { ContinuousFeedback } from "./ContinuousFeedback";
 import { EmployeeSelfAssessment } from "./EmployeeSelfAssessment";
+import { UserPerformanceView } from "./UserPerformanceView";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 import { GoalSummaryCard } from "./GoalSummaryCard";
 import {
@@ -63,7 +65,6 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { TeamMemberGoalsCard } from "./TeamMemberGoalsCard";
-import { calculateGoalDistribution } from "@/utils/goal-distribution";
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 
@@ -234,6 +235,7 @@ export function ManagerPerformanceView() {
   const [loadingReviewsCount, setLoadingReviewsCount] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
+  const [employeeReviewStatuses, setEmployeeReviewStatuses] = useState<Map<string, 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted'>>(new Map());
   const [activeCycle, setActiveCycle] = useState<any | null>(null);
   const [loadingActiveCycle, setLoadingActiveCycle] = useState(false);
   const [allCycles, setAllCycles] = useState<any[]>([]);
@@ -261,10 +263,12 @@ export function ManagerPerformanceView() {
   }, [getGoal]);
   
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterByClarification, setFilterByClarification] = useState(false);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'feedback'>('my-team');
   const [showReviewWorkspace, setShowReviewWorkspace] = useState(false);
   const [reviewEmployee, setReviewEmployee] = useState<Employee | null>(null);
+  const [hasReviewData, setHasReviewData] = useState(false);
   const saveDraftRef = useRef<(() => void) | null>(null);
   const { preserveScroll } = usePreserveScroll();
   
@@ -411,17 +415,6 @@ export function ManagerPerformanceView() {
     });
   };
 
-  const handleOpenMyGoalPanel = (goal: MyGoal, trigger: HTMLButtonElement | null) => {
-    goalPanelTriggerRef.current = trigger;
-    // Goal details are already available from employee goals endpoint, no need to fetch
-    setGoalPanelState({
-      open: true,
-      goalId: goal.id,
-      summary: toMyGoalSnapshot(goal),
-      employee: managerSummary
-    });
-  };
-
   const handleCloseGoalPanel = () => {
     setGoalPanelState((prev) => ({ ...prev, open: false }));
   };
@@ -487,19 +480,6 @@ export function ManagerPerformanceView() {
       });
     }
   }, [selectedGoalForEdit, showEditGoalDialog]);
-
-  // Mock growth data for manager's own goals
-  const growthData = [
-    { month: "Jan", performance: 65, goalsCompleted: 1 },
-    { month: "Feb", performance: 72, goalsCompleted: 2 },
-    { month: "Mar", performance: 78, goalsCompleted: 2 },
-    { month: "Apr", performance: 82, goalsCompleted: 3 },
-    { month: "May", performance: 88, goalsCompleted: 4 },
-    { month: "Jun", performance: 85, goalsCompleted: 3 }
-  ];
-
-  // Calculate goal distribution using shared utility function
-  const categoryData = calculateGoalDistribution(myGoals);
 
   const refreshGoalPanelStateForEmployee = useCallback((employeeId: string, goals: Goal[]) => {
     setGoalPanelState((prev) => {
@@ -734,9 +714,8 @@ export function ManagerPerformanceView() {
     }
   }, [initialLoading, currentManagerEmployeeId, directReports]);
 
-  // Fetch reviews for Annual Reviews section
-  useEffect(() => {
-    const fetchReviews = async () => {
+  // Fetch reviews for Annual Reviews section - OPTIMIZED with parallel requests
+  const fetchReviews = useCallback(async () => {
       if (!user?.email || employees.length === 0) return;
       
       try {
@@ -755,35 +734,119 @@ export function ManagerPerformanceView() {
           ? directReports.map(r => r.id) // Manager: get direct reports
           : [currentUser.id]; // User: get own reviews
         
-        const allReviews: any[] = [];
+        if (employeeIds.length === 0) {
+          setLoadingReviews(false);
+          return;
+        }
         
-        for (const empId of employeeIds) {
-          try {
-            const response = await authenticatedFetch(
-              `${API_BASE_URL}/reviews?employeeId=${empId}`,
-              { method: 'GET' }
-            );
+        const allReviews: any[] = [];
+        const statusMap = new Map<string, 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted'>();
+        
+        // OPTIMIZATION: Fetch all reviews in parallel instead of sequentially
+        const reviewPromises = employeeIds.flatMap(empId => [
+          // Manager review fetch
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews?employeeId=${empId}&reviewType=manager`,
+            { method: 'GET' }
+          ).then(async (response) => {
+            if (!response.ok) return { empId, type: 'manager', data: null };
+            const data = await response.json();
+            return { empId, type: 'manager', data: Array.isArray(data) ? data : [] };
+          }).catch((error) => {
+            console.error(`Error fetching manager review for employee ${empId}:`, error);
+            return { empId, type: 'manager', data: null };
+          }),
+          // Self review fetch
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews?employeeId=${empId}&reviewType=self`,
+            { method: 'GET' }
+          ).then(async (response) => {
+            if (!response.ok) return { empId, type: 'self', data: null };
+            const data = await response.json();
+            return { empId, type: 'self', data: Array.isArray(data) ? data : [] };
+          }).catch((error) => {
+            console.error(`Error fetching self review for employee ${empId}:`, error);
+            return { empId, type: 'self', data: null };
+          })
+        ]);
+        
+        // Wait for all requests to complete in parallel
+        const results = await Promise.all(reviewPromises);
+        
+        // Process results
+        for (const result of results) {
+          if (!result.data) continue;
+          
+          const { empId, type, data } = result;
+          
+          if (type === 'manager') {
+            allReviews.push(...data);
             
-            if (response.ok) {
-              const data = await response.json();
-              if (Array.isArray(data)) {
-                allReviews.push(...data);
+            // Find the most recent manager review for this employee
+            if (data.length > 0) {
+              // Sort by submittedAt or updatedAt (most recent first)
+              const sortedReviews = [...data].sort((a: any, b: any) => {
+                const dateA = a.submittedAt || a.updatedAt || a.createdAt || '';
+                const dateB = b.submittedAt || b.updatedAt || b.createdAt || '';
+                return new Date(dateB).getTime() - new Date(dateA).getTime();
+              });
+              
+              const latestReview = sortedReviews[0];
+              const metadataStatus = latestReview.metadata?.status || '';
+              
+              // Determine review status - prioritize clarification status
+              if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected') {
+                statusMap.set(empId, 'clarification_requested');
+              } else if (metadataStatus === 'manager_submitted' || latestReview.submittedAt) {
+                statusMap.set(empId, 'manager_submitted');
+              } else if (latestReview.isDraft) {
+                statusMap.set(empId, 'manager_reviewing');
               }
             }
-          } catch (error) {
-            console.error(`Error fetching reviews for employee ${empId}:`, error);
+          } else if (type === 'self') {
+            allReviews.push(...data);
+            
+            // Check if employee has responded to clarification
+            const respondedSelfReview = data.find((r: any) => {
+              const metadataStatus = r.metadata?.status;
+              return metadataStatus === 'clarification_responded' || 
+                     (r.metadata?.employeeClarificationRespondedAt && r.submittedAt);
+            });
+            
+            if (respondedSelfReview) {
+              // Employee has responded to clarification - show notification
+              statusMap.set(empId, 'clarification_responded');
+            } else if (!statusMap.has(empId)) {
+              // Check if employee has submitted self-review (only if no manager status set)
+              const submittedSelfReview = data.find((r: any) => r.submittedAt && !r.isDraft);
+              if (submittedSelfReview) {
+                // Check if there was a clarification request that hasn't been responded to
+                const hasPendingClarification = submittedSelfReview.metadata?.status === 'clarification_requested' ||
+                  (submittedSelfReview.metadata?.clarificationRequests && 
+                   submittedSelfReview.metadata.clarificationRequests.some((req: any) => req.status === 'pending'));
+                
+                if (hasPendingClarification) {
+                  statusMap.set(empId, 'clarification_requested');
+                } else {
+                  statusMap.set(empId, 'self_submitted');
+                }
+              }
+            }
           }
         }
         
         // Sort by cycle year and created date (most recent first)
         allReviews.sort((a, b) => {
-          if (a.cycleYear !== b.cycleYear) {
-            return b.cycleYear.localeCompare(a.cycleYear);
+          const yearA = String(a.cycleYear || '');
+          const yearB = String(b.cycleYear || '');
+          if (yearA !== yearB) {
+            return yearB.localeCompare(yearA);
           }
           return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
         });
         
         setReviews(allReviews);
+        setEmployeeReviewStatuses(statusMap);
       } catch (error) {
         console.error("Error fetching reviews:", error);
         toast({
@@ -794,12 +857,19 @@ export function ManagerPerformanceView() {
       } finally {
         setLoadingReviews(false);
       }
-    };
+  }, [user, employees, currentManagerEmployeeId, directReports, toast]);
 
-    if (!initialLoading && user?.email && employees.length > 0) {
+  // Memoize employee IDs to prevent unnecessary re-fetches
+  const employeeIdsForReviews = useMemo(() => {
+    if (!currentManagerEmployeeId || directReports.length === 0) return [];
+    return directReports.map(r => r.id);
+  }, [currentManagerEmployeeId, directReports]);
+
+  useEffect(() => {
+    if (!initialLoading && user?.email && employees.length > 0 && employeeIdsForReviews.length > 0) {
       fetchReviews();
     }
-  }, [initialLoading, user, employees, currentManagerEmployeeId, directReports, toast]);
+  }, [initialLoading, user, employees, employeeIdsForReviews.length, fetchReviews]);
 
   // Fetch all review cycles
   useEffect(() => {
@@ -837,9 +907,17 @@ export function ManagerPerformanceView() {
   }, [initialLoading]);
 
   const filteredReports = directReports.filter(emp => {
-    return emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
            emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
            emp.position.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Filter by clarification status if filter is active
+    if (filterByClarification) {
+      const reviewStatus = employeeReviewStatuses.get(emp.id);
+      return matchesSearch && reviewStatus === 'clarification_requested';
+    }
+    
+    return matchesSearch;
   });
 
   const getGoalsForEmployee = (employeeId: string) => {
@@ -1181,8 +1259,38 @@ export function ManagerPerformanceView() {
 
   return (
     <div className="space-y-6">
-      {/* Header Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <Tabs value={viewMode} onValueChange={(v) => {
+        preserveScroll();
+        setViewMode(v as any);
+        // When switching to "my-team" tab, ensure all team goals are loaded
+        if (v === 'my-team' && currentManagerEmployeeId && directReports.length > 0) {
+          // Check if any team member goals are missing and fetch them
+          const missingGoals = directReports.filter(report => !employeeGoals.has(report.id));
+          if (missingGoals.length > 0) {
+            // Fetch missing goals in parallel
+            Promise.all(missingGoals.map(report => fetchTeamMemberGoals(report.id)));
+          }
+        }
+      }} className="space-y-4">
+        <TabsList className="bg-muted/50 backdrop-blur-sm flex-wrap">
+          <TabsTrigger value="my-team">
+            <Users className="h-4 w-4 mr-2" />
+            My Team
+          </TabsTrigger>
+          <TabsTrigger value="my-goals">
+            <Target className="h-4 w-4 mr-2" />
+            My Goals
+          </TabsTrigger>
+          <TabsTrigger value="feedback">
+            <MessageSquare className="h-4 w-4 mr-2" />
+            Feedback
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="my-team" className="space-y-4">
+          {/* Summary Cards - only shown in My Team section */}
+          {!showReviewWorkspace && (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -1232,37 +1340,68 @@ export function ManagerPerformanceView() {
             </div>
           </CardContent>
         </Card>
+
+        <Card 
+          className={cn(
+            "bg-gradient-to-br backdrop-blur-sm shadow-lg transition-all duration-300 cursor-pointer border-2 group",
+            filterByClarification 
+              ? "from-amber-500/20 via-amber-500/10 to-amber-500/5 border-amber-500/50 shadow-amber-500/20 ring-2 ring-amber-500/30" 
+              : "from-amber-500/15 via-amber-500/8 to-amber-500/5 border-amber-500/30 hover:border-amber-500/50 hover:shadow-amber-500/10 hover:scale-[1.02] hover:ring-2 hover:ring-amber-500/20"
+          )}
+          onClick={() => {
+            setFilterByClarification(!filterByClarification);
+            setSearchTerm(""); // Clear search when filtering
+          }}
+        >
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className={cn(
+                    "text-sm font-medium transition-colors",
+                    filterByClarification ? "text-amber-700 dark:text-amber-400 font-semibold" : "text-amber-600 dark:text-amber-500"
+                  )}>
+                    Needs Clarification
+                  </p>
+                  {filterByClarification && (
+                    <Badge variant="outline" className="text-xs bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40">
+                      Active
+                    </Badge>
+                  )}
       </div>
+                <p className={cn(
+                  "text-3xl font-bold mt-2 transition-colors",
+                  filterByClarification ? "text-amber-700 dark:text-amber-400" : "text-foreground"
+                )}>
+                  {loadingReviews ? (
+                    <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+                  ) : (
+                    Array.from(employeeReviewStatuses.values()).filter(status => status === 'clarification_requested').length
+                  )}
+                </p>
+                {!filterByClarification && (
+                  <p className="text-xs text-amber-600/70 dark:text-amber-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Click to filter
+                  </p>
+                )}
+              </div>
+              <div className={cn(
+                "h-12 w-12 rounded-full flex items-center justify-center transition-all",
+                filterByClarification 
+                  ? "bg-amber-500/20 shadow-lg shadow-amber-500/20 scale-110" 
+                  : "bg-amber-500/10 group-hover:bg-amber-500/20 group-hover:scale-110"
+              )}>
+                <AlertCircle className={cn(
+                  "h-6 w-6 transition-all",
+                  filterByClarification ? "text-amber-600 dark:text-amber-400" : "text-amber-500"
+                )} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+          )}
 
-      <Tabs value={viewMode} onValueChange={(v) => {
-        preserveScroll();
-        setViewMode(v as any);
-        // When switching to "my-team" tab, ensure all team goals are loaded
-        if (v === 'my-team' && currentManagerEmployeeId && directReports.length > 0) {
-          // Check if any team member goals are missing and fetch them
-          const missingGoals = directReports.filter(report => !employeeGoals.has(report.id));
-          if (missingGoals.length > 0) {
-            // Fetch missing goals in parallel
-            Promise.all(missingGoals.map(report => fetchTeamMemberGoals(report.id)));
-          }
-        }
-      }} className="space-y-4">
-        <TabsList className="bg-muted/50 backdrop-blur-sm flex-wrap">
-          <TabsTrigger value="my-team">
-            <Users className="h-4 w-4 mr-2" />
-            My Team
-          </TabsTrigger>
-          <TabsTrigger value="my-goals">
-            <Target className="h-4 w-4 mr-2" />
-            My Goals
-          </TabsTrigger>
-          <TabsTrigger value="feedback">
-            <MessageSquare className="h-4 w-4 mr-2" />
-            Feedback
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="my-team" className="space-y-4">
           {/* Review Workspace - shown when View Reviews is clicked */}
           {showReviewWorkspace && reviewEmployee && (
             <div className="space-y-4">
@@ -1274,6 +1413,7 @@ export function ManagerPerformanceView() {
                     onClick={() => {
                       setShowReviewWorkspace(false);
                       setReviewEmployee(null);
+                      setHasReviewData(false);
                     }}
                     className="h-10 w-10"
                   >
@@ -1283,9 +1423,6 @@ export function ManagerPerformanceView() {
                     <h2 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent">
                       Review - {reviewEmployee.name}
                     </h2>
-                    <p className="text-muted-foreground text-sm mt-1">
-                      2024 Annual Performance Review
-                    </p>
                   </div>
                 </div>
                 <Button 
@@ -1315,6 +1452,7 @@ export function ManagerPerformanceView() {
                   }}
                   type="button"
                   className="border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                  disabled={!hasReviewData || !saveDraftRef.current}
                 >
                   <Save className="h-4 w-4 mr-2" />
                   Save Draft
@@ -1322,8 +1460,10 @@ export function ManagerPerformanceView() {
               </div>
               <ManagerReviewWorkspace 
                 initialEmployeeId={reviewEmployee.id} 
+                initialCycleYear={selectedCycleYear}
                 hideHeader={true}
                 onSaveDraftRef={saveDraftRef}
+                onReviewDataStatusChange={setHasReviewData}
               />
             </div>
           )}
@@ -1423,10 +1563,11 @@ export function ManagerPerformanceView() {
             </Card>
           )}
           
-          {/* Search */}
+          {/* Search and Filter Info */}
           <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
             <CardContent className="p-4">
-              <div className="relative">
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search team members..."
@@ -1435,6 +1576,26 @@ export function ManagerPerformanceView() {
                   className="pl-9 bg-background/50"
                 />
               </div>
+                {filterByClarification && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFilterByClarification(false)}
+                    className="text-amber-600 border-amber-500/30 hover:bg-amber-500/10 whitespace-nowrap"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Clear Filter
+                  </Button>
+                )}
+              </div>
+              {filterByClarification && (
+                <div className="mt-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <p className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Showing only employees with reviews needing clarification
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -1492,6 +1653,7 @@ export function ManagerPerformanceView() {
                   }}
                   activeGoalId={goalPanelState.open ? goalPanelState.goalId : null}
                   panelId={goalPanelId}
+                  reviewStatus={employeeReviewStatuses.get(employee.id) || 'not_started'}
                 />
               );
             })}
@@ -1510,443 +1672,8 @@ export function ManagerPerformanceView() {
         </TabsContent>
 
         <TabsContent value="my-goals" className="space-y-4">
-          <Tabs defaultValue="overview" className="space-y-4" onValueChange={() => {
-            preserveScroll();
-          }}>
-            <TabsList className="bg-muted/50 backdrop-blur-sm">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="goals-timeline">Goals & Timeline</TabsTrigger>
-              <TabsTrigger value="annual-review">Annual Review</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="overview" className="space-y-4">
-              {/* Summary Cards for Manager's Own Goals */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Overall Progress</p>
-                        <p className="text-3xl font-bold mt-2">
-                          {myGoals.length > 0
-                            ? Math.round(myGoals.reduce((sum, goal) => sum + goal.completion, 0) / myGoals.length)
-                            : 0}%
-                        </p>
-                        <div className="mt-2">
-                          <div className="w-full bg-muted rounded-full h-2">
-                            <div
-                              className="bg-gradient-to-r from-primary to-primary/80 h-2 rounded-full transition-all duration-500"
-                              style={{
-                                width: `${myGoals.length > 0
-                                  ? Math.round(myGoals.reduce((sum, goal) => sum + goal.completion, 0) / myGoals.length)
-                                  : 0}%`
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                        <TrendingUp className="h-6 w-6 text-primary" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Active Goals</p>
-                        <p className="text-3xl font-bold mt-2">{myGoals.filter(g => g.status === 'in_progress').length}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Currently working on</p>
-                      </div>
-                      <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center">
-                        <Target className="h-6 w-6 text-blue-500" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Completed</p>
-                        <p className="text-3xl font-bold mt-2">{myGoals.filter(g => g.status === 'completed').length}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Goals achieved</p>
-                      </div>
-                      <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
-                        <CheckCircle2 className="h-6 w-6 text-green-500" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Total Goals</p>
-                        <p className="text-3xl font-bold mt-2">{myGoals.length}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Assigned to you</p>
-                      </div>
-                      <div className="h-12 w-12 rounded-full bg-purple-500/10 flex items-center justify-center">
-                        <Clock className="h-6 w-6 text-purple-500" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Performance Charts */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5" />
-                      Performance Trend
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-6">
-                    <ResponsiveContainer width="100%" height={250}>
-                      <AreaChart 
-                        data={growthData}
-                        margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-                      >
-                        <defs>
-                          <linearGradient id="colorPerformance" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#4facfe" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#4facfe" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid 
-                          strokeDasharray="3 3" 
-                          stroke="hsl(var(--border))" 
-                          opacity={0.3}
-                          vertical={false}
-                        />
-                        <XAxis 
-                          dataKey="month" 
-                          stroke="hsl(var(--muted-foreground))"
-                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
-                          tickLine={{ stroke: 'hsl(var(--muted-foreground))' }}
-                          axisLine={{ stroke: 'hsl(var(--muted-foreground))' }}
-                        />
-                        <YAxis 
-                          stroke="hsl(var(--muted-foreground))"
-                          tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
-                          tickLine={{ stroke: 'hsl(var(--muted-foreground))' }}
-                          axisLine={{ stroke: 'hsl(var(--muted-foreground))' }}
-                          width={50}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            border: '1px solid rgba(0, 0, 0, 0.1)',
-                            borderRadius: '8px',
-                            padding: '8px 12px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                            fontSize: '14px'
-                          }}
-                          formatter={(value: number) => [`${value}%`, 'Performance']}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="performance"
-                          stroke="#4facfe"
-                          strokeWidth={2}
-                          fill="url(#colorPerformance)"
-                          fillOpacity={0.6}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                    {/* Chart Information Label */}
-                    <div className="flex items-center justify-center gap-2 pt-2 border-t border-border/30">
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/5 border border-primary/20">
-                        <div className="w-2 h-2 rounded-full bg-[#4facfe] shadow-sm" style={{ boxShadow: '0 0 6px rgba(79, 172, 254, 0.4)' }} />
-                        <span className="text-xs font-medium text-muted-foreground">
-                          Performance percentage tracked over 6 months
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Target className="h-5 w-5" />
-                      Goals by Category
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <ResponsiveContainer width="100%" height={220}>
-                      <RechartsPieChart>
-                        <defs>
-                          {categoryData.map((entry, index) => (
-                            <linearGradient key={`gradient-${index}`} id={`gradient-${index}`} x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor={entry.color} stopOpacity={1} />
-                              <stop offset="100%" stopColor={entry.color} stopOpacity={0.7} />
-                            </linearGradient>
-                          ))}
-                        </defs>
-                        <Pie
-                          data={categoryData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={false}
-                          outerRadius={80}
-                          innerRadius={30}
-                          fill="#8884d8"
-                          dataKey="value"
-                          stroke="rgba(255, 255, 255, 0.2)"
-                          strokeWidth={2}
-                          animationBegin={0}
-                          animationDuration={800}
-                          animationEasing="ease-out"
-                        >
-                          {categoryData.map((entry, index) => (
-                            <Cell 
-                              key={`cell-${index}`} 
-                              fill={`url(#gradient-${index})`}
-                              style={{
-                                filter: "drop-shadow(0 4px 8px rgba(0, 0, 0, 0.15))",
-                                transition: "all 0.3s ease"
-                              }}
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "rgba(255, 255, 255, 0.95)",
-                            border: "1px solid rgba(0, 0, 0, 0.1)",
-                            borderRadius: "8px",
-                            padding: "8px 12px",
-                            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-                            fontSize: "14px"
-                          }}
-                          formatter={(value: number, name: string) => [
-                            `${value}%`,
-                            name
-                          ]}
-                        />
-                      </RechartsPieChart>
-                    </ResponsiveContainer>
-                    {/* Legend - Outside Recharts, inside Card */}
-                    <div className="flex flex-wrap items-center justify-center gap-3 pt-2 border-t border-border/30">
-                      {categoryData.map((entry, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background/50 border border-border/30 hover:bg-background/80 hover:border-primary/30 transition-all duration-200"
-                        >
-                          <div
-                            className="w-3 h-3 rounded-full shadow-sm flex-shrink-0"
-                            style={{
-                              backgroundColor: entry.color,
-                              boxShadow: `0 0 8px ${entry.color}40`
-                            }}
-                          />
-                          <span className="text-sm font-medium text-foreground whitespace-nowrap">
-                            {entry.name}
-                          </span>
-                          <span className="text-xs font-bold text-muted-foreground whitespace-nowrap">
-                            {entry.value}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="goals-timeline" className="space-y-4">
-              {/* Goals in Card Grid View */}
-              {loadingMyGoals ? (
-                <div className="flex items-center justify-center p-16">
-                  <div className="text-center space-y-4">
-                    <div className="relative mx-auto w-14 h-14">
-                      <Target className="h-14 w-14 animate-spin text-primary/60" style={{ animationDuration: '2s' }} />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="h-2 w-2 rounded-full bg-primary animate-pulse"></div>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-base font-medium text-foreground">Loading your goals</p>
-                      <p className="text-sm text-muted-foreground">Fetching the latest updates...</p>
-                    </div>
-                    <div className="flex items-center justify-center gap-1.5 mt-3">
-                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                    </div>
-                  </div>
-                </div>
-              ) : myGoals.length === 0 ? (
-                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                  <CardContent className="p-12 text-center">
-                    <Target className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                    <p className="text-muted-foreground">No goals set for you yet</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {myGoals.map((goal) => (
-                    <GoalSummaryCard
-                      key={goal.id}
-                      goal={{
-                        id: goal.id,
-                        title: goal.title,
-                        completion: goal.completion,
-                        status: goal.status,
-                        targetDate: goal.targetDate,
-                        category: goal.category
-                      }}
-                      onOpen={(_, trigger) => handleOpenMyGoalPanel(goal, trigger)}
-                      isOpen={goalPanelState.open && goalPanelState.goalId === goal.id}
-                      controlsId={goalPanelId}
-                    />
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="annual-review" className="space-y-4">
-              {!showSelfAssessmentForm ? (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold mb-4">Annual Review Cycles</h3>
-                  
-                  {loadingAllCycles ? (
-                    <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                      <CardContent className="p-12 text-center">
-                        <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin text-primary" />
-                        <p className="text-muted-foreground">Loading review cycles...</p>
-                      </CardContent>
-                    </Card>
-                  ) : allCycles.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {allCycles.map((cycle) => {
-                        const isActive = cycle.status === 'open' || cycle.status === 'active';
-                        const isEnabled = isActive;
-                        
-                        return (
-                          <Card
-                            key={cycle.cycleId || cycle.year}
-                            className="rounded-lg border bg-card text-card-foreground bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 shadow-lg"
-                          >
-                            <CardHeader className="flex flex-col space-y-1.5 p-6">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <h3 className="font-semibold tracking-tight text-2xl">
-                                    {cycle.name || `${cycle.year} Annual Performance Review`}
-                                  </h3>
-                                  {cycle.startDate && cycle.endDate && (
-                                    <p className="text-sm text-muted-foreground mt-2">
-                                      {new Date(cycle.startDate).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })} - {new Date(cycle.endDate).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}
-                                    </p>
-                                  )}
-                                </div>
-                                <Badge 
-                                  variant="outline" 
-                                  className={cn(
-                                    "rounded-full border px-2.5 py-0.5 text-xs font-semibold flex items-center gap-1",
-                                    isActive
-                                      ? "bg-green-500/10 text-green-600 border-green-500/20"
-                                      : cycle.status === 'draft'
-                                      ? "bg-blue-500/10 text-blue-600 border-blue-500/20"
-                                      : "bg-muted/50 text-muted-foreground"
-                                  )}
-                                >
-                                  {isActive ? (
-                                    <>
-                                      <CheckCircle2 className="h-3 w-3" />
-                                      Active
-                                    </>
-                                  ) : cycle.status === 'draft' ? (
-                                    <>
-                                      <SquarePen className="h-3 w-3" />
-                                      Draft
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Clock className="h-3 w-3" />
-                                      Closed
-                                    </>
-                                  )}
-                                </Badge>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="p-6 pt-0 space-y-4">
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                {cycle.metadata?.selfReviewEnabled && (
-                                  <Badge variant="outline" className="flex items-center gap-1">
-                                    <FileText className="h-3 w-3" /> Self Review
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="flex gap-3 pt-4">
-                                <Button
-                                  onClick={(e) => {
-                                    if (!isEnabled) return;
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    console.log('Continue button clicked for cycle:', cycle.year);
-                                    
-                                    setSelectedCycleYear(cycle.year);
-                                    setShowSelfAssessmentForm(true);
-                                    
-                                    // Scroll to the self-assessment section
-                                    setTimeout(() => {
-                                      const selfAssessmentSection = document.querySelector('[data-section="self-assessment"]');
-                                      if (selfAssessmentSection) {
-                                        selfAssessmentSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                      }
-                                    }, 100);
-                                  }}
-                                  className="bg-gradient-to-r from-primary to-primary/80 shadow-lg"
-                                  type="button"
-                                  disabled={!isEnabled}
-                                >
-                                  <SquarePen className="h-4 w-4 mr-2" />
-                                  Continue
-                                </Button>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-                      <CardContent className="p-8 text-center">
-                        <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                        <p className="text-muted-foreground">No annual review cycles available yet</p>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
-              ) : (
-                <div data-section="self-assessment">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">Self Assessment</h3>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setShowSelfAssessmentForm(false);
-                        setSelectedCycleYear(null);
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                      Back to Cycles
-                    </Button>
-                  </div>
-                  <EmployeeSelfAssessment initialSection="form" />
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
+          {/* Use the same UserPerformanceView component for consistency */}
+          <UserPerformanceView employeeId={currentManagerEmployeeId} />
         </TabsContent>
 
         <TabsContent value="feedback" className="space-y-4">

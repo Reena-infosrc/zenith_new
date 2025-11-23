@@ -18,7 +18,6 @@ export default function Performance() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeModule, setActiveModule] = useState<string>("Performance");
   const [isLoadingViewMode, setIsLoadingViewMode] = useState(false);
   
   // Get view mode from URL params
@@ -26,6 +25,10 @@ export default function Performance() {
   const [viewMode, setViewMode] = useState<ViewMode>(
     (urlViewMode && ['admin', 'manager', 'user'].includes(urlViewMode)) ? urlViewMode : 'user'
   );
+  
+  // Only set activeModule to "Performance" when not in admin view
+  // Admin view should not highlight the Performance sidebar item
+  const activeModule = viewMode === 'admin' ? '' : 'Performance';
   
   // Check team members and set view mode if no URL param is provided
   useEffect(() => {
@@ -128,7 +131,6 @@ export default function Performance() {
         } lg:translate-x-0`}>
           <SidebarContent 
             activeModule={activeModule} 
-            onModuleChange={setActiveModule} 
           />
         </aside>
         
@@ -143,45 +145,47 @@ export default function Performance() {
         {/* Main Content - Account for fixed sidebar and header */}
         <main className="flex-1 transition-all duration-300 lg:ml-64 pt-16">
           <div className="container px-6 py-8">
-            {/* Welcome Section */}
-            <section className="mb-8">
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-2">
-                Performance Management
-              </h1>
-              {/* <p className="text-muted-foreground mb-6">
-                {getDescription()}
-              </p> */}
-              
-              {/* View Mode Selector Buttons */}
-              <div className="flex gap-3 mb-6">
-                <Button
-                  variant={viewMode === 'manager' ? 'default' : 'outline'}
-                  onClick={() => handleViewModeChange('manager')}
-                  className={cn(
-                    "flex items-center gap-2 transition-all duration-300",
-                    viewMode === 'manager'
-                      ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg"
-                      : "hover:bg-muted"
-                  )}
-                >
-                  <UserCheck className="h-4 w-4" />
-                  Manager View
-                </Button>
-                <Button
-                  variant={viewMode === 'user' ? 'default' : 'outline'}
-                  onClick={() => handleViewModeChange('user')}
-                  className={cn(
-                    "flex items-center gap-2 transition-all duration-300",
-                    viewMode === 'user'
-                      ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg"
-                      : "hover:bg-muted"
-                  )}
-                >
-                  <UserCircle className="h-4 w-4" />
-                  User View
-                </Button>
-              </div>
-            </section>
+            {/* Welcome Section - Hidden for Admin View */}
+            {viewMode !== 'admin' && (
+              <section className="mb-8">
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-2">
+                  Performance Management
+                </h1>
+                {/* <p className="text-muted-foreground mb-6">
+                  {getDescription()}
+                </p> */}
+                
+                {/* View Mode Selector Buttons */}
+                <div className="flex gap-3 mb-6">
+                  <Button
+                    variant={viewMode === 'manager' ? 'default' : 'outline'}
+                    onClick={() => handleViewModeChange('manager')}
+                    className={cn(
+                      "flex items-center gap-2 transition-all duration-300",
+                      viewMode === 'manager'
+                        ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg"
+                        : "hover:bg-muted"
+                    )}
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    Manager View
+                  </Button>
+                  <Button
+                    variant={viewMode === 'user' ? 'default' : 'outline'}
+                    onClick={() => handleViewModeChange('user')}
+                    className={cn(
+                      "flex items-center gap-2 transition-all duration-300",
+                      viewMode === 'user'
+                        ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg"
+                        : "hover:bg-muted"
+                    )}
+                  >
+                    <UserCircle className="h-4 w-4" />
+                    User View
+                  </Button>
+                </div>
+              </section>
+            )}
             
             {/* Conditional Rendering based on selected view */}
             {getPerformanceView()}

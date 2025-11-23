@@ -46,8 +46,7 @@ class ReviewBase(BaseModel):
     improvements: List[str] = Field(default_factory=list)
     attachments: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    isDraft: bool = False
-    submittedAt: Optional[str] = None  # ISO 8601 string
+    submittedAt: Optional[str] = None  # ISO 8601 string - only set when review is submitted
 
 
 class ReviewCreate(ReviewBase):
@@ -64,12 +63,20 @@ class ReviewUpdate(BaseModel):
     improvements: Optional[List[str]] = None
     attachments: Optional[List[str]] = None
     metadata: Optional[Dict[str, Any]] = None
-    isDraft: Optional[bool] = None
-    submittedAt: Optional[str] = None
+    submittedAt: Optional[str] = None  # Setting this moves review from draft to submitted
 
 
 class ReviewInDB(ReviewBase):
     reviewId: str
     createdAt: str
     updatedAt: str
+    isDraft: bool = False  # Computed field - true if in draft table, false if in review table
+
+
+class ReviewStats(BaseModel):
+    total: int = Field(..., description="Total number of review cycles")
+    pending: int = Field(..., description="Number of pending self-reviews (drafts)")
+    submitted: int = Field(..., description="Number of submitted self-reviews")
+    managerPending: int = Field(..., description="Number of self-reviews awaiting manager review")
+    finalized: int = Field(..., description="Number of finalized manager reviews")
 

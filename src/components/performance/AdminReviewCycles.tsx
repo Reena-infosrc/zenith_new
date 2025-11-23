@@ -18,9 +18,7 @@ import {
   BarChart3,
   Send,
   Eye,
-  CheckCircle,
   XCircle,
-  History,
   Bell,
   Settings,
   UserCheck,
@@ -104,16 +102,6 @@ interface CycleStats {
   finalized: number;
 }
 
-interface AuditLogEntry {
-  id: string;
-  timestamp: string;
-  action: string;
-  user: string;
-  details: string;
-  cycleId: string;
-  cycleName: string;
-}
-
 interface Competency {
   id: string;
   name: string;
@@ -135,8 +123,6 @@ export function AdminReviewCycles() {
   const [selectedCycle, setSelectedCycle] = useState<ReviewCycle | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRosterModal, setShowRosterModal] = useState(false);
-  const [showApprovalModal, setShowApprovalModal] = useState(false);
-  const [showAuditLog, setShowAuditLog] = useState(false);
   const [editingCycle, setEditingCycle] = useState<ReviewCycle | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -147,10 +133,9 @@ export function AdminReviewCycles() {
     managerPending: 0,
     finalized: 0
   });
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const { preserveScroll } = usePreserveScroll();
-  const { employees, loading: employeesLoading } = useEmployees();
+  const { employees, isLoading: employeesLoading } = useEmployees();
 
   const [formData, setFormData] = useState<CycleFormData>({
     name: '',
@@ -173,6 +158,32 @@ export function AdminReviewCycles() {
         ...prev,
         competencyWeightages: initialWeightages
       }));
+    }
+  }, []);
+
+  // Fetch stats from API
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/reviews/stats`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch stats' }));
+        throw new Error(errorData?.detail || errorData?.message || 'Failed to fetch stats');
+      }
+      
+      const statsData = await response.json();
+      setStats({
+        total: statsData.total || 0,
+        pending: statsData.pending || 0,
+        submitted: statsData.submitted || 0,
+        managerPending: statsData.managerPending || 0,
+        finalized: statsData.finalized || 0
+      });
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      // Don't show toast for stats errors, just use defaults
     }
   }, []);
 
@@ -212,7 +223,6 @@ export function AdminReviewCycles() {
       }));
       
       setCycles(mappedCycles);
-      calculateStats(mappedCycles);
     } catch (error) {
       console.error('Error fetching cycles:', error);
       toast({
@@ -227,36 +237,8 @@ export function AdminReviewCycles() {
 
   useEffect(() => {
     fetchCycles();
-  }, [fetchCycles]);
-
-  const calculateStats = (cyclesList: ReviewCycle[]) => {
-    const activeCycle = cyclesList.find(c => c.status === 'active');
-    if (!activeCycle) {
-      setStats({
-        total: cyclesList.length,
-        pending: 0,
-        submitted: 0,
-        managerPending: 0,
-        finalized: 0
-      });
-      return;
-    }
-
-    // Mock stats calculation - replace with actual API data
-    const totalEmployees = activeCycle.employeeCount || 0;
-    const submitted = Math.floor(totalEmployees * 0.4);
-    const managerPending = Math.floor(totalEmployees * 0.3);
-    const finalized = Math.floor(totalEmployees * 0.2);
-    const pending = totalEmployees - submitted - managerPending - finalized;
-
-    setStats({
-      total: cyclesList.length,
-      pending,
-      submitted,
-      managerPending,
-      finalized
-    });
-  };
+    fetchStats();
+  }, [fetchCycles, fetchStats]);
 
   const filteredCycles = cycles.filter(cycle => {
     const matchesStatus = filterStatus === 'all' || cycle.status === filterStatus;
@@ -555,34 +537,6 @@ export function AdminReviewCycles() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
-            onClick={() => {
-              const activeCycle = cycles.find(c => c.status === 'active');
-              if (activeCycle) {
-                setSelectedCycle(activeCycle);
-                setShowApprovalModal(true);
-              } else {
-                toast({
-                  title: "No Active Cycle",
-                  description: "Please activate a review cycle first",
-                  variant: "destructive"
-                });
-              }
-            }}
-            className="hover:bg-primary/10"
-          >
-            <CheckCircle className="h-4 w-4 mr-2" />
-            Final Approval
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setShowAuditLog(true)}
-            className="hover:bg-primary/10"
-          >
-            <History className="h-4 w-4 mr-2" />
-            Audit Log
-          </Button>
-          <Button
             onClick={() => {
               console.log('Create Review Cycle button clicked');
               setEditingCycle(null);
@@ -808,22 +762,6 @@ export function AdminReviewCycles() {
           employees={employees}
         />
       )}
-
-      {/* Final Approval Modal */}
-      {selectedCycle && (
-        <FinalApprovalModal
-          open={showApprovalModal}
-          onOpenChange={setShowApprovalModal}
-          cycle={selectedCycle}
-        />
-      )}
-
-      {/* Audit Log Modal */}
-      <AuditLogModal
-        open={showAuditLog}
-        onOpenChange={setShowAuditLog}
-        logs={auditLogs}
-      />
     </div>
   );
 }
@@ -1318,165 +1256,4 @@ function CycleRosterModal({ open, onOpenChange, cycle, employees }: CycleRosterM
   );
 }
 
-// Final Approval Modal Component
-interface FinalApprovalModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  cycle: ReviewCycle;
-}
-
-function FinalApprovalModal({ open, onOpenChange, cycle }: FinalApprovalModalProps) {
-  const [selectedReviews, setSelectedReviews] = useState<string[]>([]);
-  const [rejectionReason, setRejectionReason] = useState('');
-
-  // Mock manager-submitted reviews - replace with API call
-  const managerSubmittedReviews: EmployeeAssignment[] = [];
-
-  const handleApprove = async (reviewId: string) => {
-    // TODO: API call
-    toast({
-      title: "Approved",
-      description: "Review approved and archived"
-    });
-  };
-
-  const handleReject = async (reviewId: string) => {
-    if (!rejectionReason.trim()) {
-      toast({
-        title: "Reason Required",
-        description: "Please provide a reason for rejection",
-        variant: "destructive"
-      });
-      return;
-    }
-    // TODO: API call
-    toast({
-      title: "Rejected",
-      description: "Review rejected and sent back to manager"
-    });
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-2xl">Final Approval - {cycle.name}</DialogTitle>
-          <DialogDescription>
-            Review and approve manager-submitted performance reviews
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          {managerSubmittedReviews.length === 0 ? (
-            <Card className="bg-muted/30 border-border/50">
-              <CardContent className="p-8 text-center">
-                <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground">No reviews pending approval</p>
-              </CardContent>
-            </Card>
-          ) : (
-            managerSubmittedReviews.map((review) => (
-              <Card key={review.employeeId} className="bg-background/50 border-border/50">
-                <CardContent className="p-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-semibold">{review.employeeName}</h4>
-                      <p className="text-sm text-muted-foreground">Manager: {review.managerName}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleApprove(review.employeeId)}
-                        className="hover:bg-green-500/10 hover:text-green-600"
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Approve
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleReject(review.employeeId)}
-                        className="hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <XCircle className="h-4 w-4 mr-2" />
-                        Reject
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Audit Log Modal Component
-interface AuditLogModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  logs: AuditLogEntry[];
-}
-
-function AuditLogModal({ open, onOpenChange, logs }: AuditLogModalProps) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-2xl">Audit Log</DialogTitle>
-          <DialogDescription>
-            Track all actions and changes in review cycles
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-2">
-          {logs.length === 0 ? (
-            <Card className="bg-muted/30 border-border/50">
-              <CardContent className="p-8 text-center">
-                <History className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground">No audit logs available</p>
-              </CardContent>
-            </Card>
-          ) : (
-            logs.map((log) => (
-              <Card key={log.id} className="bg-background/50 border-border/50">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold">{log.action}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {log.cycleName}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{log.details}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {log.user} • {new Date(log.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 

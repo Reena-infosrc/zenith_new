@@ -49,6 +49,9 @@ DYNAMODB_TABLE_USERS=zenith-hr-users
 DYNAMODB_TABLE_GOALS=zenith-hr-goals
 DYNAMODB_TABLE_FEEDBACK=zenith-hr-feedback
 DYNAMODB_TABLE_RECRUITMENT=zenith-hr-recruitment
+DYNAMODB_TABLE_FEATURE_FLAGS=zenith-hr-feature-flags
+DYNAMODB_TABLE_ADMINS=zenith-hr-admin
+DYNAMODB_TABLE_REVIEWS=zenith-hr-review
 
 # S3 Configuration
 S3_BUCKET_NAME=zenith-hr-pulse-photos

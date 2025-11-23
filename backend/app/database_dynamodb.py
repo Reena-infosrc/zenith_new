@@ -23,6 +23,8 @@ class DynamoDBService:
             "feature_flags": os.getenv("DYNAMODB_TABLE_FEATURE_FLAGS", "zenith-hr-feature-flags"),
             "admins": os.getenv("DYNAMODB_TABLE_ADMINS", "zenith-hr-admin"),
             "reviews": os.getenv("DYNAMODB_TABLE_REVIEWS", "zenith-hr-review"),
+            "review_drafts": os.getenv("DYNAMODB_TABLE_REVIEW_DRAFTS", "zenith-hr-review-draft"),
+            "cycles": os.getenv("DYNAMODB_TABLE_CYCLES", "zenith-hr-cycle"),
         }
         self.session = None
         self.dynamodb = None
@@ -325,19 +327,11 @@ class DynamoDBService:
                 "AttributeDefinitions": [
                     {"AttributeName": "pk", "AttributeType": "S"},
                     {"AttributeName": "sk", "AttributeType": "S"},
-                    {"AttributeName": "entityType", "AttributeType": "S"},
                     {"AttributeName": "reviewId", "AttributeType": "S"},
-                    {"AttributeName": "employeeId", "AttributeType": "S"}
+                    {"AttributeName": "employeeId", "AttributeType": "S"},
+                    {"AttributeName": "reviewerId", "AttributeType": "S"}
                 ],
                 "GlobalSecondaryIndexes": [
-                    {
-                        "IndexName": "EntityTypeIndex",
-                        "KeySchema": [
-                            {"AttributeName": "entityType", "KeyType": "HASH"}
-                        ],
-                        "Projection": {"ProjectionType": "ALL"},
-                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
-                    },
                     {
                         "IndexName": "ReviewIdIndex",
                         "KeySchema": [
@@ -353,7 +347,64 @@ class DynamoDBService:
                         ],
                         "Projection": {"ProjectionType": "ALL"},
                         "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "ReviewerIndex",
+                        "KeySchema": [
+                            {"AttributeName": "reviewerId", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
                     }
+                ],
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+            },
+            "review_drafts": {
+                "KeySchema": [
+                    {"AttributeName": "pk", "KeyType": "HASH"},
+                    {"AttributeName": "sk", "KeyType": "RANGE"}
+                ],
+                "AttributeDefinitions": [
+                    {"AttributeName": "pk", "AttributeType": "S"},
+                    {"AttributeName": "sk", "AttributeType": "S"},
+                    {"AttributeName": "reviewId", "AttributeType": "S"},
+                    {"AttributeName": "employeeId", "AttributeType": "S"},
+                    {"AttributeName": "reviewerId", "AttributeType": "S"}
+                ],
+                "GlobalSecondaryIndexes": [
+                    {
+                        "IndexName": "ReviewIdIndex",
+                        "KeySchema": [
+                            {"AttributeName": "reviewId", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "EmployeeIndex",
+                        "KeySchema": [
+                            {"AttributeName": "employeeId", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "ReviewerIndex",
+                        "KeySchema": [
+                            {"AttributeName": "reviewerId", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    }
+                ],
+                "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+            },
+            "cycles": {
+                "KeySchema": [
+                    {"AttributeName": "year", "KeyType": "HASH"}
+                ],
+                "AttributeDefinitions": [
+                    {"AttributeName": "year", "AttributeType": "S"}
                 ],
                 "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
             }
@@ -415,9 +466,26 @@ async def get_admins_table():
         return await db.get_table("admins")
 
 async def get_reviews_table():
-    """Get reviews table"""
+    """Get reviews table (for submitted reviews only)"""
     async with dynamodb_service as db:
         return await db.get_table("reviews")
+
+async def get_review_drafts_table():
+    """Get review drafts table (for draft reviews only)"""
+    async with dynamodb_service as db:
+        return await db.get_table("review_drafts")
+
+async def get_cycles_table():
+    """Get cycles table"""
+    async with dynamodb_service as db:
+        return await db.get_table("cycles")
+
+async def get_review_table_by_draft_status(is_draft: bool):
+    """Get the appropriate review table based on draft status"""
+    if is_draft:
+        return await get_review_drafts_table()
+    else:
+        return await get_reviews_table()
 
 # Utility functions for DynamoDB operations
 def generate_id() -> str:

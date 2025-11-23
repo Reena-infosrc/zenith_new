@@ -25,7 +25,8 @@ import {
   ChevronRight,
   CheckCircle,
   Link as LinkIcon,
-  CircleCheckBig
+  CircleCheckBig,
+  MessageSquare
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,7 @@ interface ReviewCycle {
 interface EmployeeInfo {
   name: string;
   id: string;
+  employeeId?: string;
   position: string;
   department: string;
   managerName: string;
@@ -202,6 +204,7 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         setEmployeeInfo({
           name: currentUser.name || 'Unknown',
           id: currentUser.id,
+          employeeId: currentUser.employeeId || '',
           position: currentUser.position || '',
           department: currentUser.department || '',
           managerName: manager?.name || 'Unknown',
@@ -389,10 +392,13 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         })),
         selfRating,
         signature,
-        status: 'self_draft'
+        status: 'self_draft',
+        // Preserve clarification requests if they exist
+        clarificationRequests: clarificationRequests.length > 0 ? clarificationRequests : undefined
       };
       
       // Build the review payload
+      // Note: isDraft is not sent - determined by submittedAt being undefined
       const payload = {
         cycleYear,
         employeeId: employeeInfo.id,
@@ -405,8 +411,7 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         improvements,
         attachments: [],
         metadata,
-        isDraft: true,
-        submittedAt: undefined
+        submittedAt: undefined  // undefined = draft, set timestamp when submitting
       };
       
       // Determine endpoint and method
@@ -549,6 +554,20 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
             // Load signature
             if (meta.signature) {
               setSignature(meta.signature);
+            }
+            
+            // Load clarification requests
+            if (meta.clarificationRequests && Array.isArray(meta.clarificationRequests)) {
+              setClarificationRequests(meta.clarificationRequests);
+            }
+            
+            // Check if clarification was requested
+            if (meta.status === 'clarification_requested') {
+              // Update review cycle status to show clarification banner
+              setReviewCycle(prev => prev ? {
+                ...prev,
+                status: 'under_manager_review' // Use this status to show clarification UI
+              } : prev);
             }
             
             // Load goal assessments
@@ -764,6 +783,9 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         improvements.push(selfReviewFields.areasNeedingImprovement);
       }
       
+      // Check if this is a resubmission after clarification
+      const isResubmissionAfterClarification = clarificationRequests.length > 0;
+      
       // Build metadata with all detailed self-review data
       const metadata: Record<string, any> = {
         selfReviewFields,
@@ -781,7 +803,14 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         })),
         selfRating,
         signature,
-        status: 'self_submitted'
+        status: isResubmissionAfterClarification ? 'clarification_responded' : 'self_submitted',
+        // Mark clarification requests as responded
+        clarificationRequests: clarificationRequests.map(req => ({
+          ...req,
+          status: 'responded' as const,
+          respondedAt: new Date().toISOString()
+        })),
+        employeeClarificationRespondedAt: isResubmissionAfterClarification ? new Date().toISOString() : undefined
       };
       
       // Build the review payload for submission (not draft)
@@ -797,8 +826,7 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         improvements,
         attachments: [],
         metadata,
-        isDraft: false,
-        submittedAt: new Date().toISOString()
+        submittedAt: new Date().toISOString()  // Setting submittedAt moves review to submitted table
       };
       
       // Determine endpoint and method
@@ -852,6 +880,8 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
   };
 
   const handleResubmit = async () => {
+    // Clear clarification status when resubmitting
+    setClarificationRequests([]);
     await handleSubmit();
   };
 
@@ -1299,8 +1329,58 @@ function SelfAssessmentForm({
     }
   };
 
+  // Get manager clarification question if available
+  const managerClarificationQuestion = clarificationRequests.length > 0 
+    ? clarificationRequests[0]?.question 
+    : null;
+  const managerClarificationFields = clarificationRequests
+    .filter(req => req.status === 'pending')
+    .map(req => req.field);
+
   return (
     <div className="space-y-6">
+      {/* Manager Clarification Request Banner */}
+      {clarificationRequests.length > 0 && (
+        <Card className="bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-background border-2 border-amber-500/40 shadow-lg">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center border border-amber-500/40 flex-shrink-0">
+                <MessageSquare className="h-4 w-4 text-amber-700 dark:text-amber-400" />
+              </div>
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold text-amber-900 dark:text-amber-100 uppercase tracking-wide">
+                    Manager Requested Clarification
+                  </p>
+                </div>
+                <div className="bg-amber-50 dark:bg-amber-950/30 rounded-md p-3 border-l-[3px] border-amber-600">
+                  <p className="text-sm font-medium text-foreground mb-2">
+                    Your manager has requested clarification on the following field(s):
+                  </p>
+                  <ul className="list-disc list-inside text-sm text-foreground mb-2 space-y-1">
+                    {managerClarificationFields.map((field, idx) => (
+                      <li key={idx}>{field}</li>
+                    ))}
+                  </ul>
+                  {managerClarificationQuestion && (
+                    <div className="mt-2 pt-2 border-t border-amber-600/30">
+                      <p className="text-sm font-semibold text-foreground mb-1">Question:</p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                        {managerClarificationQuestion}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 rounded-md p-1.5 border border-amber-500/20">
+                  <Edit className="h-3 w-3 flex-shrink-0" />
+                  <span className="font-medium">Please update the requested fields above, then click "Submit to Manager" to resubmit.</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header with Navigation */}
       <div className="flex items-center justify-between">
         {saving && (
@@ -1371,7 +1451,7 @@ function SelfAssessmentForm({
                     </div>
                     <div>
                       <Label className="text-sm text-muted-foreground">Employee ID</Label>
-                      <p className="font-medium">{employeeInfo.id}</p>
+                      <p className="font-medium">{employeeInfo.employeeId || employeeInfo.id}</p>
                     </div>
                     <div>
                       <Label className="text-sm text-muted-foreground">Position</Label>

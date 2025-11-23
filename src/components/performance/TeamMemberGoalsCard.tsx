@@ -9,7 +9,10 @@ import {
   Trash2,
   Edit,
   Loader2,
-  FileText
+  FileText,
+  HelpCircle,
+  AlertCircle,
+  Bell
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -90,6 +93,7 @@ export interface TeamMemberGoalsCardProps {
   onViewReviews?: () => void;
   activeGoalId?: string | null;
   panelId?: string;
+  reviewStatus?: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted';
 }
 
 export function TeamMemberGoalsCard({
@@ -106,7 +110,8 @@ export function TeamMemberGoalsCard({
   onOpenCategoryGoals,
   onViewReviews,
   activeGoalId = null,
-  panelId
+  panelId,
+  reviewStatus
 }: TeamMemberGoalsCardProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const [isFlipped, setIsFlipped] = useState(false);
@@ -156,6 +161,41 @@ export function TeamMemberGoalsCard({
               <span>{experienceLabel}</span>
             </div>
           </div>
+          {/* Review Status Badge */}
+          {reviewStatus && reviewStatus !== 'not_started' && (
+            <div className="mt-2">
+              {reviewStatus === 'clarification_responded' && (
+                <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30 shadow-sm flex items-center gap-1 w-fit animate-pulse">
+                  <Bell className="h-3 w-3" />
+                  Response Received
+                </Badge>
+              )}
+              {reviewStatus === 'clarification_requested' && (
+                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30 shadow-sm flex items-center gap-1 w-fit">
+                  <AlertCircle className="h-3 w-3" />
+                  Needs Clarification
+                </Badge>
+              )}
+              {reviewStatus === 'self_submitted' && (
+                <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-600 border-blue-500/30 shadow-sm flex items-center gap-1 w-fit">
+                  <FileText className="h-3 w-3" />
+                  Self Review Submitted
+                </Badge>
+              )}
+              {reviewStatus === 'manager_reviewing' && (
+                <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-600 border-purple-500/30 shadow-sm flex items-center gap-1 w-fit">
+                  <Eye className="h-3 w-3" />
+                  Under Review
+                </Badge>
+              )}
+              {reviewStatus === 'manager_submitted' && (
+                <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/30 shadow-sm flex items-center gap-1 w-fit">
+                  <FileText className="h-3 w-3" />
+                  Submitted to HR
+                </Badge>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
