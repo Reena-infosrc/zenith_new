@@ -1279,11 +1279,31 @@ function ReviewWorkspaceInline({
   const employeeIdFromTable = fullEmployee?.employeeId || '';
   const [activeSection, setActiveSection] = useState<number>(0);
   const [saving, setSaving] = useState(false);
+  const [completedSections, setCompletedSections] = useState<Set<number>>(new Set());
   const { preserveScroll } = usePreserveScroll();
   
+  // Calculate dynamic descriptions based on actual data
+  const getSelfReviewDescription = () => {
+    if (!employeeSelfReview) {
+      return 'Share your accomplishments and growth';
+    }
+    // Count only the 5 fields that are actually displayed in the UI
+    const filledFields = [
+      employeeSelfReview.keyAccomplishments?.trim().length > 0,
+      employeeSelfReview.beyondResponsibilities?.trim().length > 0,
+      employeeSelfReview.challenges?.trim().length > 0,
+      employeeSelfReview.areasToImprove?.trim().length > 0,
+      employeeSelfReview.trainingsCompleted?.trim().length > 0
+    ].filter(Boolean).length;
+    
+    return filledFields > 0 
+      ? `${filledFields}/5 responses completed`
+      : 'Share your accomplishments and growth';
+  };
+
   const sections = [
     { id: 'employee-details', label: 'Employee & Goals Overview', description: `${employee.position} • ${employee.department}`, icon: User },
-    { id: 'self-review', label: 'Self Review', description: 'Share your accomplishments and growth', icon: FileText },
+    { id: 'self-review', label: 'Self Review', description: getSelfReviewDescription(), icon: FileText },
     { id: 'goals', label: 'Goals Review', description: 'Rate and comment on employee goals', icon: Target },
     { id: 'final-rating', label: 'Final Rating', description: 'Rate yourself and sign the form', icon: Star }
   ];
@@ -1353,15 +1373,82 @@ function ReviewWorkspaceInline({
     }
   };
 
+  // Check if section is completed - same pattern as EmployeeSelfAssessment
+  const checkSectionCompletion = (sectionIndex: number): boolean => {
+    switch (sectionIndex) {
+      case 0: // Employee & Goals Overview
+        // Always completed if employee data exists
+        return !!employee;
+      case 1: // Self Review
+        // Completed if self-review exists and has data
+        // Only check the 5 fields that are actually displayed in the UI:
+        // 1. Most Significant Accomplishments (keyAccomplishments)
+        // 2. Contributions Beyond Role (beyondResponsibilities)
+        // 3. Challenges + Solutions (challenges)
+        // 4. Areas Needing Improvement (areasToImprove)
+        // 5. Certifications/Trainings Completed Last Year (trainingsCompleted)
+        // Note: Tools & Technologies is shown in this section but is a separate section in navigation
+        if (!employeeSelfReview) return false;
+        
+        // Count how many of the 5 fields are filled
+        const filledFields = [
+          employeeSelfReview.keyAccomplishments?.trim().length > 0,
+          employeeSelfReview.beyondResponsibilities?.trim().length > 0,
+          employeeSelfReview.challenges?.trim().length > 0,
+          employeeSelfReview.areasToImprove?.trim().length > 0,
+          employeeSelfReview.trainingsCompleted?.trim().length > 0
+        ].filter(Boolean).length;
+        
+        // Section is completed if at least one field is filled (or all 5 for full completion)
+        return filledFields > 0;
+      case 2: // Goals Review
+        // Completed if goal reviews exist and at least one has a manager rating or manager comments
+        if (goalReviews.length === 0) return false;
+        return goalReviews.some(goal => 
+          (goal.managerRating !== undefined && goal.managerRating > 0) ||
+          (goal.managerComments && goal.managerComments.trim().length > 0)
+        );
+      case 3: // Final Rating
+        // Completed if final rating has been set (rating is required)
+        return !!(finalRating.overallRating && finalRating.overallRating > 0);
+      default:
+        return false;
+    }
+  };
+
+  // Update completed sections - same pattern as EmployeeSelfAssessment
+  useEffect(() => {
+    const newCompleted = new Set<number>();
+    // Check all 4 sections (0-3)
+    for (let index = 0; index < 4; index++) {
+      if (checkSectionCompletion(index)) {
+        newCompleted.add(index);
+      }
+    }
+    setCompletedSections(newCompleted);
+  }, [employee, employeeSelfReview, goalReviews, finalRating.overallRating]);
+
   const getStepCardClasses = (index: number) => {
-    if (activeSection === index) {
+    const isCompleted = completedSections.has(index);
+    const isActive = activeSection === index;
+    
+    if (isCompleted && !isActive) {
+      return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+    }
+    if (isActive) {
       return 'border-primary/60 bg-primary/5 shadow-lg text-primary';
     }
     return 'border-border/60 bg-muted/20 text-muted-foreground';
   };
 
   const getStepBadgeClasses = (index: number) => {
-    if (activeSection === index) {
+    const isCompleted = completedSections.has(index);
+    const isActive = activeSection === index;
+    
+    if (isCompleted && !isActive) {
+      return 'bg-emerald-500 text-white';
+    }
+    if (isActive) {
       return 'bg-primary text-primary-foreground';
     }
     return 'bg-background border border-border/50 text-muted-foreground';
@@ -1597,7 +1684,11 @@ function ReviewWorkspaceInline({
                     getStepBadgeClasses(index)
                   )}
                 >
-                  {index + 1}
+                  {completedSections.has(index) && activeSection !== index ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : (
+                    index + 1
+                  )}
                 </div>
                 <div>
                   <p className="font-semibold text-foreground/90">{section.label}</p>

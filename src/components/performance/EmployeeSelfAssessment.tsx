@@ -1200,9 +1200,24 @@ function SelfAssessmentForm({
       case 0: // Goals
         return goalAssessments.length > 0;
       case 1: // Self Review
-        return Object.values(selfReviewFields).every(field => field.trim().length > 0);
+        // Only check the 5 fields that are actually displayed in the UI:
+        // 1. Most Significant Accomplishments (significantAccomplishments)
+        // 2. Contributions Beyond Role (beyondRoleContributions)
+        // 3. Challenges + Solutions (challengesAndSolutions)
+        // 4. Areas Needing Improvement (areasNeedingImprovement)
+        // 5. Certifications/Trainings Completed Last Year (certificationsCompleted)
+        const displayedFields = [
+          selfReviewFields.significantAccomplishments?.trim().length > 0,
+          selfReviewFields.beyondRoleContributions?.trim().length > 0,
+          selfReviewFields.challengesAndSolutions?.trim().length > 0,
+          selfReviewFields.areasNeedingImprovement?.trim().length > 0,
+          selfReviewFields.certificationsCompleted?.trim().length > 0
+        ];
+        // Section is completed if at least one field is filled
+        return displayedFields.some(Boolean);
       case 2: // Tools
-        return toolsAndTechnologies.length > 0 && toolsAndTechnologies.every(tool => tool.testType && tool.tool && tool.rating);
+        // Completed if at least one tool exists (simplified - just check if tools array has items)
+        return toolsAndTechnologies.length > 0;
       case 3: // Submission
         return signature.trim().length > 0 && selfRating !== undefined;
       default:
@@ -1219,7 +1234,7 @@ function SelfAssessmentForm({
       }
     });
     setCompletedSections(newCompleted);
-  }, [goalAssessments, selfReviewFields, toolsAndTechnologies, signature]);
+  }, [goalAssessments, selfReviewFields, toolsAndTechnologies, signature, selfRating]);
 
   const goToSection = (index: number) => {
     setActiveSection(index);
@@ -1265,7 +1280,14 @@ function SelfAssessmentForm({
 
   const clarificationFields = getClarificationFields();
 
-  const answeredSelfReviewCount = Object.values(selfReviewFields).filter(value => value.trim().length > 0).length;
+  // Count only the 5 fields that are actually displayed in the UI
+  const answeredSelfReviewCount = [
+    selfReviewFields.significantAccomplishments?.trim().length > 0,
+    selfReviewFields.beyondRoleContributions?.trim().length > 0,
+    selfReviewFields.challengesAndSolutions?.trim().length > 0,
+    selfReviewFields.areasNeedingImprovement?.trim().length > 0,
+    selfReviewFields.certificationsCompleted?.trim().length > 0
+  ].filter(Boolean).length;
   const completedGoalsCount = goalAssessments.filter(goal => goal.status === 'completed').length;
   const toolsCount = toolsAndTechnologies.length;
 
@@ -1282,7 +1304,7 @@ function SelfAssessmentForm({
   const sectionDescriptions: Record<string, string> = {
     'goals': goalsDescription,
     'self-review': answeredSelfReviewCount > 0
-      ? `${answeredSelfReviewCount}/7 responses completed`
+      ? `${answeredSelfReviewCount}/5 responses completed`
       : 'Share your accomplishments and growth',
     'tools': toolsCount > 0
       ? `${toolsCount} tools rated`
@@ -1383,12 +1405,12 @@ function SelfAssessmentForm({
 
       {/* Header with Navigation */}
       <div className="flex items-center justify-between">
-        {saving && (
-          <span className="text-sm text-muted-foreground flex items-center gap-2">
-            <RefreshCw className="h-4 w-4 animate-spin" />
-            Saving...
-          </span>
-        )}
+          {saving && (
+            <span className="text-sm text-muted-foreground flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Saving...
+            </span>
+          )}
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
@@ -1401,16 +1423,20 @@ function SelfAssessmentForm({
                 getStepCardClasses(status)
               )}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
                 <div
                   className={cn(
-                    "h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all",
+                    "h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all flex-shrink-0",
                     getStepBadgeClasses(status)
                   )}
                 >
-                  {status === 'completed' ? <CircleCheckBig className="h-4 w-4" /> : index + 1}
+                  {status === 'completed' ? (
+                    <CircleCheckBig className="h-4 w-4 flex-shrink-0" />
+                  ) : (
+                    <span className="flex-shrink-0">{index + 1}</span>
+                  )}
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <p className="font-semibold text-foreground/90">{label}</p>
                   <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
                 </div>
@@ -1830,14 +1856,14 @@ function SelfAssessmentForm({
                         </TableCell>
                         <TableCell>
                           {!readOnly && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeToolsRow(index)}
-                              className="h-8 w-8 p-0"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeToolsRow(index)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                           )}
                         </TableCell>
                       </TableRow>
@@ -1846,14 +1872,14 @@ function SelfAssessmentForm({
                 </Table>
               </div>
               {!readOnly && (
-                <Button
-                  variant="outline"
-                  onClick={addToolsRow}
-                  className="mt-4 hover:bg-primary/10 border-primary/20 hover:border-primary/40 transition-all shadow-sm"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Row
-                </Button>
+              <Button
+                variant="outline"
+                onClick={addToolsRow}
+                className="mt-4 hover:bg-primary/10 border-primary/20 hover:border-primary/40 transition-all shadow-sm"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Row
+              </Button>
               )}
             </CardContent>
           </Card>
@@ -1963,7 +1989,7 @@ function SelfAssessmentForm({
                         </div>
                       )}
                       {!readOnly && (
-                        <Button
+                <Button
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -1973,10 +1999,10 @@ function SelfAssessmentForm({
                             }
                           }}
                           disabled={isDisabled}
-                          className="w-full bg-gradient-to-r from-primary to-primary/80 shadow-lg"
-                          size="lg"
+                  className="w-full bg-gradient-to-r from-primary to-primary/80 shadow-lg"
+                  size="lg"
                           type="button"
-                        >
+                >
                   {loading ? (
                     <>
                       <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -1993,7 +2019,7 @@ function SelfAssessmentForm({
                       Submit to Manager
                     </>
                   )}
-                        </Button>
+                </Button>
                       )}
                       {readOnly && (
                         <div className="text-sm text-muted-foreground p-4 bg-muted/50 rounded-lg border border-border/50 text-center">

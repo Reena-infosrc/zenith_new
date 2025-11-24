@@ -722,6 +722,105 @@ async def get_reviews(
     return reviews
 
 
+@router.get("/batch", response_model=List[ReviewInDB])
+async def get_reviews_batch(
+    employeeIds: str = Query(..., description="Comma-separated list of employee IDs"),
+    reviewType: Optional[str] = Query(None, description="Filter by review type (self or manager)"),
+    cycleYear: Optional[str] = Query(None, description="Filter by cycle year"),
+    isDraft: Optional[bool] = Query(None, description="Filter by draft status"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Batch fetch reviews for multiple employees efficiently.
+    
+    This endpoint accepts a comma-separated list of employee IDs and returns
+    all reviews for those employees in a single request, significantly
+    reducing the number of API calls needed.
+    """
+    del current_user
+    
+    # Parse employee IDs from comma-separated string
+    employee_id_list = [eid.strip() for eid in employeeIds.split(",") if eid.strip()]
+    
+    if not employee_id_list:
+        return []
+    
+    reviews = []
+    
+    try:
+        # Determine which tables to query
+        tables_to_query = []
+        if isDraft is None:
+            # Query both tables if isDraft is not specified
+            tables_to_query = [
+                (await get_reviews_table(), False),
+                (await get_review_drafts_table(), True)
+            ]
+        elif isDraft:
+            tables_to_query = [(await get_review_drafts_table(), True)]
+        else:
+            tables_to_query = [(await get_reviews_table(), False)]
+        
+        # Import asyncio for parallel queries
+        import asyncio
+        
+        # Fetch reviews for all employees in parallel
+        async def fetch_reviews_for_employee(emp_id: str):
+            """Fetch reviews for a single employee."""
+            emp_reviews = []
+            
+            for table, is_draft_table in tables_to_query:
+                try:
+                    # Query by employeeId using EmployeeIndex GSI
+                    response = await table.query(
+                        IndexName="EmployeeIndex",
+                        KeyConditionExpression=Key("employeeId").eq(emp_id)
+                    )
+                    items = response.get("Items", [])
+                    
+                    # Apply additional filters
+                    for item in items:
+                        parsed = parse_dynamodb_item(item)
+                        if reviewType and parsed.get("reviewType") != reviewType:
+                            continue
+                        if cycleYear and parsed.get("cycleYear") != cycleYear:
+                            continue
+                        emp_reviews.append((_map_review(item, is_draft=is_draft_table), emp_id))
+                except ClientError as exc:
+                    logger.warning(f"Failed to fetch reviews for employee {emp_id}: {exc}")
+                    continue
+            
+            return emp_reviews
+        
+        # Execute all queries in parallel
+        results = await asyncio.gather(
+            *[fetch_reviews_for_employee(emp_id) for emp_id in employee_id_list],
+            return_exceptions=True
+        )
+        
+        # Flatten results and collect reviews
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Error fetching reviews: {result}")
+                continue
+            for review, emp_id in result:
+                reviews.append(review)
+        
+    except ClientError as exc:
+        logger.exception("Failed to batch query reviews")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to batch query reviews",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Unexpected error in batch query")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected error in batch query",
+        ) from exc
+    
+    return reviews
+
+
 @router.get("/{review_id}", response_model=ReviewInDB)
 async def get_review(
     review_id: str,

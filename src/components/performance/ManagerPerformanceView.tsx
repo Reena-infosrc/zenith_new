@@ -742,72 +742,92 @@ export function ManagerPerformanceView() {
         const allReviews: any[] = [];
         const statusMap = new Map<string, 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted'>();
         
-        // OPTIMIZATION: Fetch all reviews in parallel instead of sequentially
-        const reviewPromises = employeeIds.flatMap(empId => [
-          // Manager review fetch
+        // OPTIMIZATION: Use batch endpoint to fetch all reviews in a single API call
+        // This reduces from 2N API calls (N employees × 2 review types) to just 2 calls
+        const employeeIdsParam = employeeIds.join(',');
+        
+        // Fetch manager reviews and self reviews in parallel using batch endpoint
+        const [managerReviewsResponse, selfReviewsResponse] = await Promise.all([
           authenticatedFetch(
-            `${API_BASE_URL}/reviews?employeeId=${empId}&reviewType=manager`,
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager`,
             { method: 'GET' }
-          ).then(async (response) => {
-            if (!response.ok) return { empId, type: 'manager', data: null };
-            const data = await response.json();
-            return { empId, type: 'manager', data: Array.isArray(data) ? data : [] };
-          }).catch((error) => {
-            console.error(`Error fetching manager review for employee ${empId}:`, error);
-            return { empId, type: 'manager', data: null };
+          ).catch((error) => {
+            console.error('Error fetching manager reviews batch:', error);
+            return { ok: false, json: async () => [] };
           }),
-          // Self review fetch
           authenticatedFetch(
-            `${API_BASE_URL}/reviews?employeeId=${empId}&reviewType=self`,
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self`,
             { method: 'GET' }
-          ).then(async (response) => {
-            if (!response.ok) return { empId, type: 'self', data: null };
-            const data = await response.json();
-            return { empId, type: 'self', data: Array.isArray(data) ? data : [] };
-          }).catch((error) => {
-            console.error(`Error fetching self review for employee ${empId}:`, error);
-            return { empId, type: 'self', data: null };
+          ).catch((error) => {
+            console.error('Error fetching self reviews batch:', error);
+            return { ok: false, json: async () => [] };
           })
         ]);
         
-        // Wait for all requests to complete in parallel
-        const results = await Promise.all(reviewPromises);
+        // Parse responses
+        const managerReviews = managerReviewsResponse.ok 
+          ? await managerReviewsResponse.json() 
+          : [];
+        const selfReviews = selfReviewsResponse.ok 
+          ? await selfReviewsResponse.json() 
+          : [];
         
-        // Process results
-        for (const result of results) {
-          if (!result.data) continue;
+        // Group reviews by employee ID for efficient processing
+        const reviewsByEmployee = new Map<string, { manager: any[], self: any[] }>();
+        
+        // Initialize map for all employees
+        employeeIds.forEach(empId => {
+          reviewsByEmployee.set(empId, { manager: [], self: [] });
+        });
+        
+        // Group manager reviews by employee
+        managerReviews.forEach((review: any) => {
+          const empId = review.employeeId;
+          if (reviewsByEmployee.has(empId)) {
+            reviewsByEmployee.get(empId)!.manager.push(review);
+          }
+          allReviews.push(review);
+        });
+        
+        // Group self reviews by employee
+        selfReviews.forEach((review: any) => {
+          const empId = review.employeeId;
+          if (reviewsByEmployee.has(empId)) {
+            reviewsByEmployee.get(empId)!.self.push(review);
+          }
+          allReviews.push(review);
+        });
+        
+        // Process reviews for each employee to determine status
+        for (const empId of employeeIds) {
+          const { manager, self } = reviewsByEmployee.get(empId) || { manager: [], self: [] };
           
-          const { empId, type, data } = result;
-          
-          if (type === 'manager') {
-            allReviews.push(...data);
+          // Process manager reviews
+          if (manager.length > 0) {
+            // Sort by submittedAt or updatedAt (most recent first)
+            const sortedReviews = [...manager].sort((a: any, b: any) => {
+              const dateA = a.submittedAt || a.updatedAt || a.createdAt || '';
+              const dateB = b.submittedAt || b.updatedAt || b.createdAt || '';
+              return new Date(dateB).getTime() - new Date(dateA).getTime();
+            });
             
-            // Find the most recent manager review for this employee
-            if (data.length > 0) {
-              // Sort by submittedAt or updatedAt (most recent first)
-              const sortedReviews = [...data].sort((a: any, b: any) => {
-                const dateA = a.submittedAt || a.updatedAt || a.createdAt || '';
-                const dateB = b.submittedAt || b.updatedAt || b.createdAt || '';
-                return new Date(dateB).getTime() - new Date(dateA).getTime();
-              });
-              
-              const latestReview = sortedReviews[0];
-              const metadataStatus = latestReview.metadata?.status || '';
-              
-              // Determine review status - prioritize clarification status
-              if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected') {
-                statusMap.set(empId, 'clarification_requested');
-              } else if (metadataStatus === 'manager_submitted' || latestReview.submittedAt) {
-                statusMap.set(empId, 'manager_submitted');
-              } else if (latestReview.isDraft) {
-                statusMap.set(empId, 'manager_reviewing');
-              }
+            const latestReview = sortedReviews[0];
+            const metadataStatus = latestReview.metadata?.status || '';
+            
+            // Determine review status - prioritize clarification status
+            if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected') {
+              statusMap.set(empId, 'clarification_requested');
+            } else if (metadataStatus === 'manager_submitted' || latestReview.submittedAt) {
+              statusMap.set(empId, 'manager_submitted');
+            } else if (latestReview.isDraft) {
+              statusMap.set(empId, 'manager_reviewing');
             }
-          } else if (type === 'self') {
-            allReviews.push(...data);
-            
+          }
+          
+          // Process self reviews
+          if (self.length > 0) {
             // Check if employee has responded to clarification
-            const respondedSelfReview = data.find((r: any) => {
+            const respondedSelfReview = self.find((r: any) => {
               const metadataStatus = r.metadata?.status;
               return metadataStatus === 'clarification_responded' || 
                      (r.metadata?.employeeClarificationRespondedAt && r.submittedAt);
@@ -818,7 +838,7 @@ export function ManagerPerformanceView() {
               statusMap.set(empId, 'clarification_responded');
             } else if (!statusMap.has(empId)) {
               // Check if employee has submitted self-review (only if no manager status set)
-              const submittedSelfReview = data.find((r: any) => r.submittedAt && !r.isDraft);
+              const submittedSelfReview = self.find((r: any) => r.submittedAt && !r.isDraft);
               if (submittedSelfReview) {
                 // Check if there was a clarification request that hasn't been responded to
                 const hasPendingClarification = submittedSelfReview.metadata?.status === 'clarification_requested' ||

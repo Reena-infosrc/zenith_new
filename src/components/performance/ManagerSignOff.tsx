@@ -231,6 +231,8 @@ export function ManagerSignOff() {
   }, [submissions, searchTerm, sortBy, sortOrder, filterRating]);
 
   const pendingCount = submissions.filter(s => s.status === 'pending').length;
+  const approvedCount = submissions.filter(s => s.status === 'approved').length;
+  const rejectedCount = submissions.filter(s => s.status === 'rejected').length;
   const overdueCount = submissions.filter(s => {
     if (s.status !== 'pending') return false;
     const daysSince = Math.floor((Date.now() - new Date(s.submittedAt).getTime()) / (1000 * 60 * 60 * 24));
@@ -511,8 +513,12 @@ export function ManagerSignOff() {
           <TabsTrigger value="pending">
             Pending ({pendingCount})
           </TabsTrigger>
-          <TabsTrigger value="approved">Approved</TabsTrigger>
-          <TabsTrigger value="rejected">Rejected</TabsTrigger>
+          <TabsTrigger value="approved">
+            Approved ({approvedCount})
+          </TabsTrigger>
+          <TabsTrigger value="rejected">
+            Rejected ({rejectedCount})
+          </TabsTrigger>
         </TabsList>
 
         {/* Search and Filter Bar */}
