@@ -292,9 +292,9 @@ async def list_cycles(
                 scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
             
             response = await cycles_table.scan(**scan_kwargs)
-        items = response.get("Items", [])
+            items = response.get("Items", [])
             
-        for item in items:
+            for item in items:
                 cycles.append(_map_cycle(item))
             
             last_evaluated_key = response.get("LastEvaluatedKey")
@@ -776,25 +776,25 @@ async def get_reviews(
             tables_to_query = [(await get_reviews_table(), False)]
 
         for table, is_draft_table in tables_to_query:
-        if employeeId:
-            # Query by employeeId using EmployeeIndex GSI
-            response = await table.query(
-                IndexName="EmployeeIndex",
-                KeyConditionExpression=Key("employeeId").eq(employeeId)
-            )
-            items = response.get("Items", [])
-            
-            # Apply additional filters
-            for item in items:
-                parsed = parse_dynamodb_item(item)
-                if reviewerId and parsed.get("reviewerId") != reviewerId:
-                    continue
-                if cycleYear and parsed.get("cycleYear") != cycleYear:
-                    continue
-                if reviewType and parsed.get("reviewType") != reviewType:
-                    continue
+            if employeeId:
+                # Query by employeeId using EmployeeIndex GSI
+                response = await table.query(
+                    IndexName="EmployeeIndex",
+                    KeyConditionExpression=Key("employeeId").eq(employeeId)
+                )
+                items = response.get("Items", [])
+                
+                # Apply additional filters
+                for item in items:
+                    parsed = parse_dynamodb_item(item)
+                    if reviewerId and parsed.get("reviewerId") != reviewerId:
+                        continue
+                    if cycleYear and parsed.get("cycleYear") != cycleYear:
+                        continue
+                    if reviewType and parsed.get("reviewType") != reviewType:
+                        continue
                     reviews.append(_map_review(item, is_draft=is_draft_table))
-        elif reviewerId:
+            elif reviewerId:
                 # Query by reviewerId using ReviewerIndex GSI
                 response = await table.query(
                     IndexName="ReviewerIndex",
@@ -814,33 +814,33 @@ async def get_reviews(
                     reviews.append(_map_review(item, is_draft=is_draft_table))
             else:
                 # No specific filter - scan with filters
-            last_evaluated_key = None
-            while True:
+                last_evaluated_key = None
+                while True:
                     scan_kwargs = {}
-                if last_evaluated_key:
-                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-                
+                    if last_evaluated_key:
+                        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                    
                     # Build filter expression
                     filter_expr = None
-                if cycleYear:
+                    if cycleYear:
                         filter_expr = Attr("cycleYear").eq(cycleYear)
-                if reviewType:
+                    if reviewType:
                         if filter_expr:
-                    filter_expr = filter_expr & Attr("reviewType").eq(reviewType)
+                            filter_expr = filter_expr & Attr("reviewType").eq(reviewType)
                         else:
                             filter_expr = Attr("reviewType").eq(reviewType)
-                
-                    if filter_expr:
-                scan_kwargs["FilterExpression"] = filter_expr
                     
-                response = await table.scan(**scan_kwargs)
-                
-                for item in response.get("Items", []):
+                    if filter_expr:
+                        scan_kwargs["FilterExpression"] = filter_expr
+                    
+                    response = await table.scan(**scan_kwargs)
+                    
+                    for item in response.get("Items", []):
                         reviews.append(_map_review(item, is_draft=is_draft_table))
-                
-                last_evaluated_key = response.get("LastEvaluatedKey")
-                if not last_evaluated_key:
-                    break
+                    
+                    last_evaluated_key = response.get("LastEvaluatedKey")
+                    if not last_evaluated_key:
+                        break
         
         # If includeSelfReview=True and we're querying manager reviews, also fetch self-reviews
         # OR if reviewType=manager and we have employeeId+cycleYear, automatically include self-review
