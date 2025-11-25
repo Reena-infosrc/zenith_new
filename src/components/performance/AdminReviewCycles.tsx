@@ -94,14 +94,6 @@ interface CycleFormData {
   assignments: EmployeeAssignment[];
 }
 
-interface CycleStats {
-  total: number;
-  pending: number;
-  submitted: number;
-  managerPending: number;
-  finalized: number;
-}
-
 interface Competency {
   id: string;
   name: string;
@@ -126,13 +118,6 @@ export function AdminReviewCycles() {
   const [editingCycle, setEditingCycle] = useState<ReviewCycle | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [stats, setStats] = useState<CycleStats>({
-    total: 0,
-    pending: 0,
-    submitted: 0,
-    managerPending: 0,
-    finalized: 0
-  });
   const [loading, setLoading] = useState(false);
   const { preserveScroll } = usePreserveScroll();
   const { employees, isLoading: employeesLoading } = useEmployees();
@@ -158,32 +143,6 @@ export function AdminReviewCycles() {
         ...prev,
         competencyWeightages: initialWeightages
       }));
-    }
-  }, []);
-
-  // Fetch stats from API
-  const fetchStats = useCallback(async () => {
-    try {
-      const response = await authenticatedFetch(`${API_BASE_URL}/reviews/stats`, {
-        method: 'GET'
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch stats' }));
-        throw new Error(errorData?.detail || errorData?.message || 'Failed to fetch stats');
-      }
-      
-      const statsData = await response.json();
-      setStats({
-        total: statsData.total || 0,
-        pending: statsData.pending || 0,
-        submitted: statsData.submitted || 0,
-        managerPending: statsData.managerPending || 0,
-        finalized: statsData.finalized || 0
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      // Don't show toast for stats errors, just use defaults
     }
   }, []);
 
@@ -237,8 +196,7 @@ export function AdminReviewCycles() {
 
   useEffect(() => {
     fetchCycles();
-    fetchStats();
-  }, [fetchCycles, fetchStats]);
+  }, [fetchCycles]);
 
   const filteredCycles = cycles.filter(cycle => {
     const matchesStatus = filterStatus === 'all' || cycle.status === filterStatus;
@@ -550,79 +508,6 @@ export function AdminReviewCycles() {
             Create Review Cycle
           </Button>
         </div>
-      </div>
-
-      {/* Stats Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Cycles</p>
-                <p className="text-3xl font-bold mt-2">{stats.total}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <Calendar className="h-6 w-6 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Pending</p>
-                <p className="text-3xl font-bold mt-2">{stats.pending}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-amber-500/10 flex items-center justify-center">
-                <Clock className="h-6 w-6 text-amber-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Submitted</p>
-                <p className="text-3xl font-bold mt-2">{stats.submitted}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center">
-                <Send className="h-6 w-6 text-blue-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Manager Pending</p>
-                <p className="text-3xl font-bold mt-2">{stats.managerPending}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-purple-500/10 flex items-center justify-center">
-                <UserCheck className="h-6 w-6 text-purple-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg hover:shadow-xl transition-all">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Finalized</p>
-                <p className="text-3xl font-bold mt-2">{stats.finalized}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
-                <CheckCircle2 className="h-6 w-6 text-green-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Filters */}

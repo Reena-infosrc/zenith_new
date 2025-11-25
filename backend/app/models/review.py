@@ -80,3 +80,11 @@ class ReviewStats(BaseModel):
     managerPending: int = Field(..., description="Number of self-reviews awaiting manager review")
     finalized: int = Field(..., description="Number of finalized manager reviews")
 
+
+class DashboardStats(BaseModel):
+    cycleCompletionRate: float = Field(..., description="Percentage of employees who have completed reviews")
+    averageRating: float = Field(..., description="Average rating across all manager reviews")
+    pendingReviews: int = Field(..., description="Number of pending reviews")
+    completedReviews: int = Field(..., description="Number of completed reviews")
+    totalEmployees: int = Field(..., description="Total number of employees")
+

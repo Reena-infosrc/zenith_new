@@ -81,7 +81,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
   const [filterValue, setFilterValue] = useState<string>("all");
-  const [selectedLocation, setSelectedLocation] = useState<string>("all"); // All, India, USA
+  const [selectedLocation, setSelectedLocation] = useState<string>("india"); // India, USA, All
   const [selectedDataPoint, setSelectedDataPoint] = useState<ChartDataPoint | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
@@ -871,18 +871,6 @@ export default function Dashboard() {
               <span className="text-sm font-medium text-muted-foreground">Filter by Location:</span>
               <div className="flex items-center gap-2">
                 <Button
-                  variant={selectedLocation === "all" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedLocation("all")}
-                  className={`transition-all duration-200 ${
-                    selectedLocation === "all"
-                      ? "bg-primary text-primary-foreground shadow-md"
-                      : "hover:bg-accent hover:text-accent-foreground"
-                  }`}
-                >
-                  All
-                </Button>
-                <Button
                   variant={selectedLocation === "india" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setSelectedLocation("india")}
@@ -905,6 +893,18 @@ export default function Dashboard() {
                   }`}
                 >
                   USA
+                </Button>
+                <Button
+                  variant={selectedLocation === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedLocation("all")}
+                  className={`transition-all duration-200 ${
+                    selectedLocation === "all"
+                      ? "bg-primary text-primary-foreground shadow-md"
+                      : "hover:bg-accent hover:text-accent-foreground"
+                  }`}
+                >
+                  All
                 </Button>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   BarChart3,
   TrendingUp,
@@ -16,6 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { useEmployees } from "@/hooks/use-employees";
+import { authenticatedFetch } from "@/utils/auth-utils";
+import { API_BASE_URL } from "@/config/api";
+import { useToast } from "@/hooks/use-toast";
 import {
   BarChart,
   Bar,
@@ -55,13 +58,15 @@ interface TeamPerformance {
 
 export function PerformanceDashboard() {
   const { employees, fetchEmployees } = useEmployees();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
   
   const [stats, setStats] = useState<DashboardStats>({
-    totalEmployees: 150,
-    cycleCompletionRate: 72,
-    averageRating: 3.8,
-    pendingReviews: 45,
-    completedReviews: 105
+    totalEmployees: 0,
+    cycleCompletionRate: 0,
+    averageRating: 0,
+    pendingReviews: 0,
+    completedReviews: 0
   });
 
   const [ratingDistribution, setRatingDistribution] = useState<RatingDistribution[]>([
@@ -85,10 +90,55 @@ export function PerformanceDashboard() {
 
   const COLORS = ['#4facfe', '#00f2fe', '#42b983', '#ffd93d', '#ff6b6b'];
 
-  // Fetch employees on mount
+  // Track if stats have been fetched to prevent multiple calls
+  const statsFetchedRef = useRef(false);
+
+  // Fetch dashboard stats - memoized to prevent recreation
+  const fetchDashboardStats = useCallback(async () => {
+    // Prevent multiple simultaneous calls
+    if (statsFetchedRef.current) {
+      return;
+    }
+    
+    try {
+      statsFetchedRef.current = true;
+      setLoading(true);
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/reviews/dashboard/stats`,
+        { method: 'GET' }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch dashboard stats');
+      }
+      
+      const data = await response.json();
+      setStats({
+        totalEmployees: data.totalEmployees || 0,
+        cycleCompletionRate: data.cycleCompletionRate || 0,
+        averageRating: data.averageRating || 0,
+        pendingReviews: data.pendingReviews || 0,
+        completedReviews: data.completedReviews || 0
+      });
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load dashboard statistics",
+        variant: "destructive"
+      });
+      statsFetchedRef.current = false; // Reset on error to allow retry
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  // Fetch employees and dashboard stats on mount - only once
   useEffect(() => {
     fetchEmployees();
-  }, [fetchEmployees]);
+    fetchDashboardStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - only run once on mount
 
   // Calculate team performance by Director
   useEffect(() => {
@@ -215,7 +265,9 @@ export function PerformanceDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Cycle Completion</p>
-                <p className="text-2xl font-bold">{stats.cycleCompletionRate}%</p>
+                <p className="text-2xl font-bold">
+                  {loading ? '...' : `${stats.cycleCompletionRate}%`}
+                </p>
                 <Progress value={stats.cycleCompletionRate} className="mt-2 h-2" />
               </div>
               <CheckCircle2 className="h-8 w-8 text-primary/50" />
@@ -228,7 +280,9 @@ export function PerformanceDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Average Rating</p>
-                <p className="text-2xl font-bold">{stats.averageRating.toFixed(1)}</p>
+                <p className="text-2xl font-bold">
+                  {loading ? '...' : stats.averageRating.toFixed(1)}
+                </p>
                 <div className="flex items-center gap-1 mt-2">
                   <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                   <span className="text-xs text-muted-foreground">out of 5.0</span>
@@ -244,7 +298,9 @@ export function PerformanceDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Pending Reviews</p>
-                <p className="text-2xl font-bold">{stats.pendingReviews}</p>
+                <p className="text-2xl font-bold">
+                  {loading ? '...' : stats.pendingReviews}
+                </p>
               </div>
               <Clock className="h-8 w-8 text-orange-500/50" />
             </div>
@@ -256,9 +312,11 @@ export function PerformanceDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="text-2xl font-bold">{stats.completedReviews}</p>
+                <p className="text-2xl font-bold">
+                  {loading ? '...' : stats.completedReviews}
+                </p>
                 <p className="text-xs text-muted-foreground mt-2">
-                  of {stats.totalEmployees} employees
+                  of {loading ? '...' : stats.totalEmployees} employees
                 </p>
               </div>
               <Users className="h-8 w-8 text-blue-500/50" />
