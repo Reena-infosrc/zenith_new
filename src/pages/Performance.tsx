@@ -155,35 +155,10 @@ export default function Performance() {
                   {getDescription()}
                 </p> */}
                 
-                {/* View Mode Selector Buttons */}
-                <div className="flex gap-3 mb-6">
-                  <Button
-                    variant={viewMode === 'manager' ? 'default' : 'outline'}
-                    onClick={() => handleViewModeChange('manager')}
-                    className={cn(
-                      "flex items-center gap-2 transition-all duration-300",
-                      viewMode === 'manager'
-                        ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg"
-                        : "hover:bg-muted"
-                    )}
-                  >
-                    <UserCheck className="h-4 w-4" />
-                    Manager View
-                  </Button>
-                  <Button
-                    variant={viewMode === 'user' ? 'default' : 'outline'}
-                    onClick={() => handleViewModeChange('user')}
-                    className={cn(
-                      "flex items-center gap-2 transition-all duration-300",
-                      viewMode === 'user'
-                        ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg"
-                        : "hover:bg-muted"
-                    )}
-                  >
-                    <UserCircle className="h-4 w-4" />
-                    User View
-                  </Button>
-                </div>
+                {/* View Mode Selector Buttons - temporarily hidden per UX request */}
+                {/* <div className="flex gap-3 mb-6">
+                  ...
+                </div> */}
               </section>
             )}
             
