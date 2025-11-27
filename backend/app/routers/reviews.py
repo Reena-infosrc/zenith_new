@@ -97,12 +97,14 @@ def _map_review(item: Dict[str, Any], is_draft: bool = False) -> ReviewInDB:
     parsed = parse_dynamodb_item(item)
     # Remove isDraft from parsed data if it exists (legacy data)
     parsed.pop("isDraft", None)
+    status_value = parsed.get("status") or parsed.get("metadata", {}).get("status")
     return ReviewInDB(
         reviewId=parsed["reviewId"],
         cycleYear=parsed["cycleYear"],
         employeeId=parsed["employeeId"],
         reviewerId=parsed["reviewerId"],
         reviewType=parsed.get("reviewType", "self"),
+        status=status_value,
         goalIds=parsed.get("goalIds", []),
         ratings=parsed.get("ratings"),
         comments=parsed.get("comments"),
@@ -130,20 +132,14 @@ async def _ensure_cycle(year: str) -> Dict[str, Any]:
 
 
 async def _fetch_review_by_id(review_id: str, is_draft: Optional[bool] = None) -> Tuple[Dict[str, Any], bool]:
-    """Fetch review by ID, checking both tables if is_draft is None"""
-    # First try reviews table (submitted)
-    reviews_table = await get_reviews_table()
-    response = await reviews_table.query(
-        IndexName="ReviewIdIndex",
-        KeyConditionExpression=Key("reviewId").eq(review_id),
-        Limit=1,
-    )
-    items = response.get("Items", [])
-    if items:
-        return items[0], False  # Found in reviews table (not draft)
+    """Fetch review by ID, checking both tables if is_draft is None
     
-    # If not found and is_draft is None or True, check drafts table
-    if is_draft is None or is_draft:
+    IMPORTANT: When is_draft is explicitly True, prefer draft table.
+    When is_draft is None, check draft table first (prefer draft if both exist
+    since draft is more recent when saving after submission).
+    """
+    # If explicitly looking for draft, check draft table first
+    if is_draft is True:
         drafts_table = await get_review_drafts_table()
         response = await drafts_table.query(
             IndexName="ReviewIdIndex",
@@ -154,10 +150,74 @@ async def _fetch_review_by_id(review_id: str, is_draft: Optional[bool] = None) -
         if items:
             return items[0], True  # Found in drafts table
     
+    # Check drafts table first when is_draft is None (prefer draft if both exist)
+    if is_draft is None:
+        drafts_table = await get_review_drafts_table()
+        response = await drafts_table.query(
+            IndexName="ReviewIdIndex",
+            KeyConditionExpression=Key("reviewId").eq(review_id),
+            Limit=1,
+        )
+        items = response.get("Items", [])
+        if items:
+            return items[0], True  # Found in drafts table (prefer draft)
+    
+    # Then check reviews table (submitted)
+    reviews_table = await get_reviews_table()
+    response = await reviews_table.query(
+        IndexName="ReviewIdIndex",
+        KeyConditionExpression=Key("reviewId").eq(review_id),
+        Limit=1,
+    )
+    items = response.get("Items", [])
+    if items:
+        return items[0], False  # Found in reviews table (not draft)
+    
+    # If explicitly looking for draft and not found, raise error
+    if is_draft is True:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Review {review_id} not found",
+            detail=f"Draft review {review_id} not found",
         )
+    
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Review {review_id} not found",
+    )
+
+
+async def _find_existing_review(
+    employee_id: str,
+    cycle_year: Optional[str],
+    review_type: Optional[str],
+    is_draft: bool,
+    include_inactive: bool = False
+) -> Tuple[Optional[Dict[str, Any]], Optional[Any]]:
+    """Return an existing active review for the same employee/cycle/type if present."""
+    if not employee_id:
+        return None, None
+    
+    table = await get_review_table_by_draft_status(is_draft)
+    try:
+        response = await table.query(
+            IndexName="EmployeeIndex",
+            KeyConditionExpression=Key("employeeId").eq(employee_id)
+        )
+    except ClientError as exc:
+        logger.warning(f"Failed to query existing reviews for employee {employee_id}: {exc}")
+        return None, table
+    
+    for item in response.get("Items", []):
+        parsed = parse_dynamodb_item(item)
+        if parsed.get("isActive", True) is False and not include_inactive:
+            continue
+        if review_type and parsed.get("reviewType") != review_type:
+            continue
+        if cycle_year and parsed.get("cycleYear") != cycle_year:
+            continue
+        return item, table
+    
+    return None, table
 
 
 async def _validate_employee_and_goals(
@@ -463,34 +523,104 @@ async def create_review(
     # Route to appropriate table based on submittedAt
     table = await get_review_table_by_draft_status(is_draft)
 
-    review_id = generate_id()
     now = datetime.utcnow().isoformat()
 
+    # If a review already exists for this employee/cycle/type in the target table,
+    # update it instead of creating a new record to keep data consolidated.
+    existing_item, existing_table = await _find_existing_review(
+        review.employeeId,
+        review.cycleYear,
+        review.reviewType,
+        is_draft,
+        include_inactive=not is_draft  # allow reusing inactive submitted reviews
+    )
+    
+    if existing_item and existing_table:
+        pk = existing_item["pk"]
+        sk = existing_item["sk"]
+        review_id = parse_dynamodb_item(existing_item).get("reviewId", "")
+        update_payload = review.dict()
+        update_payload["isActive"] = True  # reactivate/ensure active
+        update_payload["updatedAt"] = now
+        
+        update_expression, attr_names, attr_values = _build_update_expression(update_payload)
+        update_kwargs: Dict[str, Any] = {
+            "Key": {"pk": pk, "sk": sk},
+            "UpdateExpression": update_expression,
+            "ExpressionAttributeNames": attr_names,
+            "ReturnValues": "ALL_NEW",
+        }
+        if attr_values:
+            update_kwargs["ExpressionAttributeValues"] = attr_values
+        
+        try:
+            response = await existing_table.update_item(**update_kwargs)
+            logger.info(f"Updated existing review {review_id} (type={review.reviewType}) in {'draft' if is_draft else 'submitted'} table")
+            return _map_review(response["Attributes"], is_draft=is_draft)
+        except ClientError as exc:
+            logger.exception(f"❌ Failed to update existing review {review_id}: {exc}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update review",
+            ) from exc
+    
+    review_id = generate_id()
+    pk = _cycle_pk(review.cycleYear)
+    sk = _review_sk(review_id)
+    
+    # CRITICAL SAFETY CHECK: Before creating, check if an item with the same pk/sk exists
+    # If it exists with a different reviewType, generate a new reviewId
+    try:
+        existing_check = await table.get_item(Key={"pk": pk, "sk": sk})
+        if "Item" in existing_check:
+            existing_item = parse_dynamodb_item(existing_check["Item"])
+            existing_review_type = existing_item.get("reviewType")
+            
+            if existing_review_type != review.reviewType:
+                logger.error(f"❌ CRITICAL: Generated reviewId {review_id} conflicts with existing {existing_review_type} review!")
+                logger.error(f"   Generating new reviewId to prevent overwriting...")
+                # Generate a new reviewId
+                review_id = generate_id()
+                sk = _review_sk(review_id)
+                logger.info(f"✅ Generated new reviewId {review_id} to prevent conflict")
+    except ClientError as exc:
+        logger.warning(f"Could not check for existing item before creation: {exc}")
+        # Continue - if check fails, proceed with creation
+
+    metadata = review.metadata or {}
+    status_value = review.status or metadata.get("status")
+    if not status_value:
+        status_value = "draft" if is_draft else "submitted"
+    
     item = {
-        "pk": _cycle_pk(review.cycleYear),
-        "sk": _review_sk(review_id),
+        "pk": pk,
+        "sk": sk,
         "reviewId": review_id,
         "cycleYear": review.cycleYear,
         "employeeId": review.employeeId,
         "reviewerId": review.reviewerId,
         "reviewType": review.reviewType,
+        "status": status_value,
         "goalIds": review.goalIds,
         "ratings": review.ratings,
         "comments": review.comments,
         "strengths": review.strengths,
         "improvements": review.improvements,
         "attachments": review.attachments,
-        "metadata": review.metadata,
+        "metadata": metadata,
         "submittedAt": review.submittedAt,  # Only set when submitted
+        "isActive": True,  # All new reviews are active by default
         "createdAt": now,
         "updatedAt": now,
         "createdBy": current_user.get("email") or current_user.get("username"),
     }
 
     try:
+        logger.info(f"Creating review: reviewId={review_id}, reviewType={review.reviewType}, employeeId={review.employeeId}, cycleYear={review.cycleYear}, isDraft={is_draft}, isActive=True")
         await table.put_item(Item=format_dynamodb_item(item))
+        logger.info(f"✅ Successfully created review {review_id} (type={review.reviewType}) in {'draft' if is_draft else 'submitted'} table")
     except ClientError as exc:
-        logger.exception("Failed to create review")
+        logger.exception(f"❌ Failed to create review {review_id}: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create review",
@@ -751,6 +881,7 @@ async def get_reviews(
     reviewType: Optional[str] = Query(None, description="Filter by review type"),
     isDraft: Optional[bool] = Query(None, description="Filter by draft status"),
     includeSelfReview: Optional[bool] = Query(False, description="When querying manager reviews, also include corresponding self-review"),
+    includeInactive: Optional[bool] = Query(False, description="Include inactive reviews (for debugging)"),
     current_user: dict = Depends(get_current_active_user),
 ):
     """Query reviews with optional filters.
@@ -778,21 +909,40 @@ async def get_reviews(
         for table, is_draft_table in tables_to_query:
             if employeeId:
                 # Query by employeeId using EmployeeIndex GSI
+                logger.info(f"Querying {'draft' if is_draft_table else 'submitted'} table for employeeId={employeeId}, reviewType={reviewType}, cycleYear={cycleYear}")
                 response = await table.query(
                     IndexName="EmployeeIndex",
                     KeyConditionExpression=Key("employeeId").eq(employeeId)
                 )
                 items = response.get("Items", [])
+                logger.info(f"Found {len(items)} items in {'draft' if is_draft_table else 'submitted'} table for employeeId={employeeId}")
                 
                 # Apply additional filters
                 for item in items:
                     parsed = parse_dynamodb_item(item)
-                    if reviewerId and parsed.get("reviewerId") != reviewerId:
+                    item_review_type = parsed.get("reviewType")
+                    item_cycle_year = parsed.get("cycleYear")
+                    item_reviewer_id = parsed.get("reviewerId")
+                    item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
+                    
+                    logger.debug(f"Item: reviewType={item_review_type}, cycleYear={item_cycle_year}, reviewerId={item_reviewer_id}, isDraft={is_draft_table}, isActive={item_is_active}")
+                    
+                    # Skip inactive items (preserved for history but not shown in active queries)
+                    # Unless includeInactive=True for debugging
+                    if item_is_active is False and not includeInactive:
+                        logger.debug(f"Skipping item - marked as inactive: reviewId={parsed.get('reviewId')}")
                         continue
-                    if cycleYear and parsed.get("cycleYear") != cycleYear:
+                    
+                    if reviewerId and item_reviewer_id != reviewerId:
+                        logger.debug(f"Skipping item - reviewerId mismatch: {item_reviewer_id} != {reviewerId}")
                         continue
-                    if reviewType and parsed.get("reviewType") != reviewType:
+                    if cycleYear and item_cycle_year != cycleYear:
+                        logger.debug(f"Skipping item - cycleYear mismatch: {item_cycle_year} != {cycleYear}")
                         continue
+                    if reviewType and item_review_type != reviewType:
+                        logger.debug(f"Skipping item - reviewType mismatch: {item_review_type} != {reviewType}")
+                        continue
+                    logger.info(f"Adding review: reviewId={parsed.get('reviewId')}, reviewType={item_review_type}, cycleYear={item_cycle_year}, isDraft={is_draft_table}")
                     reviews.append(_map_review(item, is_draft=is_draft_table))
             elif reviewerId:
                 # Query by reviewerId using ReviewerIndex GSI
@@ -805,6 +955,12 @@ async def get_reviews(
                 # Apply additional filters
                 for item in items:
                     parsed = parse_dynamodb_item(item)
+                    item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
+                    
+                    # Skip inactive items (unless includeInactive=True for debugging)
+                    if item_is_active is False and not includeInactive:
+                        continue
+                    
                     if employeeId and parsed.get("employeeId") != employeeId:
                         continue
                     if cycleYear and parsed.get("cycleYear") != cycleYear:
@@ -836,11 +992,20 @@ async def get_reviews(
                     response = await table.scan(**scan_kwargs)
                     
                     for item in response.get("Items", []):
+                        parsed = parse_dynamodb_item(item)
+                        item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
+                        
+                        # Skip inactive items (unless includeInactive=True for debugging)
+                        if item_is_active is False and not includeInactive:
+                            continue
+                        
                         reviews.append(_map_review(item, is_draft=is_draft_table))
                     
                     last_evaluated_key = response.get("LastEvaluatedKey")
                     if not last_evaluated_key:
                         break
+        
+        logger.info(f"Total reviews found after filtering: {len(reviews)}")
         
         # If includeSelfReview=True and we're querying manager reviews, also fetch self-reviews
         # OR if reviewType=manager and we have employeeId+cycleYear, automatically include self-review
@@ -858,6 +1023,12 @@ async def get_reviews(
                     
                     for item in items:
                         parsed = parse_dynamodb_item(item)
+                        item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
+                        
+                        # Skip inactive items (unless includeInactive=True for debugging)
+                        if item_is_active is False and not includeInactive:
+                            continue
+                        
                         # Only include self-reviews for the same cycle year
                         if parsed.get("reviewType") == "self" and parsed.get("cycleYear") == cycleYear:
                             # Check if we already have this review (avoid duplicates)
@@ -885,6 +1056,7 @@ async def get_reviews_batch(
     reviewType: Optional[str] = Query(None, description="Filter by review type (self or manager)"),
     cycleYear: Optional[str] = Query(None, description="Filter by cycle year"),
     isDraft: Optional[bool] = Query(None, description="Filter by draft status"),
+    includeInactive: bool = Query(False, description="Include inactive reviews in the response"),
     current_user: dict = Depends(get_current_active_user),
 ):
     """Batch fetch reviews for multiple employees efficiently.
@@ -937,6 +1109,12 @@ async def get_reviews_batch(
                     # Apply additional filters
                     for item in items:
                         parsed = parse_dynamodb_item(item)
+                        item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
+                        
+                        # Skip inactive items unless explicitly requested
+                        if item_is_active is False and not includeInactive:
+                            continue
+                        
                         if reviewType and parsed.get("reviewType") != reviewType:
                             continue
                         if cycleYear and parsed.get("cycleYear") != cycleYear:
@@ -999,12 +1177,35 @@ async def update_review(
     
     If submittedAt is set (and wasn't before), review moves from draft to submitted table.
     If submittedAt is removed, review moves from submitted to draft table.
+    
+    IMPORTANT: This only updates the specific review by review_id. It does NOT affect
+    other reviews (e.g., self-reviews) even if they share the same employeeId.
     """
     del current_user
     item, current_is_draft = await _fetch_review_by_id(review_id)
-
+    
+    # Log which review is being updated to ensure we're not affecting others
+    parsed_item_check = parse_dynamodb_item(item)
+    existing_review_type = parsed_item_check.get('reviewType')
+    logger.info(f"Updating review: reviewId={review_id}, reviewType={existing_review_type}, employeeId={parsed_item_check.get('employeeId')}, isDraft={current_is_draft}")
+    
     update_payload = review_update.dict(exclude_unset=True)
+    metadata_update = update_payload.get("metadata")
+    # Keep top-level status in sync with metadata.status if provided
+    if "status" not in update_payload:
+        if isinstance(metadata_update, dict) and "status" in metadata_update:
+            update_payload["status"] = metadata_update.get("status")
     parsed_item = parse_dynamodb_item(item)
+    
+    # CRITICAL SAFETY CHECK: Prevent changing reviewType
+    # If update payload tries to change reviewType, reject it
+    new_review_type = update_payload.get("reviewType")
+    if new_review_type and new_review_type != existing_review_type:
+        logger.error(f"❌ CRITICAL: Attempted to change reviewType from {existing_review_type} to {new_review_type} for reviewId {review_id}. This is not allowed!")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot change reviewType from {existing_review_type} to {new_review_type}. Each review must maintain its original type."
+        )
     
     # Determine if we're moving between tables based on submittedAt
     current_submitted_at = parsed_item.get("submittedAt")
@@ -1046,7 +1247,60 @@ async def update_review(
         current_table = await get_review_table_by_draft_status(current_is_draft)
         target_table = await get_review_table_by_draft_status(target_is_draft)
         
-        # If there are other updates, update in current table first
+        # SPECIAL CASE: When moving from submitted to draft (saving draft after submission),
+        # create a NEW entry in draft table WITHOUT deleting the submitted entry
+        # This allows both submitted and draft versions to coexist
+        if moving_to_draft:
+            logger.info(f"Creating draft version of submitted review {review_id} - keeping submitted version intact")
+            
+            # Copy item to draft table with updated data
+            parsed_item = parse_dynamodb_item(item)
+            parsed_item.update(update_payload)
+            # Ensure submittedAt is None for draft
+            parsed_item["submittedAt"] = None
+            # Ensure new draft is marked as active
+            parsed_item["isActive"] = True
+            
+            # CRITICAL SAFETY CHECK: Before creating in draft table, check if an item with the same pk/sk exists
+            # If it exists with a different reviewType, generate a new reviewId to prevent overwriting
+            try:
+                existing_check = await target_table.get_item(Key={"pk": item["pk"], "sk": item["sk"]})
+                if "Item" in existing_check:
+                    existing_item = parse_dynamodb_item(existing_check["Item"])
+                    existing_review_type = existing_item.get("reviewType")
+                    current_review_type = parsed_item.get("reviewType")
+                    
+                    if existing_review_type != current_review_type:
+                        logger.error(f"❌ CRITICAL: Attempted to overwrite {existing_review_type} review with {current_review_type} review using same reviewId {review_id}")
+                        logger.error(f"   This would cause data loss! Generating new reviewId...")
+                        # Generate a new reviewId to prevent overwriting
+                        new_review_id = generate_id()
+                        parsed_item["reviewId"] = new_review_id
+                        parsed_item["sk"] = _review_sk(new_review_id)
+                        logger.info(f"✅ Generated new reviewId {new_review_id} to prevent overwriting existing {existing_review_type} review")
+            except ClientError as exc:
+                logger.warning(f"Could not check for existing item in draft table: {exc}")
+                # Continue - if check fails, proceed with creation
+            
+            # Create new entry in draft table (don't delete from submitted table)
+            await target_table.put_item(Item=format_dynamodb_item(parsed_item))
+            
+            # Fetch from draft table to return
+            # Use the formatted item directly if get_item fails (eventual consistency)
+            try:
+                response = await target_table.get_item(Key={"pk": item["pk"], "sk": item["sk"]})
+                if "Item" in response and response["Item"]:
+                    return _map_review(response["Item"], is_draft=True)
+            except Exception as e:
+                logger.warning(f"Could not fetch draft review immediately after creation: {e}, using formatted item")
+            
+            # Fallback: format the parsed item and return it
+            # We need to format it as DynamoDB item since _map_review expects DynamoDB format
+            formatted_item = format_dynamodb_item(parsed_item)
+            return _map_review(formatted_item, is_draft=True)
+        
+        # Normal case: Moving from draft to submitted (submitting a draft)
+        # Update in current table first if there are other updates
         if len(update_payload) > 1:  # More than just updatedAt
             try:
                 update_expression, attr_names, attr_values = _build_update_expression(update_payload)
@@ -1075,40 +1329,111 @@ async def update_review(
         # Copy item to target table
         parsed_item = parse_dynamodb_item(item)
         parsed_item.update(update_payload)
+        # Ensure new item is marked as active
+        parsed_item["isActive"] = True
         
-        # Create new item in target table
+        # Reuse existing submitted review if one exists (even if previously inactive)
+        existing_target_item, _ = await _find_existing_review(
+            parsed_item.get("employeeId"),
+            parsed_item.get("cycleYear"),
+            parsed_item.get("reviewType"),
+            is_draft=False,
+            include_inactive=True
+        )
+        
+        if existing_target_item:
+            existing_pk = existing_target_item["pk"]
+            existing_sk = existing_target_item["sk"]
+            existing_review_id = parse_dynamodb_item(existing_target_item).get("reviewId")
+            if existing_review_id:
+                parsed_item["reviewId"] = existing_review_id
+                parsed_item["pk"] = existing_pk
+                parsed_item["sk"] = existing_sk
+                review_id = existing_review_id
+        
+        # If still no pk/sk (first submission), derive from reviewId
+        if "pk" not in parsed_item or "sk" not in parsed_item:
+            parsed_item["reviewId"] = parsed_item.get("reviewId") or review_id or generate_id()
+            parsed_item["pk"] = _cycle_pk(parsed_item.get("cycleYear"))
+            parsed_item["sk"] = _review_sk(parsed_item["reviewId"])
+            review_id = parsed_item["reviewId"]
+        
         await target_table.put_item(Item=format_dynamodb_item(parsed_item))
         
-        # Delete from current table
-        await current_table.delete_item(Key={"pk": item["pk"], "sk": item["sk"]})
+        # IMPORTANT: Instead of deleting, mark the old item as inactive
+        # This preserves all data in the database for audit/history purposes
+        # CRITICAL: Only mark the specific review by reviewId - do NOT affect other reviews
+        try:
+            # Double-check we're updating the correct review
+            review_type = parsed_item.get("reviewType")
+            employee_id = parsed_item.get("employeeId")
+            item_review_id = parsed_item.get("reviewId")
+            
+            # Safety check: Ensure the reviewId matches
+            if item_review_id != review_id:
+                logger.error(f"❌ CRITICAL: ReviewId mismatch! Expected {review_id}, got {item_review_id}. Aborting inactive marking.")
+                raise ValueError(f"ReviewId mismatch: expected {review_id}, got {item_review_id}")
+            
+            logger.info(f"Marking review as inactive: reviewId={review_id}, reviewType={review_type}, employeeId={employee_id}, pk={item['pk']}, sk={item['sk']}")
+            
+            update_expression = "SET #isActive = :isActive, #updatedAt = :updatedAt"
+            attr_names = {
+                "#isActive": "isActive",
+                "#updatedAt": "updatedAt"
+            }
+            attr_values = {
+                ":isActive": False,
+                ":updatedAt": datetime.utcnow().isoformat()
+            }
+            await current_table.update_item(
+                Key={"pk": item["pk"], "sk": item["sk"]},
+                UpdateExpression=update_expression,
+                ExpressionAttributeNames=attr_names,
+                ExpressionAttributeValues=attr_values
+            )
+            logger.info(f"✅ Successfully marked review {review_id} (type={review_type}) as inactive in {'draft' if current_is_draft else 'submitted'} table")
+        except ClientError as exc:
+            logger.error(f"❌ Failed to mark review {review_id} as inactive: {exc}")
+            # Don't fail the request if marking inactive fails, but log the error
+        except ValueError as exc:
+            logger.error(f"❌ Safety check failed: {exc}")
+            # Don't mark as inactive if safety check fails
         
         # Fetch from target table to return
-        response = await target_table.get_item(Key={"pk": item["pk"], "sk": item["sk"]})
-        return _map_review(response["Item"], is_draft=target_is_draft)
+        # Handle potential eventual consistency issues
+        try:
+            response = await target_table.get_item(Key={"pk": item["pk"], "sk": item["sk"]})
+            if "Item" in response and response["Item"]:
+                return _map_review(response["Item"], is_draft=target_is_draft)
+        except Exception as e:
+            logger.warning(f"Could not fetch review immediately after move: {e}, using formatted item")
+        
+        # Fallback: format the parsed item and return it
+        formatted_item = format_dynamodb_item(parsed_item)
+        return _map_review(formatted_item, is_draft=target_is_draft)
     else:
         # Normal update - no table change needed
         table = await get_review_table_by_draft_status(current_is_draft)
-    try:
-        update_expression, attr_names, attr_values = _build_update_expression(update_payload)
-        update_kwargs = {
-            "Key": {"pk": item["pk"], "sk": item["sk"]},
-            "UpdateExpression": update_expression,
-            "ExpressionAttributeNames": attr_names,
-            "ReturnValues": "ALL_NEW",
-        }
-        if attr_values:
-            update_kwargs["ExpressionAttributeValues"] = attr_values
-        response = await table.update_item(**update_kwargs)
-    except ValueError:
+        try:
+            update_expression, attr_names, attr_values = _build_update_expression(update_payload)
+            update_kwargs = {
+                "Key": {"pk": item["pk"], "sk": item["sk"]},
+                "UpdateExpression": update_expression,
+                "ExpressionAttributeNames": attr_names,
+                "ReturnValues": "ALL_NEW",
+            }
+            if attr_values:
+                update_kwargs["ExpressionAttributeValues"] = attr_values
+            response = await table.update_item(**update_kwargs)
+            return _map_review(response["Attributes"], is_draft=current_is_draft)
+        except ValueError:
             return _map_review(item, is_draft=current_is_draft)
-    except ClientError as exc:
-        logger.exception("Failed to update review %s", review_id)
-        raise HTTPException(
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update review",
-        ) from exc
-
-        return _map_review(response["Attributes"], is_draft=current_is_draft)
+        except ClientError as exc:
+            logger.exception("Failed to update review %s", review_id)
+            raise HTTPException(
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update review",
+            ) from exc
 
 
 @router.delete("/{review_id}", status_code=status.HTTP_204_NO_CONTENT)

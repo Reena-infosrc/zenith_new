@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, Dispatch, SetStateAction } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Dispatch, SetStateAction } from "react";
 import {
   Users,
   Search,
@@ -62,7 +62,7 @@ interface DirectReport {
   position: string;
   department: string;
   photoUrl?: string;
-  reviewStatus: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted';
+  reviewStatus: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'needs_clarification' | 'manager_submitted';
   selfReviewSubmittedAt?: string;
   cycleId: string;
   cycleName: string;
@@ -129,6 +129,7 @@ interface ReviewPayload {
   employeeId: string;
   reviewerId: string;
   reviewType: string;
+  status?: string;
   goalIds: string[];
   ratings: Record<string, any>;
   comments?: string;
@@ -186,6 +187,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
   const [isClarificationRequested, setIsClarificationRequested] = useState(false);
   const [isClarificationResponded, setIsClarificationResponded] = useState(false);
   const [employeeSelfReviewId, setEmployeeSelfReviewId] = useState<string | null>(null);
+  const lastReviewIdRef = useRef<string | null>(null);
 
   // Fetch direct reports
   const fetchDirectReports = useCallback(async () => {
@@ -252,6 +254,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       setReviewCycleYear(null);
       setReviewEmployeeId(null);
       setActiveReviewId(null);
+      lastReviewIdRef.current = null;
       setEmployeeSelfReviewId(null);
       setIsClarificationResponded(false);
       
@@ -262,10 +265,10 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       let managerReviewData = null;
       
       if (cycleYear) {
-        // OPTIMIZED: Fetch both manager review and self-review in a single API call
-        // The API now automatically includes self-reviews when querying manager reviews
+        // OPTIMIZED: Fetch both manager review and self-review
+        // Use includeSelfReview=true to get self-reviews in the same call
         const managerReviewResponse = await authenticatedFetch(
-          `${API_BASE_URL}/reviews?employeeId=${employeeId}&cycleYear=${cycleYear}&reviewType=manager`,
+          `${API_BASE_URL}/reviews?employeeId=${employeeId}&cycleYear=${cycleYear}&reviewType=manager&includeSelfReview=true&includeInactive=true`,
           { method: 'GET' }
         );
         
@@ -279,80 +282,179 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
           
           console.log(`Found ${managerReviews.length} manager review(s) and ${selfReviews.length} self-review(s)`);
           
-          // Process manager review
+          // Process manager review with priority on HR feedback/clarifications
           if (managerReviews.length > 0) {
-            // Prefer submitted review over draft
-            const submittedReview = managerReviews.find((r: any) => !r.isDraft && r.submittedAt);
-            managerReviewData = submittedReview || managerReviews.find((r: any) => r.isDraft) || managerReviews[0];
-            console.log('Selected manager review data:', managerReviewData);
+            const priorityStatuses = ['needs_clarification', 'changes_requested', 'hr_rejected'];
+            const getManagerReviewPriority = (review: any) => {
+              const status = (review.status || review.metadata?.status || '').toLowerCase();
+              if (priorityStatuses.includes(status)) return 3;
+              if (!review.isDraft && review.submittedAt) return 2;
+              return review.isDraft ? 1 : 0;
+            };
+            
+            managerReviewData = [...managerReviews].sort((a, b) => {
+              const priorityDiff = getManagerReviewPriority(b) - getManagerReviewPriority(a);
+              if (priorityDiff !== 0) return priorityDiff;
+              const dateA = new Date(a.updatedAt || a.submittedAt || a.createdAt || 0).getTime();
+              const dateB = new Date(b.updatedAt || b.submittedAt || b.createdAt || 0).getTime();
+              return dateB - dateA;
+            })[0];
+            
+            console.log('Selected manager review data:', {
+              reviewId: managerReviewData?.reviewId,
+              status: managerReviewData?.status || managerReviewData?.metadata?.status,
+              isDraft: managerReviewData?.isDraft,
+              isActive: managerReviewData?.isActive,
+              submittedAt: managerReviewData?.submittedAt,
+              hrRejectionReason: managerReviewData?.metadata?.hrRejectionReason
+            });
           }
           
           // Process self-review
           if (selfReviews.length > 0) {
-            // Prefer submitted review over draft
+            // Prefer submitted review over draft, but accept draft if that's all we have
             const submittedReview = selfReviews.find((r: any) => !r.isDraft && r.submittedAt);
-            employeeSelfReviewData = submittedReview || selfReviews.find((r: any) => r.isDraft) || selfReviews[0];
-            console.log('Selected self-review data:', employeeSelfReviewData);
+            const draftReview = selfReviews.find((r: any) => r.isDraft);
+            employeeSelfReviewData = submittedReview || draftReview || selfReviews[0];
+            console.log('✅ Selected self-review data:', {
+              reviewId: employeeSelfReviewData?.reviewId,
+              isDraft: employeeSelfReviewData?.isDraft,
+              submittedAt: employeeSelfReviewData?.submittedAt,
+              hasMetadata: !!employeeSelfReviewData?.metadata
+            });
             // Store the self-review ID for clarification requests
             if (employeeSelfReviewData?.reviewId) {
               setEmployeeSelfReviewId(employeeSelfReviewData.reviewId);
             }
           } else {
-            console.log('No self-reviews found in response - employee may not have submitted yet');
-            setEmployeeSelfReviewId(null);
+            console.warn('⚠️ No self-reviews found in manager response - fetching separately...');
+            // Fetch self-reviews separately if not included in manager response
+            const selfReviewResponse = await authenticatedFetch(
+              `${API_BASE_URL}/reviews?employeeId=${employeeId}&cycleYear=${cycleYear}&reviewType=self&includeInactive=true`,
+              { method: 'GET' }
+            );
+            
+            if (selfReviewResponse.ok) {
+              const selfReviewsOnly = await selfReviewResponse.json();
+              console.log(`Fetched ${selfReviewsOnly?.length || 0} self-reviews separately:`, selfReviewsOnly);
+              if (Array.isArray(selfReviewsOnly) && selfReviewsOnly.length > 0) {
+                const submittedReview = selfReviewsOnly.find((r: any) => !r.isDraft && r.submittedAt);
+                const draftReview = selfReviewsOnly.find((r: any) => r.isDraft);
+                employeeSelfReviewData = submittedReview || draftReview || selfReviewsOnly[0];
+                console.log('✅ Found self-review in separate fetch:', {
+                  reviewId: employeeSelfReviewData?.reviewId,
+                  isDraft: employeeSelfReviewData?.isDraft,
+                  submittedAt: employeeSelfReviewData?.submittedAt
+                });
+                if (employeeSelfReviewData?.reviewId) {
+                  setEmployeeSelfReviewId(employeeSelfReviewData.reviewId);
+                }
+              } else {
+                console.log('No self-reviews found - employee may not have submitted yet');
+                setEmployeeSelfReviewId(null);
+              }
+            }
           }
         } else {
           console.error('Failed to fetch reviews:', managerReviewResponse.status, await managerReviewResponse.text());
         }
       } else {
         // Fallback: fetch latest reviews for employee (without cycleYear)
-        // Try to fetch manager reviews first, which should include self-reviews
-        const managerReviewResponse = await authenticatedFetch(
-          `${API_BASE_URL}/reviews?employeeId=${employeeId}&reviewType=manager`,
-          { method: 'GET' }
-        );
+        // Fetch both manager and self-reviews in parallel to ensure we get both
+        console.log('⚠️ cycleYear is null - fetching both manager and self-reviews separately');
         
+        const [managerReviewResponse, selfReviewResponse] = await Promise.all([
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews?employeeId=${employeeId}&reviewType=manager&includeInactive=true`,
+            { method: 'GET' }
+          ).catch((err) => {
+            console.error('Error fetching manager reviews:', err);
+            return { ok: false, json: async () => [] };
+          }),
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews?employeeId=${employeeId}&reviewType=self&includeInactive=true`,
+            { method: 'GET' }
+          ).catch((err) => {
+            console.error('Error fetching self-reviews:', err);
+            return { ok: false, json: async () => [] };
+          })
+        ]);
+        
+        // Process manager reviews
         if (managerReviewResponse.ok) {
-          const allReviews = await managerReviewResponse.json();
-          console.log(`Fetched ${allReviews?.length || 0} reviews (fallback) for employee ${employeeId}:`, allReviews);
+          const managerReviews = await managerReviewResponse.json();
+          console.log(`Fetched ${managerReviews?.length || 0} manager reviews (fallback):`, managerReviews);
           
-          // Separate manager reviews and self-reviews
-          const managerReviews = allReviews.filter((r: any) => r.reviewType === 'manager');
-          const selfReviews = allReviews.filter((r: any) => r.reviewType === 'self');
-          
-          // Process manager review
-          if (managerReviews.length > 0) {
-            const submittedReview = managerReviews.find((r: any) => !r.isDraft && r.submittedAt);
-            managerReviewData = submittedReview || managerReviews.find((r: any) => r.isDraft) || managerReviews[0];
+          if (Array.isArray(managerReviews) && managerReviews.length > 0) {
+            const priorityStatuses = ['needs_clarification', 'changes_requested', 'hr_rejected'];
+            const getManagerReviewPriority = (review: any) => {
+              const status = (review.status || review.metadata?.status || '').toLowerCase();
+              if (priorityStatuses.includes(status)) return 3;
+              if (!review.isDraft && review.submittedAt) return 2;
+              return review.isDraft ? 1 : 0;
+            };
+            managerReviewData = [...managerReviews].sort((a, b) => {
+              const priorityDiff = getManagerReviewPriority(b) - getManagerReviewPriority(a);
+              if (priorityDiff !== 0) return priorityDiff;
+              const dateA = new Date(a.updatedAt || a.submittedAt || a.createdAt || 0).getTime();
+              const dateB = new Date(b.updatedAt || b.submittedAt || b.createdAt || 0).getTime();
+              return dateB - dateA;
+            })[0];
+            console.log('Selected manager review data (fallback):', {
+              reviewId: managerReviewData?.reviewId,
+              status: managerReviewData?.status || managerReviewData?.metadata?.status,
+              isDraft: managerReviewData?.isDraft,
+              isActive: managerReviewData?.isActive,
+              submittedAt: managerReviewData?.submittedAt,
+              hrRejectionReason: managerReviewData?.metadata?.hrRejectionReason
+            });
+            // Extract cycleYear from manager review if we don't have it
+            if (managerReviewData?.cycleYear && !cycleYear) {
+              setReviewCycleYear(managerReviewData.cycleYear);
+              console.log('✅ Extracted cycleYear from manager review:', managerReviewData.cycleYear);
+            }
           }
+        }
+        
+        // Process self-reviews (CRITICAL: Always fetch separately to ensure we get them)
+        if (selfReviewResponse.ok) {
+          const selfReviews = await selfReviewResponse.json();
+          console.log(`Fetched ${selfReviews?.length || 0} self-reviews (fallback):`, selfReviews);
           
-          // Process self-review
-          if (selfReviews.length > 0) {
+          if (Array.isArray(selfReviews) && selfReviews.length > 0) {
+            // Prefer submitted review over draft, but accept draft if that's all we have
             const submittedReview = selfReviews.find((r: any) => !r.isDraft && r.submittedAt);
-            employeeSelfReviewData = submittedReview || selfReviews.find((r: any) => r.isDraft) || selfReviews[0];
-            console.log('Selected self-review data (fallback):', employeeSelfReviewData);
+            const draftReview = selfReviews.find((r: any) => r.isDraft);
+            employeeSelfReviewData = submittedReview || draftReview || selfReviews[0];
+            console.log('✅ Selected self-review data (fallback):', {
+              reviewId: employeeSelfReviewData?.reviewId,
+              isDraft: employeeSelfReviewData?.isDraft,
+              submittedAt: employeeSelfReviewData?.submittedAt,
+              cycleYear: employeeSelfReviewData?.cycleYear,
+              hasMetadata: !!employeeSelfReviewData?.metadata
+            });
             // Store the self-review ID for clarification requests
             if (employeeSelfReviewData?.reviewId) {
               setEmployeeSelfReviewId(employeeSelfReviewData.reviewId);
             }
-          } else {
-            // If no self-review in manager response, try fetching self-reviews separately
-            const selfReviewResponse = await authenticatedFetch(
-              `${API_BASE_URL}/reviews?employeeId=${employeeId}&reviewType=self`,
-              { method: 'GET' }
-            );
-            
-            if (selfReviewResponse.ok) {
-              const selfReviewsOnly = await selfReviewResponse.json();
-              if (Array.isArray(selfReviewsOnly) && selfReviewsOnly.length > 0) {
-                const submittedReview = selfReviewsOnly.find((r: any) => !r.isDraft && r.submittedAt);
-                employeeSelfReviewData = submittedReview || selfReviewsOnly.find((r: any) => r.isDraft) || selfReviewsOnly[0];
-                console.log('Selected self-review data (separate fallback):', employeeSelfReviewData);
-              }
+            // Extract cycleYear from self-review if we don't have it yet
+            if (employeeSelfReviewData?.cycleYear && !cycleYear) {
+              setReviewCycleYear(employeeSelfReviewData.cycleYear);
+              console.log('✅ Extracted cycleYear from self-review:', employeeSelfReviewData.cycleYear);
             }
+          } else {
+            console.warn('⚠️ No self-reviews found for employee:', employeeId);
+            setEmployeeSelfReviewId(null);
           }
         } else {
-          console.error('Failed to fetch reviews (fallback):', managerReviewResponse.status, await managerReviewResponse.text());
+          if ('text' in selfReviewResponse && typeof selfReviewResponse.text === 'function') {
+            const errorText = await selfReviewResponse.text().catch(() => 'Unknown error');
+            const statusCode =
+              'status' in selfReviewResponse ? (selfReviewResponse as Response).status : 'N/A';
+            console.error('❌ Failed to fetch self-reviews (fallback):', statusCode, errorText);
+          } else {
+            console.error('❌ Failed to fetch self-reviews (fallback): Unknown response');
+          }
         }
       }
 
@@ -531,18 +633,29 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       setCompetencyReviews(competencyReviews);
       setFinalRating(finalRatingData);
       
-      // Set active review ID for saving (prefer manager review ID)
-      const activeReview = managerReviewData || employeeSelfReviewData;
-      if (activeReview?.reviewId) {
-        setActiveReviewId(activeReview.reviewId);
+      // Set active review ID for saving
+      // CRITICAL: Only use manager review ID, NEVER use self-review ID
+      // Using self-review ID would cause both reviews to have the same reviewId,
+      // leading to data overwrites when moving between tables
+      if (managerReviewData?.reviewId) {
+        setActiveReviewId(managerReviewData.reviewId);
+        lastReviewIdRef.current = managerReviewData.reviewId;
+        console.log('✅ Set activeReviewId from manager review:', managerReviewData.reviewId);
+      } else {
+        // No manager review exists yet - clear activeReviewId so a new one will be created
+        setActiveReviewId(null);
+        lastReviewIdRef.current = null;
+        console.log('⚠️ No manager review found - will create new reviewId on save');
       }
       
       // Store cycle year and employee ID from review response
-      if (activeReview?.cycleYear) {
-        setReviewCycleYear(activeReview.cycleYear);
+      // Use manager review data, or fallback to self-review data for cycleYear/employeeId only
+      const reviewForMetadata = managerReviewData || employeeSelfReviewData;
+      if (reviewForMetadata?.cycleYear) {
+        setReviewCycleYear(reviewForMetadata.cycleYear);
       }
-      if (activeReview?.employeeId || activeReview?.employee_id) {
-        setReviewEmployeeId(activeReview.employeeId || activeReview.employee_id);
+      if (reviewForMetadata?.employeeId || reviewForMetadata?.employee_id) {
+        setReviewEmployeeId(reviewForMetadata.employeeId || reviewForMetadata.employee_id);
       }
       
       // Load clarification requests from self-review metadata
@@ -558,21 +671,31 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       }
       
       // Check if review was rejected (needs clarification) or if employee responded
-      const metadataStatus = managerReviewData?.metadata?.status || activeReview?.metadata?.status || employeeSelfReviewData?.metadata?.status || '';
-      const hrRejectionReason = managerReviewData?.metadata?.hrRejectionReason || activeReview?.metadata?.hrRejectionReason || null;
+      const metadataStatus =
+        managerReviewData?.status ||
+        managerReviewData?.metadata?.status ||
+        employeeSelfReviewData?.status ||
+        employeeSelfReviewData?.metadata?.status ||
+        '';
+      const hrRejectionReason = managerReviewData?.metadata?.hrRejectionReason || employeeSelfReviewData?.metadata?.hrRejectionReason || null;
       const employeeClarificationRespondedAt = employeeSelfReviewData?.metadata?.employeeClarificationRespondedAt;
       
       // Check if manager has sent clarification request
       const hasManagerClarificationRequest = managerClarificationRequestedAt || managerClarificationFields.length > 0 || managerClarificationRequests.length > 0;
       
       // Check HR rejection separately (independent of manager clarification)
-      if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected') {
+      const isHrRejection =
+        metadataStatus === 'changes_requested' ||
+        metadataStatus === 'hr_rejected' ||
+        metadataStatus === 'needs_clarification';
+
+      if (isHrRejection) {
         // HR has rejected - set rejection reason (but don't clear manager clarification)
-        setRejectionReason(hrRejectionReason);
+        setRejectionReason(hrRejectionReason || 'HR has requested changes. Please review the feedback and update the review.');
         // Update direct report status to clarification_requested
         setDirectReports(prev => prev.map(rep => 
           rep.id === employeeId 
-            ? { ...rep, reviewStatus: 'clarification_requested' }
+            ? { ...rep, reviewStatus: 'needs_clarification' }
             : rep
         ));
       } else {
@@ -693,6 +816,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
     });
     setClarificationRequests([]);
     setActiveReviewId(null);
+    lastReviewIdRef.current = null;
   };
 
   const buildReviewPayload = useCallback((overrides: Partial<ReviewPayload> = {}): ReviewPayload => {
@@ -718,6 +842,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       employeeId: selectedEmployee.id,
       reviewerId,
       reviewType: 'manager',
+      status: 'manager_draft',
       goalIds: goalReviews.map((goal) => goal.goalId),
       ratings: {
         overall: finalRating.overallRating ?? null,
@@ -756,10 +881,11 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
 
   const upsertReview = useCallback(
     async (payload: ReviewPayload) => {
-      const endpoint = activeReviewId
-        ? `${API_BASE_URL}/reviews/${activeReviewId}`
+      const reviewIdToUpdate = activeReviewId || lastReviewIdRef.current;
+      const endpoint = reviewIdToUpdate
+        ? `${API_BASE_URL}/reviews/${reviewIdToUpdate}`
         : `${API_BASE_URL}/reviews`;
-      const method = activeReviewId ? 'PUT' : 'POST';
+      const method = reviewIdToUpdate ? 'PUT' : 'POST';
 
       const response = await authenticatedFetch(endpoint, {
         method,
@@ -775,6 +901,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       const data = await response.json();
       if (data?.reviewId) {
         setActiveReviewId(data.reviewId);
+        lastReviewIdRef.current = data.reviewId;
       }
       return data;
     },
@@ -797,6 +924,7 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       console.log('Building review payload...');
       setLoading(true);
       const payload = buildReviewPayload({
+        status: 'manager_draft',
         submittedAt: undefined,  // undefined = draft
         metadata: { status: 'manager_draft' }
       });
@@ -805,6 +933,13 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       const result = await upsertReview(payload);
       console.log('upsertReview result:', result);
 
+      // Extract cycleYear from the saved review if available
+      const savedCycleYear = result?.cycleYear || initialCycleYear || reviewCycleYear;
+      if (result?.cycleYear && !reviewCycleYear) {
+        setReviewCycleYear(result.cycleYear);
+        console.log('✅ Extracted cycleYear from saved review:', result.cycleYear);
+      }
+
       toast({
         title: "Draft Saved",
         description: "Your review has been saved as a draft"
@@ -812,10 +947,13 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
 
       // Reload the review data after saving to ensure UI is in sync
       // This will re-fetch both manager review and employee self-review
-      // The fetchEmployeeReview function will preserve existing self-review if new data isn't found
+      // IMPORTANT: Always fetch self-reviews separately to ensure they're loaded
       if (selectedEmployee) {
-        console.log('Re-fetching employee review after saving draft...');
-        await fetchEmployeeReview(selectedEmployee.id, initialCycleYear || reviewCycleYear);
+        console.log('Re-fetching employee review after saving draft...', {
+          employeeId: selectedEmployee.id,
+          cycleYear: savedCycleYear
+        });
+        await fetchEmployeeReview(selectedEmployee.id, savedCycleYear);
       }
     } catch (error) {
       console.error('Error saving draft:', error);
@@ -944,12 +1082,21 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
 
       setLoading(true);
       const payload = buildReviewPayload({
+        status: 'manager_submitted',
         submittedAt: new Date().toISOString(),  // Setting submittedAt moves to submitted table
         metadata: { status: 'manager_submitted' }
       });
       
       console.log('Submitting payload:', payload);
-      await upsertReview(payload);
+      const result = await upsertReview(payload);
+      console.log('Submission result:', result);
+
+      // Extract cycleYear from the submitted review if available
+      const submittedCycleYear = result?.cycleYear || initialCycleYear || reviewCycleYear;
+      if (result?.cycleYear && !reviewCycleYear) {
+        setReviewCycleYear(result.cycleYear);
+        console.log('✅ Extracted cycleYear from submitted review:', result.cycleYear);
+      }
 
       console.log('Submission successful');
       toast({
@@ -967,6 +1114,16 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       // Clear clarification request state
       setIsClarificationRequested(false);
       setRejectionReason(null);
+
+      // IMPORTANT: Refetch review data after submission to ensure self-review is loaded
+      // This ensures the UI shows the latest state including self-review
+      if (selectedEmployee) {
+        console.log('Re-fetching employee review after submission...', {
+          employeeId: selectedEmployee.id,
+          cycleYear: submittedCycleYear
+        });
+        await fetchEmployeeReview(selectedEmployee.id, submittedCycleYear);
+      }
 
       handleCloseReview();
     } catch (error) {
@@ -1300,7 +1457,7 @@ function ReviewWorkspaceInline({
       ? `${filledFields}/5 responses completed`
       : 'Share your accomplishments and growth';
   };
-
+  
   const sections = [
     { id: 'employee-details', label: 'Employee & Goals Overview', description: `${employee.position} • ${employee.department}`, icon: User },
     { id: 'self-review', label: 'Self Review', description: getSelfReviewDescription(), icon: FileText },
@@ -1433,7 +1590,7 @@ function ReviewWorkspaceInline({
     const isActive = activeSection === index;
     
     if (isCompleted && !isActive) {
-      return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+      return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400';
     }
     if (isActive) {
       return 'border-primary/60 bg-primary/5 shadow-lg text-primary';
@@ -1836,7 +1993,6 @@ function ReviewWorkspaceInline({
                           <Table>
                             <TableHeader>
                               <TableRow className="bg-muted/30">
-                                <TableHead>Test Type</TableHead>
                                 <TableHead>Tool</TableHead>
                                 <TableHead>Rating (1-3)</TableHead>
                               </TableRow>
@@ -1844,7 +2000,6 @@ function ReviewWorkspaceInline({
                             <TableBody>
                               {employeeSelfReview.toolsAndTechnologies.map((tool, idx) => (
                                 <TableRow key={idx}>
-                                  <TableCell>{tool.testType}</TableCell>
                                   <TableCell>{tool.tool}</TableCell>
                                   <TableCell>
                                     <div className="flex items-center gap-1">
@@ -2054,105 +2209,11 @@ function ReviewWorkspaceInline({
                     className="min-h-[100px] bg-background/50"
                   />
                 </div>
-
-                <div>
-                  <Label className="text-sm font-semibold mb-2 block">
-                    Evidence Attachments
-                  </Label>
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleAddEvidenceLink}
-                        className="hover:bg-primary/10"
-                      >
-                        <LinkIcon className="h-4 w-4 mr-2" />
-                        Add G-Drive Link
-                      </Button>
-                      <label>
-                        <input
-                          type="file"
-                          multiple
-                          onChange={handleFileUpload}
-                          className="hidden"
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          asChild
-                          className="hover:bg-primary/10"
-                        >
-                          <span>
-                            <Upload className="h-4 w-4 mr-2" />
-                            Upload Files
-                          </span>
-                        </Button>
-                      </label>
-                    </div>
-
-                    {finalRating.evidenceLinks.length > 0 && (
-                      <div className="space-y-2">
-                        {finalRating.evidenceLinks.map((link, idx) => (
-                          <div key={idx} className="flex items-center gap-2 p-2 bg-background/50 rounded border border-border/50">
-                            <LinkIcon className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm flex-1 truncate">{link}</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setFinalRating(prev => ({
-                                  ...prev,
-                                  evidenceLinks: prev.evidenceLinks.filter((_, i) => i !== idx)
-                                }));
-                              }}
-                              className="h-6 w-6 p-0"
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {finalRating.evidenceFiles.length > 0 && (
-                      <div className="space-y-2">
-                        {finalRating.evidenceFiles.map((file, idx) => (
-                          <div key={idx} className="flex items-center gap-2 p-2 bg-background/50 rounded border border-border/50">
-                            <FileText className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm flex-1 truncate">{file.name}</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setFinalRating(prev => ({
-                                  ...prev,
-                                  evidenceFiles: prev.evidenceFiles.filter((_, i) => i !== idx)
-                                }));
-                              }}
-                              className="h-6 w-6 p-0"
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
               </CardContent>
             </Card>
             </div>
             <div className="flex justify-between mt-4">
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={onRequestClarification}
-                  className="h-10 hover:bg-amber-500/10 hover:text-amber-600"
-                >
-                  <HelpCircle className="h-4 w-4 mr-2" />
-                  Request Clarification
-                </Button>
                 <Button
                   onClick={(e) => {
                     e.preventDefault();
@@ -2330,6 +2391,7 @@ function ClarificationRequestModal({
 
       const updatedReview = {
         ...review,
+        status: 'clarification_requested',
         metadata: {
           ...review.metadata,
           status: 'clarification_requested',

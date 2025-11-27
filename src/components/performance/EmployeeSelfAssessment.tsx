@@ -150,14 +150,6 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
     onSectionChange?.(activeSection);
   }, [activeSection, onSectionChange]);
   
-  // Notify parent about read-only status
-  useEffect(() => {
-    if (onReadOnlyChange && reviewCycle) {
-      const isReadOnly = reviewCycle.status === 'submitted' || reviewCycle.status === 'under_manager_review' || reviewCycle.status === 'finalized';
-      onReadOnlyChange(isReadOnly);
-    }
-  }, [reviewCycle?.status, onReadOnlyChange]);
-  
   // Form data
   const [goalAssessments, setGoalAssessments] = useState<GoalAssessment[]>([]);
   const [selfReviewFields, setSelfReviewFields] = useState<SelfReviewFields>({
@@ -178,6 +170,27 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
   const [signature, setSignature] = useState('');
   const [selfRating, setSelfRating] = useState<number | undefined>(undefined);
   const [clarificationRequests, setClarificationRequests] = useState<ClarificationRequest[]>([]);
+  const [evidenceLinks, setEvidenceLinks] = useState<string[]>([]);
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  
+  // Notify parent about read-only status
+  useEffect(() => {
+    if (onReadOnlyChange && reviewCycle) {
+      // Check if there are pending clarification requests (user can edit to respond)
+      const hasPendingClarification = clarificationRequests.some(req => req.status === 'pending');
+      // Review is read-only if submitted/finalized AND no pending clarification requests
+      const isReadOnly = 
+        (reviewCycle.status === 'submitted' || reviewCycle.status === 'under_manager_review' || reviewCycle.status === 'finalized') &&
+        !hasPendingClarification;
+      console.log('Read-only status check', {
+        reviewCycleStatus: reviewCycle.status,
+        hasPendingClarification,
+        clarificationRequestsCount: clarificationRequests.length,
+        isReadOnly
+      });
+      onReadOnlyChange(isReadOnly);
+    }
+  }, [reviewCycle?.status, clarificationRequests, onReadOnlyChange]);
   
   const lastSavedRef = useRef<Date | null>(null);
   const saveDraftFnRef = useRef<(showToast?: boolean) => Promise<void>>(async () => {});
@@ -219,12 +232,15 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
           
           if (cyclesResponse.ok) {
             const cycles = await cyclesResponse.json();
-            // Find the active cycle (status === 'open' in backend)
-            let selectedCycle = cycles.find((c: any) => c.status === 'open' || c.status === 'active');
+            // Filter out draft cycles - draft cycles should not be visible to anyone in performance module
+            const filteredCycles = cycles.filter((c: any) => c.status !== 'draft');
             
-            if (!selectedCycle && cycles.length > 0) {
-              // If no active cycle, use the most recent one
-              selectedCycle = cycles.sort((a: any, b: any) => 
+            // Find the active cycle (status === 'open' in backend)
+            let selectedCycle = filteredCycles.find((c: any) => c.status === 'open' || c.status === 'active');
+            
+            if (!selectedCycle && filteredCycles.length > 0) {
+              // If no active cycle, use the most recent one (only from filtered cycles)
+              selectedCycle = filteredCycles.sort((a: any, b: any) => 
                 b.year.localeCompare(a.year)
               )[0];
             }
@@ -236,18 +252,32 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
               
               try {
                 const reviewsResponse = await authenticatedFetch(
-                  `${API_BASE_URL}/reviews?employeeId=${currentUser.id}&reviewerId=${user.email}&cycleYear=${selectedCycle.year}&reviewType=self`,
+                  `${API_BASE_URL}/reviews?employeeId=${currentUser.id}&cycleYear=${selectedCycle.year}&reviewType=self`,
                   { method: 'GET' }
                 );
                 
                 if (reviewsResponse.ok) {
                   const reviews = await reviewsResponse.json();
                   if (Array.isArray(reviews) && reviews.length > 0) {
-                    const userReview = reviews[0];
-                    if (userReview.isDraft) {
+                    // Prefer submitted review over draft
+                    const submittedReview = reviews.find((r: any) => !r.isDraft && r.submittedAt);
+                    const draftReview = reviews.find((r: any) => r.isDraft);
+                    const userReview = submittedReview || draftReview || reviews[0];
+                    
+                    if (userReview.isDraft || !userReview.submittedAt) {
                       reviewStatus = 'draft';
-                    } else if (userReview.submittedAt) {
+                    } else if (userReview.submittedAt && !userReview.isDraft) {
+                      // Review is submitted, check status for more specific state
+                      const metadataStatus = userReview.status || userReview.metadata?.status;
+                      if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected' || metadataStatus === 'clarification_requested') {
+                        reviewStatus = 'under_manager_review'; // Needs clarification/resubmission
+                      } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing' || metadataStatus === 'clarification_responded') {
+                        reviewStatus = 'under_manager_review';
+                      } else if (metadataStatus === 'manager_submitted' || metadataStatus === 'finalized' || metadataStatus === 'hr_approved') {
+                        reviewStatus = 'finalized';
+                      } else {
                       reviewStatus = 'submitted';
+                      }
                     }
                   }
                 }
@@ -392,6 +422,8 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         })),
         selfRating,
         signature,
+        evidenceLinks,
+        evidenceFiles: evidenceFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
         status: 'self_draft',
         // Preserve clarification requests if they exist
         clarificationRequests: clarificationRequests.length > 0 ? clarificationRequests : undefined
@@ -404,6 +436,7 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         employeeId: employeeInfo.id,
         reviewerId: user.email, // Self-review, so reviewer is the employee
         reviewType: 'self' as const,
+        status: 'self_draft',
         goalIds: goalAssessments.map(g => g.goalId),
         ratings,
         comments: comments || undefined,
@@ -499,6 +532,228 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
     if ((!reviewCycle && !cycleYearOverride) || !employeeInfo || !user?.email) return;
     
     try {
+      const applyStatusFromManagerReview = async (targetCycleYear: string, existingManagerReview?: any) => {
+        try {
+          let managerReview = existingManagerReview;
+          
+          if (!managerReview) {
+            const managerResponse = await authenticatedFetch(
+              `${API_BASE_URL}/reviews?employeeId=${employeeInfo.id}&cycleYear=${targetCycleYear}&reviewType=manager`,
+        { method: 'GET' }
+      );
+      
+            if (!managerResponse.ok) {
+              return false;
+            }
+            
+            const managerReviews = await managerResponse.json();
+            if (!Array.isArray(managerReviews) || managerReviews.length === 0) {
+              return false;
+            }
+            
+            managerReview = managerReviews[0];
+          }
+          
+          const metadataStatus = managerReview.status || managerReview.metadata?.status;
+          let inferredStatus: ReviewCycle['status'] = 'under_manager_review';
+          
+          if (metadataStatus === 'hr_approved' || metadataStatus === 'finalized' || metadataStatus === 'manager_submitted') {
+            inferredStatus = 'finalized';
+          } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing' || metadataStatus === 'clarification_responded') {
+            inferredStatus = 'under_manager_review';
+          } else if (metadataStatus === 'changes_requested' || metadataStatus === 'clarification_requested' || metadataStatus === 'hr_rejected') {
+            inferredStatus = 'under_manager_review';
+          }
+          
+          setReviewCycle(prev => {
+            if (prev) {
+              return {
+                ...prev,
+                status: inferredStatus,
+                submittedAt: prev.submittedAt || managerReview.submittedAt || managerReview.updatedAt || prev.submittedAt
+              };
+            }
+            return {
+              id: targetCycleYear,
+              name: `${targetCycleYear} Annual Performance Review`,
+              startDate: '',
+              endDate: '',
+              status: inferredStatus,
+              submittedAt: managerReview.submittedAt || managerReview.updatedAt
+            };
+          });
+          
+          console.log('loadDraft: Applied status from manager review', {
+            cycleYear: targetCycleYear,
+            inferredStatus,
+            metadataStatus
+          });
+          
+          return true;
+        } catch (statusError) {
+          console.error('Error inferring status from manager review:', statusError);
+          return false;
+        }
+      };
+      
+      const hydrateFromReview = (review: any, cycleForReview: string) => {
+        if (!review) return;
+        
+        draftLoadedRef.current = true;
+        
+        if (review.reviewId) {
+          setActiveReviewId(review.reviewId);
+        }
+        
+        let determinedStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' = 'not_started';
+        if (review.isDraft || !review.submittedAt) {
+          determinedStatus = 'draft';
+        } else if (review.submittedAt && !review.isDraft) {
+          const metadataStatus = review.status || review.metadata?.status;
+          if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected' || metadataStatus === 'clarification_requested') {
+            determinedStatus = 'under_manager_review';
+          } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing' || metadataStatus === 'clarification_responded') {
+            determinedStatus = 'under_manager_review';
+          } else if (metadataStatus === 'manager_submitted' || metadataStatus === 'finalized' || metadataStatus === 'hr_approved') {
+            determinedStatus = 'finalized';
+          } else {
+            determinedStatus = 'submitted';
+          }
+        }
+        
+        let loadedClarificationRequests: ClarificationRequest[] = [];
+        if (review.metadata) {
+          const meta = review.metadata;
+          
+          if (meta.clarificationRequests && Array.isArray(meta.clarificationRequests)) {
+            loadedClarificationRequests = meta.clarificationRequests;
+            setClarificationRequests(meta.clarificationRequests);
+          }
+          
+            if (meta.selfReviewFields) {
+              setSelfReviewFields(meta.selfReviewFields);
+            }
+            
+            if (meta.toolsAndTechnologies) {
+              setToolsAndTechnologies(meta.toolsAndTechnologies);
+            }
+            
+            if (meta.developmentPlan) {
+              setDevelopmentPlan(meta.developmentPlan);
+            }
+            
+            if (meta.selfRating !== undefined) {
+              setSelfRating(meta.selfRating);
+            }
+            
+            if (meta.signature) {
+              setSignature(meta.signature);
+            }
+            
+            if (meta.evidenceLinks && Array.isArray(meta.evidenceLinks)) {
+              setEvidenceLinks(meta.evidenceLinks);
+            }
+            
+            if (meta.evidenceFiles && Array.isArray(meta.evidenceFiles)) {
+              // Note: We can't restore File objects from metadata, only display info
+              // Files would need to be re-uploaded if editing
+              setEvidenceFiles([]);
+            }
+            
+            if (meta.goalAssessments && Array.isArray(meta.goalAssessments)) {
+            const mergeGoals = (source: GoalAssessment[]) => {
+              return source.map(goal => {
+                  const savedGoal = meta.goalAssessments.find((g: any) => g.goalId === goal.goalId);
+                  if (savedGoal) {
+                    return {
+                      ...goal,
+                      employeeRating: savedGoal.employeeRating,
+                    comments: savedGoal.comments || goal.comments || '',
+                    evidenceLinks: savedGoal.evidenceLinks || goal.evidenceLinks || [],
+                    completion: savedGoal.completion !== undefined ? savedGoal.completion : goal.completion,
+                    weightage: savedGoal.weightage !== undefined ? savedGoal.weightage : goal.weightage,
+                    };
+                  }
+                  return goal;
+                });
+            };
+
+            if (baseGoalAssessments && baseGoalAssessments.length > 0) {
+              setGoalAssessments(mergeGoals(baseGoalAssessments));
+            } else {
+              setGoalAssessments(prev => mergeGoals(prev));
+            }
+          }
+        }
+        
+        const hasPendingClarification = loadedClarificationRequests.some(req => req.status === 'pending');
+        console.log('loadDraft: Review status determination', {
+          reviewId: review.reviewId,
+          isDraft: review.isDraft,
+          submittedAt: review.submittedAt,
+        metadataStatus: review.status || review.metadata?.status,
+          determinedStatus,
+          hasPendingClarification,
+          clarificationRequestsCount: loadedClarificationRequests.length
+        });
+        
+        if (hasPendingClarification && determinedStatus !== 'draft') {
+          determinedStatus = 'under_manager_review';
+          console.log('loadDraft: Has pending clarification, allowing edit');
+        }
+        
+        setReviewCycle(prev => {
+          if (prev) {
+            return {
+              ...prev,
+              status: determinedStatus,
+              submittedAt: review.submittedAt || prev.submittedAt
+            };
+          }
+          
+          return {
+            id: cycleForReview,
+            name: `${cycleForReview} Annual Performance Review`,
+            startDate: '',
+            endDate: '',
+            status: determinedStatus,
+            submittedAt: review.submittedAt
+          };
+        });
+        
+        if (review.ratings) {
+          if (review.ratings.overall !== null && review.ratings.overall !== undefined) {
+            setSelfRating(review.ratings.overall);
+          }
+          
+          if (review.ratings.goals) {
+            setGoalAssessments(prev => prev.map(goal => ({
+                  ...goal,
+              employeeRating: review.ratings.goals[goal.goalId] || goal.employeeRating
+            })));
+          }
+        }
+        
+        if (review.comments && !review.metadata?.selfReviewFields) {
+          const lines = review.comments.split('\n\n');
+            lines.forEach(line => {
+              if (line.startsWith('Most Significant Accomplishments:')) {
+                setSelfReviewFields(prev => ({
+                  ...prev,
+                  significantAccomplishments: line.replace('Most Significant Accomplishments: ', '')
+                }));
+              }
+          });
+        }
+        
+        console.log('Review loaded successfully:', {
+          reviewId: review.reviewId,
+          reviewType: review.reviewType,
+          metadataKeys: review.metadata ? Object.keys(review.metadata) : [],
+          hasSelfReviewFields: !!review.metadata?.selfReviewFields
+        });
+      };
+      
       // Extract cycle year from review cycle name or use current year
       const cycleYear = cycleYearOverride
         || reviewCycle?.name?.match(/\d{4}/)?.[0]
@@ -508,7 +763,7 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
       // Fetch existing self-review (both draft and submitted)
       // First try to get submitted review, then fallback to draft
       let response = await authenticatedFetch(
-        `${API_BASE_URL}/reviews?employeeId=${employeeInfo.id}&reviewerId=${user.email}&cycleYear=${cycleYear}&reviewType=self`,
+        `${API_BASE_URL}/reviews?employeeId=${employeeInfo.id}&cycleYear=${cycleYear}&reviewType=self`,
         { method: 'GET' }
       );
       
@@ -520,120 +775,16 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
           const draftReview = reviews.find((r: any) => r.isDraft);
           const review = submittedReview || draftReview || reviews[0];
           
-          draftLoadedRef.current = true;
-          
-          // Set the review ID for future updates
-          if (review.reviewId) {
-            setActiveReviewId(review.reviewId);
-          }
-          
-          // Load metadata
-          if (review.metadata) {
-            const meta = review.metadata;
-            
-            // Load self-review fields
-            if (meta.selfReviewFields) {
-              setSelfReviewFields(meta.selfReviewFields);
-            }
-            
-            // Load tools and technologies
-            if (meta.toolsAndTechnologies) {
-              setToolsAndTechnologies(meta.toolsAndTechnologies);
-            }
-            
-            // Load development plan
-            if (meta.developmentPlan) {
-              setDevelopmentPlan(meta.developmentPlan);
-            }
-            
-            // Load self rating
-            if (meta.selfRating !== undefined) {
-              setSelfRating(meta.selfRating);
-            }
-            
-            // Load signature
-            if (meta.signature) {
-              setSignature(meta.signature);
-            }
-            
-            // Load clarification requests
-            if (meta.clarificationRequests && Array.isArray(meta.clarificationRequests)) {
-              setClarificationRequests(meta.clarificationRequests);
-            }
-            
-            // Check if clarification was requested
-            if (meta.status === 'clarification_requested') {
-              // Update review cycle status to show clarification banner
-              setReviewCycle(prev => prev ? {
-                ...prev,
-                status: 'under_manager_review' // Use this status to show clarification UI
-              } : prev);
-            }
-            
-            // Load goal assessments
-            if (meta.goalAssessments && Array.isArray(meta.goalAssessments)) {
-              const mergeGoals = (source: GoalAssessment[]) => {
-                return source.map(goal => {
-                  const savedGoal = meta.goalAssessments.find((g: any) => g.goalId === goal.goalId);
-                  if (savedGoal) {
-                    return {
-                      ...goal,
-                      employeeRating: savedGoal.employeeRating,
-                      comments: savedGoal.comments || goal.comments || '',
-                      evidenceLinks: savedGoal.evidenceLinks || goal.evidenceLinks || [],
-                      completion: savedGoal.completion !== undefined ? savedGoal.completion : goal.completion,
-                      weightage: savedGoal.weightage !== undefined ? savedGoal.weightage : goal.weightage,
-                      // Note: evidenceFiles can't be restored from API, user will need to re-upload
-                    };
-                  }
-                  return goal;
-                });
-              };
-
-              if (baseGoalAssessments && baseGoalAssessments.length > 0) {
-                setGoalAssessments(mergeGoals(baseGoalAssessments));
-              } else {
-                setGoalAssessments(prev => mergeGoals(prev));
-              }
-            }
-          }
-          
-          // Load ratings
-          if (review.ratings) {
-            if (review.ratings.overall !== null && review.ratings.overall !== undefined) {
-              setSelfRating(review.ratings.overall);
-            }
-            
-            // Update goal ratings
-            if (review.ratings.goals) {
-              setGoalAssessments(prev => {
-                return prev.map(goal => ({
-                  ...goal,
-                  employeeRating: review.ratings.goals[goal.goalId] || goal.employeeRating
-                }));
-              });
-            }
-          }
-          
-          // Load comments (parse back into self-review fields if possible)
-          // This is a fallback if metadata doesn't have the structured data
-          if (review.comments && !review.metadata?.selfReviewFields) {
-            // Try to parse comments back into fields (basic attempt)
-            const lines = review.comments.split('\n\n');
-            lines.forEach(line => {
-              if (line.startsWith('Most Significant Accomplishments:')) {
-                setSelfReviewFields(prev => ({
-                  ...prev,
-                  significantAccomplishments: line.replace('Most Significant Accomplishments: ', '')
-                }));
-              }
-              // Add more parsing as needed
-            });
-          }
-          
-          console.log('Review loaded successfully:', review);
+          // Use the hydrateFromReview function to load all data
+          hydrateFromReview(review, cycleYear);
           return;
         }
+        draftLoadedRef.current = true;
+      }
+      
+      // If we didn't return earlier, try to infer status from manager review
+      const statusUpdated = await applyStatusFromManagerReview(cycleYear);
+      if (statusUpdated) {
         draftLoadedRef.current = true;
       }
       
@@ -803,6 +954,8 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         })),
         selfRating,
         signature,
+        evidenceLinks,
+        evidenceFiles: evidenceFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
         status: isResubmissionAfterClarification ? 'clarification_responded' : 'self_submitted',
         // Mark clarification requests as responded
         clarificationRequests: clarificationRequests.map(req => ({
@@ -819,6 +972,7 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         employeeId: employeeInfo.id,
         reviewerId: user.email, // Self-review, so reviewer is the employee
         reviewType: 'self' as const,
+    status: isResubmissionAfterClarification ? 'clarification_responded' : 'self_submitted',
         goalIds: goalAssessments.map(g => g.goalId),
         ratings,
         comments: comments || undefined,
@@ -883,6 +1037,20 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
     // Clear clarification status when resubmitting
     setClarificationRequests([]);
     await handleSubmit();
+  };
+
+  const handleAddFinalEvidenceLink = () => {
+    const link = prompt("Enter Google Drive link:");
+    if (link) {
+      setEvidenceLinks([...evidenceLinks, link]);
+    }
+  };
+
+  const handleFinalFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      setEvidenceFiles([...evidenceFiles, ...Array.from(files)]);
+    }
   };
 
   const addToolsRow = () => {
@@ -1083,6 +1251,12 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
           selfRating={selfRating}
           setSelfRating={setSelfRating}
           clarificationRequests={clarificationRequests}
+          evidenceLinks={evidenceLinks}
+          setEvidenceLinks={setEvidenceLinks}
+          evidenceFiles={evidenceFiles}
+          setEvidenceFiles={setEvidenceFiles}
+          handleAddFinalEvidenceLink={handleAddFinalEvidenceLink}
+          handleFinalFileUpload={handleFinalFileUpload}
           onBack={() => setActiveSection('home')}
           onSubmit={() => {
             console.log('Submit button clicked', { status: reviewCycle.status });
@@ -1098,7 +1272,12 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
           addToolsRow={addToolsRow}
           removeToolsRow={removeToolsRow}
           updateToolsRow={updateToolsRow}
-          readOnly={reviewCycle.status === 'submitted' || reviewCycle.status === 'under_manager_review' || reviewCycle.status === 'finalized'}
+          readOnly={
+            reviewCycle ? (
+              (reviewCycle.status === 'submitted' || reviewCycle.status === 'under_manager_review' || reviewCycle.status === 'finalized') &&
+              !clarificationRequests.some(req => req.status === 'pending') // Allow editing if clarification is requested
+            ) : false
+          }
         />
       )}
     </div>
@@ -1122,6 +1301,12 @@ interface SelfAssessmentFormProps {
   selfRating: number | undefined;
   setSelfRating: (rating: number | undefined) => void;
   clarificationRequests: ClarificationRequest[];
+  evidenceLinks: string[];
+  setEvidenceLinks: (links: string[]) => void;
+  evidenceFiles: File[];
+  setEvidenceFiles: (files: File[]) => void;
+  handleAddFinalEvidenceLink: () => void;
+  handleFinalFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onBack: () => void;
   onSubmit: () => void;
   loading: boolean;
@@ -1149,6 +1334,12 @@ function SelfAssessmentForm({
   selfRating,
   setSelfRating,
   clarificationRequests,
+  evidenceLinks = [],
+  setEvidenceLinks,
+  evidenceFiles = [],
+  setEvidenceFiles,
+  handleAddFinalEvidenceLink,
+  handleFinalFileUpload,
   onBack,
   onSubmit,
   loading,
@@ -1332,7 +1523,7 @@ function SelfAssessmentForm({
   const getStepCardClasses = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+        return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400';
       case 'current':
         return 'border-primary/60 bg-primary/5 shadow-lg text-primary';
       default:
@@ -1804,7 +1995,6 @@ function SelfAssessmentForm({
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-gradient-to-r from-muted/40 to-muted/20 border-b border-border/40">
-                      <TableHead className="font-semibold">Test Type</TableHead>
                       <TableHead className="font-semibold">Tool</TableHead>
                       <TableHead className="font-semibold">Rating (1-3)</TableHead>
                       <TableHead></TableHead>
@@ -1813,15 +2003,6 @@ function SelfAssessmentForm({
                   <TableBody>
                     {toolsAndTechnologies.map((tool, index) => (
                       <TableRow key={index} className="hover:bg-muted/20 transition-colors">
-                        <TableCell>
-                          <Input
-                            value={tool.testType}
-                            onChange={(e) => updateToolsRow(index, 'testType', e.target.value)}
-                            placeholder="e.g., Unit Test"
-                            className="bg-background/60 backdrop-blur-sm border-border/50 focus:border-primary/50 transition-all"
-                            disabled={readOnly}
-                          />
-                        </TableCell>
                         <TableCell>
                           <Input
                             value={tool.tool}
@@ -1934,6 +2115,93 @@ function SelfAssessmentForm({
                 <p className="text-xs text-muted-foreground mt-2">
                   By signing, you confirm that all information provided is accurate
                 </p>
+              </div>
+
+              <div>
+                <Label className="text-sm font-semibold mb-2 block">
+                  Evidence Attachments
+                </Label>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAddFinalEvidenceLink}
+                      className="hover:bg-primary/10"
+                      disabled={readOnly}
+                    >
+                      <LinkIcon className="h-4 w-4 mr-2" />
+                      Add G-Drive Link
+                    </Button>
+                    <label>
+                      <input
+                        type="file"
+                        multiple
+                        onChange={handleFinalFileUpload}
+                        className="hidden"
+                        disabled={readOnly}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        asChild
+                        className="hover:bg-primary/10"
+                        disabled={readOnly}
+                      >
+                        <span>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload Files
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+
+                  {evidenceLinks && evidenceLinks.length > 0 && (
+                    <div className="space-y-2">
+                      {evidenceLinks.map((link, idx) => (
+                        <div key={idx} className="flex items-center gap-2 p-2 bg-background/50 rounded border border-border/50">
+                          <LinkIcon className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm flex-1 truncate">{link}</span>
+                          {!readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setEvidenceLinks(evidenceLinks.filter((_, i) => i !== idx));
+                              }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {evidenceFiles && evidenceFiles.length > 0 && (
+                    <div className="space-y-2">
+                      {evidenceFiles.map((file, idx) => (
+                        <div key={idx} className="flex items-center gap-2 p-2 bg-background/50 rounded border border-border/50">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm flex-1 truncate">{file.name}</span>
+                          {!readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setEvidenceFiles(evidenceFiles.filter((_, i) => i !== idx));
+                              }}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="pt-4 border-t border-border/50">

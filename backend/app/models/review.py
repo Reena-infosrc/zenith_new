@@ -39,6 +39,10 @@ class ReviewBase(BaseModel):
     employeeId: str
     reviewerId: str
     reviewType: Literal["self", "manager", "peer", "skip_level", "other"] = "self"
+    status: Optional[str] = Field(
+        default=None,
+        description="High-level lifecycle status of the review (e.g., draft, self_submitted, manager_submitted, hr_rejected)"
+    )
     goalIds: List[str] = Field(default_factory=list)
     ratings: Optional[Dict[str, Any]] = None
     comments: Optional[str] = None
@@ -56,6 +60,7 @@ class ReviewCreate(ReviewBase):
 class ReviewUpdate(BaseModel):
     reviewerId: Optional[str] = None
     reviewType: Optional[str] = None
+    status: Optional[str] = None
     goalIds: Optional[List[str]] = None
     ratings: Optional[Dict[str, Any]] = None
     comments: Optional[str] = None

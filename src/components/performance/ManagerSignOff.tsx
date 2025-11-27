@@ -67,6 +67,14 @@ export function ManagerSignOff() {
   const [sortBy, setSortBy] = useState<'name' | 'date' | 'rating' | 'daysPending'>('daysPending');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [filterRating, setFilterRating] = useState<string>('all');
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [reviewDetail, setReviewDetail] = useState<{ manager?: any; self?: any } | null>(null);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [viewDetailLoading, setViewDetailLoading] = useState(false);
+  const [viewDetailError, setViewDetailError] = useState<string | null>(null);
+  const [viewDetail, setViewDetail] = useState<{ manager?: any; self?: any } | null>(null);
+  const [viewSubmission, setViewSubmission] = useState<ReviewSubmission | null>(null);
   const { preserveScroll } = usePreserveScroll();
   const { toast } = useToast();
   const { employees } = useEmployees();
@@ -76,19 +84,99 @@ export function ManagerSignOff() {
     try {
       setLoading(true);
       
-      // Fetch all manager reviews that are submitted (not drafts)
-      const response = await authenticatedFetch(
-        `${API_BASE_URL}/reviews?reviewType=manager&isDraft=false`,
-        { method: 'GET' }
-      );
+      // Fetch all manager reviews (both draft and submitted) to include rejected reviews
+      // We'll filter on the frontend to only show submitted/rejected/approved reviews
+      // Include inactive reviews to catch rejected reviews that might be marked inactive
+      const [submittedResponse, draftResponse] = await Promise.all([
+        authenticatedFetch(
+          `${API_BASE_URL}/reviews?reviewType=manager&isDraft=false&includeInactive=true`,
+          { method: 'GET' }
+        ),
+        authenticatedFetch(
+          `${API_BASE_URL}/reviews?reviewType=manager&isDraft=true&includeInactive=true`,
+          { method: 'GET' }
+        )
+      ]);
 
-      if (!response.ok) {
+      if (!submittedResponse.ok || !draftResponse.ok) {
         throw new Error('Failed to fetch reviews');
       }
 
-      const reviews = await response.json();
+      const submittedReviews = await submittedResponse.json();
+      const draftReviews = await draftResponse.json();
       
-      if (!Array.isArray(reviews)) {
+      // Combine both arrays
+      const allReviews = [
+        ...(Array.isArray(submittedReviews) ? submittedReviews : []),
+        ...(Array.isArray(draftReviews) ? draftReviews : [])
+      ];
+      
+      // Filter to only include reviews that:
+      // 1. Are active (unless they have a processed status), OR
+      // 2. Have been submitted (have submittedAt), OR
+      // 3. Have a status indicating they've been processed (changes_requested, hr_approved, etc.)
+      const filteredReviews = allReviews.filter((review: any) => {
+        const isActive = review.isActive !== false; // Default to true if not specified
+        const hasSubmittedAt = !!review.submittedAt;
+        const metadataStatus = getReviewStatus(review);
+        const isProcessed = ['changes_requested', 'hr_approved', 'hr_rejected', 'approved', 'rejected', 'escalated', 'manager_submitted'].includes(metadataStatus);
+        
+        // Include if: active, OR has submittedAt, OR has processed status (even if inactive)
+        return (isActive && (hasSubmittedAt || isProcessed)) || (!isActive && isProcessed);
+      });
+      
+      // Deduplicate by reviewId - if same review exists in both tables, prefer:
+      // 1. The one with a processed status (changes_requested, hr_approved, etc.) over manager_submitted
+      // 2. The one with the most recent updatedAt
+      const reviewMap = new Map<string, any>();
+      for (const review of filteredReviews) {
+        const reviewId = review.reviewId || review.id;
+        if (!reviewId) continue;
+        
+        const existing = reviewMap.get(reviewId);
+        if (!existing) {
+          reviewMap.set(reviewId, review);
+        } else {
+          // Determine which version to keep
+          const existingStatus = getReviewStatus(existing);
+          const newStatus = getReviewStatus(review);
+          
+          // Priority: processed statuses > manager_submitted
+          const processedStatuses = ['changes_requested', 'hr_approved', 'hr_rejected', 'approved', 'rejected', 'escalated'];
+          const existingIsProcessed = processedStatuses.includes(existingStatus);
+          const newIsProcessed = processedStatuses.includes(newStatus);
+          
+          if (newIsProcessed && !existingIsProcessed) {
+            // New version has processed status, existing doesn't - use new
+            reviewMap.set(reviewId, review);
+          } else if (existingIsProcessed && !newIsProcessed) {
+            // Existing has processed status, new doesn't - keep existing
+            // Do nothing
+          } else {
+            // Both have same priority - use the one with more recent updatedAt
+            const existingUpdated = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+            const newUpdated = new Date(review.updatedAt || review.createdAt || 0).getTime();
+            if (newUpdated > existingUpdated) {
+              reviewMap.set(reviewId, review);
+            }
+          }
+        }
+      }
+      
+      const reviews = Array.from(reviewMap.values());
+      
+      // Debug: Log reviews with changes_requested status
+      const rejectedReviews = reviews.filter((r: any) => getReviewStatus(r) === 'changes_requested');
+      if (rejectedReviews.length > 0) {
+        console.log('Found rejected reviews:', rejectedReviews.map((r: any) => ({
+          reviewId: r.reviewId,
+          status: getReviewStatus(r),
+          isDraft: r.isDraft,
+          updatedAt: r.updatedAt
+        })));
+      }
+      
+      if (reviews.length === 0) {
         setSubmissions([]);
         return;
       }
@@ -113,16 +201,19 @@ export function ManagerSignOff() {
           const cycleName = cycle?.name || `${review.cycleYear} Annual Performance Review`;
           
           // Determine status from metadata
-          const metadataStatus = review.metadata?.status || '';
+          // Priority: approved > rejected > escalated > pending
+          const metadataStatus = getReviewStatus(review);
           let status: 'pending' | 'approved' | 'rejected' | 'escalated' = 'pending';
           
           if (metadataStatus === 'hr_approved' || metadataStatus === 'approved') {
             status = 'approved';
           } else if (metadataStatus === 'hr_rejected' || metadataStatus === 'rejected' || metadataStatus === 'changes_requested') {
+            // If status is changes_requested, it's rejected (needs changes)
             status = 'rejected';
           } else if (metadataStatus === 'escalated') {
             status = 'escalated';
           } else if (metadataStatus === 'manager_submitted' || review.submittedAt) {
+            // Only set to pending if it's been submitted and doesn't have another status
             status = 'pending';
           }
 
@@ -233,11 +324,6 @@ export function ManagerSignOff() {
   const pendingCount = submissions.filter(s => s.status === 'pending').length;
   const approvedCount = submissions.filter(s => s.status === 'approved').length;
   const rejectedCount = submissions.filter(s => s.status === 'rejected').length;
-  const overdueCount = submissions.filter(s => {
-    if (s.status !== 'pending') return false;
-    const daysSince = Math.floor((Date.now() - new Date(s.submittedAt).getTime()) / (1000 * 60 * 60 * 24));
-    return daysSince > 7;
-  }).length;
 
   const getStatusBadge = (status: string, escalationLevel?: number) => {
     const configs: Record<string, { label: string; variant: any; icon: any }> = {
@@ -255,6 +341,97 @@ export function ManagerSignOff() {
       </Badge>
     );
   };
+
+  const resetActionState = () => {
+    setReviewDetail(null);
+    setDetailError(null);
+    setDetailLoading(false);
+    setActionComment('');
+    setActionType(null);
+    setSelectedSubmission(null);
+  };
+
+  const resetViewState = () => {
+    setViewDetail(null);
+    setViewDetailError(null);
+    setViewDetailLoading(false);
+    setViewSubmission(null);
+  };
+
+  const retrieveReviewDetails = useCallback(async (submission: ReviewSubmission) => {
+    const managerResponse = await authenticatedFetch(
+      `${API_BASE_URL}/reviews/${submission.reviewId}`,
+      { method: 'GET' }
+    );
+
+    if (!managerResponse.ok) {
+      throw new Error('Failed to fetch manager review');
+    }
+
+    const managerReview = await managerResponse.json();
+    let selfReview: any = null;
+
+    if (submission.employeeId && managerReview?.cycleYear) {
+      const selfResponse = await authenticatedFetch(
+        `${API_BASE_URL}/reviews?employeeId=${submission.employeeId}&cycleYear=${managerReview.cycleYear}&reviewType=self`,
+        { method: 'GET' }
+      );
+
+      if (selfResponse.ok) {
+        const selfReviews = await selfResponse.json();
+        if (Array.isArray(selfReviews) && selfReviews.length > 0) {
+          const submitted = selfReviews.find((rev: any) => !rev.isDraft && rev.submittedAt);
+          selfReview = submitted || selfReviews[0];
+        }
+      }
+    }
+
+    return { manager: managerReview, self: selfReview };
+  }, []);
+
+  const fetchReviewDetails = useCallback(async (submission: ReviewSubmission) => {
+    try {
+      setDetailLoading(true);
+      setDetailError(null);
+      setReviewDetail(null);
+
+      const detail = await retrieveReviewDetails(submission);
+      setReviewDetail(detail);
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : 'Failed to load review details');
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [retrieveReviewDetails]);
+
+  const fetchViewDetails = useCallback(async (submission: ReviewSubmission) => {
+    try {
+      setViewDetailLoading(true);
+      setViewDetailError(null);
+      setViewDetail(null);
+      const detail = await retrieveReviewDetails(submission);
+      setViewDetail(detail);
+    } catch (error) {
+      setViewDetailError(error instanceof Error ? error.message : 'Failed to load review details');
+    } finally {
+      setViewDetailLoading(false);
+    }
+  }, [retrieveReviewDetails]);
+
+  const handleOpenActionModal = useCallback((submission: ReviewSubmission, type: 'approve' | 'reject') => {
+    setSelectedSubmission(submission);
+    setActionType(type);
+    setActionComment('');
+    setShowActionModal(true);
+    fetchReviewDetails(submission);
+  }, [fetchReviewDetails]);
+
+  const handleViewDetails = useCallback((submission: ReviewSubmission) => {
+    resetViewState();
+    setViewSubmission(submission);
+    setShowViewModal(true);
+    fetchViewDetails(submission);
+  }, [fetchViewDetails]);
 
   const handleApprove = async (submissionId: string) => {
     const submission = submissions.find(s => s.id === submissionId);
@@ -278,6 +455,7 @@ export function ManagerSignOff() {
       // Update review with approval status
       const updatedReview = {
         ...review,
+        status: 'hr_approved',
         metadata: {
           ...review.metadata,
           status: 'hr_approved',
@@ -308,8 +486,8 @@ export function ManagerSignOff() {
 
       // Refresh submissions
       await fetchSubmissions();
-    setShowActionModal(false);
-    setActionComment('');
+      setShowActionModal(false);
+      resetActionState();
     } catch (error) {
       console.error('Error approving review:', error);
       toast({
@@ -325,6 +503,14 @@ export function ManagerSignOff() {
   const handleReject = async (submissionId: string) => {
     const submission = submissions.find(s => s.id === submissionId);
     if (!submission) return;
+    if (!actionComment.trim()) {
+      toast({
+        title: "Comments required",
+        description: "Please describe what needs to change before requesting updates.",
+        variant: "destructive"
+      });
+      return;
+    }
 
     try {
       setActionLoading(true);
@@ -344,6 +530,7 @@ export function ManagerSignOff() {
       // Update review with rejection status
       const updatedReview = {
         ...review,
+        status: 'changes_requested',
         metadata: {
           ...review.metadata,
           status: 'changes_requested',
@@ -374,8 +561,8 @@ export function ManagerSignOff() {
 
       // Refresh submissions
       await fetchSubmissions();
-    setShowActionModal(false);
-    setActionComment('');
+      setShowActionModal(false);
+      resetActionState();
     } catch (error) {
       console.error('Error rejecting review:', error);
       toast({
@@ -411,6 +598,7 @@ export function ManagerSignOff() {
       const escalationLevel = (submission.escalationLevel || 0) + 1;
       const updatedReview = {
         ...review,
+        status: 'escalated',
         metadata: {
           ...review.metadata,
           status: 'escalated',
@@ -483,10 +671,10 @@ export function ManagerSignOff() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Overdue</p>
-                <p className="text-2xl font-bold text-destructive">{overdueCount}</p>
+                <p className="text-sm text-muted-foreground">Approved</p>
+                <p className="text-2xl font-bold text-emerald-600">{approvedCount}</p>
               </div>
-              <AlertTriangle className="h-8 w-8 text-destructive/50" />
+              <CheckCircle2 className="h-8 w-8 text-emerald-500/60" />
             </div>
           </CardContent>
         </Card>
@@ -494,12 +682,10 @@ export function ManagerSignOff() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Approved</p>
-                <p className="text-2xl font-bold text-green-500">
-                  {submissions.filter(s => s.status === 'approved').length}
-                </p>
+                <p className="text-sm text-muted-foreground">Rejected</p>
+                <p className="text-2xl font-bold text-rose-600">{rejectedCount}</p>
               </div>
-              <CheckCircle2 className="h-8 w-8 text-green-500/50" />
+              <XCircle className="h-8 w-8 text-rose-500/60" />
             </div>
           </CardContent>
         </Card>
@@ -625,7 +811,7 @@ export function ManagerSignOff() {
                           <span>{new Date(submission.submittedAt).toLocaleDateString()}</span>
                           <span>•</span>
                           <span>{daysPending} days ago</span>
-                        </div>
+                      </div>
                         {submission.managerRating && (
                           <div className="flex items-center gap-1.5">
                             <div className="flex items-center gap-0.5">
@@ -640,7 +826,7 @@ export function ManagerSignOff() {
                                   )}
                                 />
                               ))}
-                            </div>
+                    </div>
                             <span className="text-xs font-semibold text-foreground">
                               {submission.managerRating}/5
                             </span>
@@ -652,11 +838,7 @@ export function ManagerSignOff() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          setSelectedSubmission(submission);
-                          setActionType('approve');
-                          setShowActionModal(true);
-                        }}
+                        onClick={() => handleOpenActionModal(submission, 'approve')}
                         disabled={actionLoading}
                         className="h-8 px-3 text-xs"
                       >
@@ -666,16 +848,20 @@ export function ManagerSignOff() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          setSelectedSubmission(submission);
-                          setActionType('reject');
-                          setShowActionModal(true);
-                        }}
+                        onClick={() => handleOpenActionModal(submission, 'reject')}
                         disabled={actionLoading}
                         className="h-8 px-3 text-xs"
                       >
                         <XCircle className="h-3.5 w-3.5 mr-1.5" />
                         Request Changes
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewDetails(submission)}
+                        className="h-8 px-3 text-xs"
+                      >
+                        View
                       </Button>
                       {isOverdue && (
                         <Button
@@ -722,45 +908,57 @@ export function ManagerSignOff() {
               className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-sm border-border/40 hover:border-primary/50 hover:shadow-md transition-all duration-200"
             >
               <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10 shrink-0">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <Avatar className="h-10 w-10 shrink-0">
                     <AvatarImage src={submission.employeePhoto} />
-                    <AvatarFallback className="text-xs">
+                      <AvatarFallback className="text-xs">
                       {submission.employeeName.split(' ').map(n => n[0]).join('')}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-sm truncate">{submission.employeeName}</h3>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-sm truncate">{submission.employeeName}</h3>
                       {getStatusBadge(submission.status)}
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                      <span className="truncate">{submission.cycleName}</span>
-                      {submission.managerRating && (
-                        <>
-                          <span>•</span>
-                          <div className="flex items-center gap-1">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <Star
-                                key={star}
-                                className={cn(
-                                  "h-3 w-3",
-                                  star <= submission.managerRating!
-                                    ? "fill-yellow-400 text-yellow-400"
-                                    : "text-muted-foreground/30"
-                                )}
-                              />
-                            ))}
-                            <span className="ml-0.5 font-semibold text-foreground">
-                              {submission.managerRating}/5
-                            </span>
-                          </div>
-                        </>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                        <span className="truncate">{submission.cycleName}</span>
+                        {submission.managerRating && (
+                          <>
+                            <span>•</span>
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                  key={star}
+                                  className={cn(
+                                    "h-3 w-3",
+                                    star <= submission.managerRating!
+                                      ? "fill-yellow-400 text-yellow-400"
+                                      : "text-muted-foreground/30"
+                                  )}
+                                />
+                              ))}
+                              <span className="ml-0.5 font-semibold text-foreground">
+                                {submission.managerRating}/5
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    {submission.comments && (
+                        <p className="text-xs mt-1.5 text-foreground line-clamp-2">{submission.comments}</p>
                       )}
                     </div>
-                    {submission.comments && (
-                      <p className="text-xs mt-1.5 text-foreground line-clamp-2">{submission.comments}</p>
-                    )}
+                  </div>
+                  <div className="flex items-center self-stretch">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleViewDetails(submission)}
+                      className="h-8 px-3 text-xs"
+                    >
+                      View
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -789,45 +987,57 @@ export function ManagerSignOff() {
               className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-sm border-border/40 hover:border-destructive/50 hover:shadow-md transition-all duration-200"
             >
               <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10 shrink-0">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <Avatar className="h-10 w-10 shrink-0">
                     <AvatarImage src={submission.employeePhoto} />
-                    <AvatarFallback className="text-xs">
+                      <AvatarFallback className="text-xs">
                       {submission.employeeName.split(' ').map(n => n[0]).join('')}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-sm truncate">{submission.employeeName}</h3>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-sm truncate">{submission.employeeName}</h3>
                       {getStatusBadge(submission.status)}
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                      <span className="truncate">{submission.cycleName}</span>
-                      {submission.managerRating && (
-                        <>
-                          <span>•</span>
-                          <div className="flex items-center gap-1">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <Star
-                                key={star}
-                                className={cn(
-                                  "h-3 w-3",
-                                  star <= submission.managerRating!
-                                    ? "fill-yellow-400 text-yellow-400"
-                                    : "text-muted-foreground/30"
-                                )}
-                              />
-                            ))}
-                            <span className="ml-0.5 font-semibold text-foreground">
-                              {submission.managerRating}/5
-                            </span>
-                          </div>
-                        </>
-                      )}
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                        <span className="truncate">{submission.cycleName}</span>
+                        {submission.managerRating && (
+                          <>
+                            <span>•</span>
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                  key={star}
+                                  className={cn(
+                                    "h-3 w-3",
+                                    star <= submission.managerRating!
+                                      ? "fill-yellow-400 text-yellow-400"
+                                      : "text-muted-foreground/30"
+                                  )}
+                                />
+                              ))}
+                              <span className="ml-0.5 font-semibold text-foreground">
+                                {submission.managerRating}/5
+                              </span>
+                            </div>
+                          </>
+                        )}
                     </div>
                     {submission.rejectionReason && (
-                      <p className="text-xs text-destructive mt-1.5 line-clamp-2">{submission.rejectionReason}</p>
+                        <p className="text-xs text-destructive mt-1.5 line-clamp-2">{submission.rejectionReason}</p>
                     )}
+                  </div>
+                </div>
+                  <div className="flex items-center self-stretch">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleViewDetails(submission)}
+                      className="h-8 px-3 text-xs"
+                    >
+                      View
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -837,8 +1047,16 @@ export function ManagerSignOff() {
       </Tabs>
 
       {/* Action Modal */}
-      <Dialog open={showActionModal} onOpenChange={setShowActionModal}>
-        <DialogContent className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50">
+      <Dialog
+        open={showActionModal}
+        onOpenChange={(open) => {
+          setShowActionModal(open);
+          if (!open) {
+            resetActionState();
+          }
+        }}
+      >
+        <DialogContent className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 max-h-[90vh] w-[95vw] max-w-5xl sm:max-w-5xl lg:max-w-6xl overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {actionType === 'approve' ? 'Approve Review' : 'Request Changes'}
@@ -871,7 +1089,16 @@ export function ManagerSignOff() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          {actionType && (
+            <ReviewDetailSection
+              loading={detailLoading}
+              error={detailError}
+              detail={reviewDetail}
+              submission={selectedSubmission}
+            />
+          )}
+
+          <div className="space-y-4 py-4 border-t border-border/30 mt-4">
             <div>
               <Label>Comments</Label>
               <Textarea
@@ -921,7 +1148,275 @@ export function ManagerSignOff() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={showViewModal}
+        onOpenChange={(open) => {
+          setShowViewModal(open);
+          if (!open) {
+            resetViewState();
+          }
+        }}
+      >
+        <DialogContent className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 max-h-[90vh] w-[95vw] max-w-5xl sm:max-w-5xl lg:max-w-6xl overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Review Details</DialogTitle>
+            <DialogDescription>
+              {viewSubmission?.employeeName} - {viewSubmission?.cycleName}
+            </DialogDescription>
+          </DialogHeader>
+
+          <ReviewDetailSection
+            loading={viewDetailLoading}
+            error={viewDetailError}
+            detail={viewDetail}
+            submission={viewSubmission}
+          />
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowViewModal(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
+function getReviewStatus(review?: any) {
+  return review?.status || review?.metadata?.status || '';
+}
+
+interface ReviewDetailSectionProps {
+  loading: boolean;
+  error: string | null;
+  detail: { manager?: any; self?: any } | null;
+  submission: ReviewSubmission | null;
+}
+
+function ReviewDetailSection({ loading, error, detail, submission }: ReviewDetailSectionProps) {
+  if (!submission) return null;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="border-destructive/30 bg-destructive/5">
+        <CardContent className="p-4 text-sm text-destructive">{error}</CardContent>
+      </Card>
+    );
+  }
+
+  if (!detail?.manager) {
+    return (
+      <Card className="border-border/40 bg-background/60">
+        <CardContent className="p-4 text-sm text-muted-foreground">Review details unavailable.</CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4 py-4 flex-1 overflow-y-auto pr-1">
+      <div className="rounded-2xl border border-border/50 bg-gradient-to-br from-primary/5 to-background/40 p-4 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Status</p>
+            <div className="mt-1 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+              {detail.manager.status || getReviewStatus(detail.manager) || submission.status}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <div>
+              <p className="text-muted-foreground text-xs">Submitted</p>
+              <p className="font-semibold">{formatDateTime(detail.manager.submittedAt || submission.submittedAt)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Last Updated</p>
+              <p className="font-semibold">{formatDateTime(detail.manager.updatedAt)}</p>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 text-sm">
+          <InfoStat label="Employee" value={submission.employeeName} />
+          <InfoStat label="Cycle" value={submission.cycleName} />
+          <InfoStat label="Manager" value={detail.manager.reviewerId} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="border-amber-300/40 bg-gradient-to-br from-amber-50/80 via-amber-50/30 to-background/40 dark:from-amber-900/30 dark:via-amber-900/10 dark:to-background/30 backdrop-blur-sm shadow-[0_10px_25px_-15px_rgba(251,191,36,0.8)]">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-amber-900 dark:text-amber-200">Self Review Highlights</CardTitle>
+            <CardDescription>Key responses from the employee</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 max-h-64 overflow-auto pr-1">
+            <SelfReviewHighlights selfReview={detail.self} />
+          </CardContent>
+        </Card>
+
+        <Card className="border-emerald-300/40 bg-gradient-to-br from-emerald-50/80 via-emerald-50/30 to-background/40 dark:from-emerald-900/30 dark:via-emerald-900/10 dark:to-background/30 backdrop-blur-sm shadow-[0_10px_25px_-15px_rgba(16,185,129,0.8)]">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">Manager Summary</CardTitle>
+            <CardDescription>Overall assessment & recommendations</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 max-h-64 overflow-auto pr-1">
+            <ManagerSummary managerReview={detail.manager} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-slate-300/40 bg-gradient-to-br from-slate-50/80 via-slate-50/30 to-background/40 dark:from-slate-800/40 dark:via-slate-800/20 dark:to-background/30 backdrop-blur-sm">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-sm font-semibold">Goals & Ratings</CardTitle>
+              <CardDescription>Completion & manager feedback</CardDescription>
+            </div>
+            <Badge variant="secondary">
+              {(detail.manager.metadata?.goalReviews || []).length} goals
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3 max-h-64 overflow-auto pr-1">
+          <GoalReviewList goals={detail.manager.metadata?.goalReviews || []} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+const formatDateTime = (value?: string) => {
+  if (!value) return '—';
+  try {
+    return new Date(value).toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+  } catch {
+    return value;
+  }
+};
+
+function InfoStat({ label, value }: { label: string; value?: string | number | null }) {
+  return (
+    <div className="rounded-xl border border-border/40 bg-background/50 p-3">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-sm font-semibold text-foreground mt-1">{value ?? '—'}</p>
+    </div>
+  );
+}
+
+function SelfReviewHighlights({ selfReview }: { selfReview?: any }) {
+  if (!selfReview?.metadata?.selfReviewFields) {
+    return <p className="text-xs text-muted-foreground">No self-review responses available.</p>;
+  }
+
+  const fields = selfReview.metadata.selfReviewFields;
+  const entries: { label: string; value?: string }[] = [
+    { label: 'Key Accomplishments', value: fields.significantAccomplishments },
+    { label: 'Beyond Role Contributions', value: fields.beyondRoleContributions },
+    { label: 'Challenges & Solutions', value: fields.challengesAndSolutions },
+    { label: 'Areas of Improvement', value: fields.areasNeedingImprovement },
+    { label: 'Certifications Completed', value: fields.certificationsCompleted }
+  ];
+
+  return (
+    <div className="space-y-3">
+      {entries.map((entry) => (
+        <div key={entry.label} className="rounded-lg border border-border/30 bg-background/40 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{entry.label}</p>
+          <p className="text-sm text-foreground mt-1 whitespace-pre-wrap">
+            {entry.value?.trim() || 'Not provided'}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ManagerSummary({ managerReview }: { managerReview?: any }) {
+  if (!managerReview) {
+    return <p className="text-xs text-muted-foreground">Manager review details unavailable.</p>;
+  }
+
+  const finalRating = managerReview.metadata?.finalRating || {};
+
+  const summaryItems: { label: string; value?: string }[] = [
+    { label: 'Summary Feedback', value: finalRating.summaryFeedback || managerReview.comments },
+    { label: 'Development Need', value: finalRating.developmentNeed },
+    { label: 'Action Plan', value: finalRating.actionPlan },
+    { label: 'Recommendations', value: finalRating.developmentRecommendations }
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center justify-between">
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-primary/80">Overall Rating</p>
+          <p className="text-lg font-semibold text-primary">
+            {finalRating.overallRating ?? managerReview.ratings?.overall ?? '—'}/5
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</p>
+          <p className="text-sm font-semibold text-foreground">
+            {getReviewStatus(managerReview) || 'manager_submitted'}
+          </p>
+        </div>
+      </div>
+
+      {summaryItems.map((item) => (
+        <div key={item.label} className="rounded-lg border border-border/30 bg-background/40 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{item.label}</p>
+          <p className="text-sm text-foreground mt-1 whitespace-pre-wrap">
+            {item.value?.trim() || 'Not provided'}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GoalReviewList({ goals }: { goals: any[] }) {
+  if (!goals.length) {
+    return <p className="text-xs text-muted-foreground">No goal reviews found.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {goals.map((goal) => {
+        const completion = goal.completion !== undefined ? Math.round(Number(goal.completion)) : 0;
+        return (
+          <div key={goal.goalId} className="rounded-xl border border-border/30 bg-background/40 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-foreground">{goal.goalDescription}</p>
+                <p className="text-xs text-muted-foreground">Weightage: {goal.weightage ?? 0}%</p>
+              </div>
+              <div className="text-right text-xs">
+                <p className="font-semibold text-primary">
+                  Rating: {goal.managerRating ?? '—'}/5
+                </p>
+                <p className="text-muted-foreground">
+                  Completion: {completion}%
+                </p>
+              </div>
+            </div>
+            {goal.managerComments && (
+              <p className="text-sm text-muted-foreground whitespace-pre-wrap border-t border-border/30 pt-2">
+                {goal.managerComments}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}

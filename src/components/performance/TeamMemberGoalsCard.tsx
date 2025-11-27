@@ -93,7 +93,7 @@ export interface TeamMemberGoalsCardProps {
   onViewReviews?: () => void;
   activeGoalId?: string | null;
   panelId?: string;
-  reviewStatus?: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted';
+  reviewStatus?: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'needs_clarification' | 'manager_submitted';
 }
 
 export function TeamMemberGoalsCard({
@@ -170,7 +170,7 @@ export function TeamMemberGoalsCard({
                   Response Received
                 </Badge>
               )}
-              {reviewStatus === 'clarification_requested' && (
+          {(reviewStatus === 'clarification_requested' || reviewStatus === 'needs_clarification') && (
                 <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30 shadow-sm flex items-center gap-1 w-fit">
                   <AlertCircle className="h-3 w-3" />
                   Needs Clarification

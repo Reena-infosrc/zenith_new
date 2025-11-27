@@ -80,6 +80,47 @@ interface Employee {
   reporting_to?: string;
 }
 
+type EmployeeReviewStatus =
+  | 'not_started'
+  | 'self_submitted'
+  | 'manager_reviewing'
+  | 'clarification_requested'
+  | 'clarification_responded'
+  | 'needs_clarification'
+  | 'manager_submitted';
+
+type ManagerFilter =
+  | 'needs_clarification'
+  | 'review_pending'
+  | 'review_completed'
+  | 'has_goals';
+
+const FILTER_DESCRIPTIONS: Record<ManagerFilter, string> = {
+  needs_clarification: 'reviews needing clarification',
+  review_pending: 'performance reviews pending action',
+  review_completed: 'completed performance reviews',
+  has_goals: 'at least one individual goal set'
+};
+
+const clarificationStatuses: EmployeeReviewStatus[] = ['clarification_requested', 'needs_clarification'];
+
+const pendingReviewStatuses: EmployeeReviewStatus[] = [
+  'self_submitted',
+  'manager_reviewing',
+  'clarification_responded',
+  'needs_clarification'
+];
+
+const isClarificationStatus = (status?: EmployeeReviewStatus | null) =>
+  !!status && clarificationStatuses.includes(status as EmployeeReviewStatus);
+
+const isPendingReviewStatus = (status?: EmployeeReviewStatus | null) =>
+  !!status && pendingReviewStatuses.includes(status);
+
+type DirectReport = Employee & {
+  reviewStatus: EmployeeReviewStatus;
+};
+
 interface Milestone {
   id: string;
   title: string;
@@ -221,7 +262,7 @@ export function ManagerPerformanceView() {
   const { getEmployeeGoals, getGoal, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
   const { employees } = useEmployees();
   
-  const [directReports, setDirectReports] = useState<Employee[]>([]);
+  const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [myGoals, setMyGoals] = useState<MyGoal[]>([]);
   const [employeeGoals, setEmployeeGoals] = useState<Map<string, Goal[]>>(new Map());
@@ -235,7 +276,7 @@ export function ManagerPerformanceView() {
   const [loadingReviewsCount, setLoadingReviewsCount] = useState(false);
   const [reviews, setReviews] = useState<any[]>([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
-  const [employeeReviewStatuses, setEmployeeReviewStatuses] = useState<Map<string, 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted'>>(new Map());
+  const [employeeReviewStatuses, setEmployeeReviewStatuses] = useState<Map<string, EmployeeReviewStatus>>(new Map());
   const [activeCycle, setActiveCycle] = useState<any | null>(null);
   const [loadingActiveCycle, setLoadingActiveCycle] = useState(false);
   const [allCycles, setAllCycles] = useState<any[]>([]);
@@ -263,7 +304,7 @@ export function ManagerPerformanceView() {
   }, [getGoal]);
   
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterByClarification, setFilterByClarification] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<ManagerFilter | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'feedback'>('my-team');
   const [showReviewWorkspace, setShowReviewWorkspace] = useState(false);
@@ -286,6 +327,11 @@ export function ManagerPerformanceView() {
   const [milestoneComment, setMilestoneComment] = useState<string>("");
   const [originalComment, setOriginalComment] = useState<string>(""); // Store original comment for comparison
   const [isMilestoneLoading, setIsMilestoneLoading] = useState(false);
+
+  const toggleFilter = (filter: ManagerFilter) => {
+    setSearchTerm("");
+    setActiveFilter((prev) => (prev === filter ? null : filter));
+  };
   
   // Add milestone states
   const [showAddMilestoneDialog, setShowAddMilestoneDialog] = useState(false);
@@ -347,6 +393,19 @@ export function ManagerPerformanceView() {
 
     return null;
   }, [currentManagerEmployeeId, managerRecord, user?.email, user?.name]);
+
+  const clarificationCount = useMemo(
+    () => Array.from(employeeReviewStatuses.values()).filter(isClarificationStatus).length,
+    [employeeReviewStatuses]
+  );
+  const pendingReviewsCount = useMemo(
+    () => Array.from(employeeReviewStatuses.values()).filter(isPendingReviewStatus).length,
+    [employeeReviewStatuses]
+  );
+  const teamMembersWithGoalsCount = useMemo(
+    () => directReports.filter((report) => (employeeGoals.get(report.id)?.length ?? 0) > 0).length,
+    [directReports, employeeGoals]
+  );
 
   const openEditGoalDialog = (goalToEdit: Goal, owner: Employee) => {
     setSelectedEmployee(owner);
@@ -534,7 +593,12 @@ export function ManagerPerformanceView() {
         setCurrentManagerEmployeeId(managerId);
 
         setLoadingMessage("Loading team members...");
-        const reports = employees.filter(emp => emp.reporting_to === managerId);
+        const reports: DirectReport[] = employees
+          .filter(emp => emp.reporting_to === managerId)
+          .map(emp => ({
+            ...emp,
+            reviewStatus: 'not_started'
+          }));
         setDirectReports(reports);
 
         setLoadingMessage("Loading your goals...");
@@ -670,49 +734,20 @@ export function ManagerPerformanceView() {
     }
   }, [initialLoading, currentManagerEmployeeId, directReports, employeeGoals]);
 
-  // Fetch reviews count for team members
+  // Derive completed reviews count from employee status map
   useEffect(() => {
-    const fetchReviewsCount = async () => {
-      if (initialLoading || !currentManagerEmployeeId || directReports.length === 0) return;
-      
-      try {
+    if (loadingReviews) {
         setLoadingReviewsCount(true);
-        let totalReviews = 0;
-        
-        // Fetch reviews for each team member
-        for (const report of directReports) {
-          try {
-            // Query reviews by employeeId using the EmployeeIndex GSI
-            const response = await authenticatedFetch(
-              `${API_BASE_URL}/reviews?employeeId=${report.id}`,
-              { method: 'GET' }
-            );
-            
-            if (response.ok) {
-              const data = await response.json();
-              // Count non-draft reviews (reviews that have been set/submitted)
-              const nonDraftReviews = Array.isArray(data) 
-                ? data.filter((r: any) => !r.isDraft && r.reviewType === 'manager')
-                : [];
-              totalReviews += nonDraftReviews.length;
-            }
-          } catch (error) {
-            console.error(`Error fetching reviews for employee ${report.id}:`, error);
-          }
-        }
-        
-        setReviewsCount(totalReviews);
-      } catch (error) {
-        console.error("Error fetching reviews count:", error);
-      } finally {
-        setLoadingReviewsCount(false);
-      }
-    };
-
-    if (!initialLoading && currentManagerEmployeeId && directReports.length > 0) {
-      fetchReviewsCount();
+      return;
     }
-  }, [initialLoading, currentManagerEmployeeId, directReports]);
+    
+    const completedReviews = Array.from(employeeReviewStatuses.values()).filter(
+      (status) => status === 'manager_submitted'
+    ).length;
+    
+    setReviewsCount(completedReviews);
+        setLoadingReviewsCount(false);
+  }, [employeeReviewStatuses, loadingReviews]);
 
   // Fetch reviews for Annual Reviews section - OPTIMIZED with parallel requests
   const fetchReviews = useCallback(async () => {
@@ -740,37 +775,152 @@ export function ManagerPerformanceView() {
         }
         
         const allReviews: any[] = [];
-        const statusMap = new Map<string, 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'manager_submitted'>();
+        const statusMap = new Map<string, EmployeeReviewStatus>();
         
         // OPTIMIZATION: Use batch endpoint to fetch all reviews in a single API call
         // This reduces from 2N API calls (N employees × 2 review types) to just 2 calls
+        // Include inactive reviews to catch rejected reviews that might be marked inactive
         const employeeIdsParam = employeeIds.join(',');
         
         // Fetch manager reviews and self reviews in parallel using batch endpoint
-        const [managerReviewsResponse, selfReviewsResponse] = await Promise.all([
+        // Fetch both draft and submitted reviews to ensure we get rejected reviews
+        // Note: Batch endpoint doesn't support includeInactive, so we fetch both tables
+        const [managerSubmittedResponse, managerDraftResponse, selfSubmittedResponse, selfDraftResponse] = await Promise.all([
           authenticatedFetch(
-            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager`,
-            { method: 'GET' }
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=false&includeInactive=true`,
+              { method: 'GET' }
           ).catch((error) => {
-            console.error('Error fetching manager reviews batch:', error);
+            console.error('Error fetching manager submitted reviews batch:', error);
             return { ok: false, json: async () => [] };
           }),
           authenticatedFetch(
-            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self`,
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=true&includeInactive=true`,
+              { method: 'GET' }
+          ).catch((error) => {
+            console.error('Error fetching manager draft reviews batch:', error);
+            return { ok: false, json: async () => [] };
+          }),
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=false`,
             { method: 'GET' }
           ).catch((error) => {
-            console.error('Error fetching self reviews batch:', error);
+            console.error('Error fetching self submitted reviews batch:', error);
+            return { ok: false, json: async () => [] };
+          }),
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=true`,
+            { method: 'GET' }
+          ).catch((error) => {
+            console.error('Error fetching self draft reviews batch:', error);
             return { ok: false, json: async () => [] };
           })
         ]);
         
-        // Parse responses
-        const managerReviews = managerReviewsResponse.ok 
-          ? await managerReviewsResponse.json() 
+        // Parse responses and combine draft and submitted reviews
+        const managerSubmitted = managerSubmittedResponse.ok 
+          ? await managerSubmittedResponse.json() 
           : [];
-        const selfReviews = selfReviewsResponse.ok 
-          ? await selfReviewsResponse.json() 
+        const managerDraft = managerDraftResponse.ok 
+          ? await managerDraftResponse.json() 
           : [];
+        const selfSubmitted = selfSubmittedResponse.ok 
+          ? await selfSubmittedResponse.json() 
+          : [];
+        const selfDraft = selfDraftResponse.ok 
+          ? await selfDraftResponse.json() 
+          : [];
+        
+        const getReviewStatus = (review: any) => review?.status || review?.metadata?.status || '';
+
+        // Combine manager reviews and deduplicate (prioritize processed statuses)
+        const allManagerReviews = [...managerSubmitted, ...managerDraft];
+        
+        // Debug: Log all manager reviews before deduplication
+        console.log('[ManagerPerformanceView] All manager reviews before deduplication:', {
+          submitted: managerSubmitted.length,
+          draft: managerDraft.length,
+          total: allManagerReviews.length,
+          reviews: allManagerReviews.map((r: any) => ({
+            reviewId: r.reviewId,
+            employeeId: r.employeeId,
+            status: getReviewStatus(r),
+            isDraft: r.isDraft,
+            submittedAt: r.submittedAt,
+            updatedAt: r.updatedAt
+          }))
+        });
+        
+        // Group by employeeId first, then deduplicate by reviewId within each employee
+        const managerReviewsByEmployee = new Map<string, Map<string, any>>();
+        const getPriority = (review: any) => {
+          const isActive = review?.isActive !== false;
+          return {
+            isActive,
+            isDraft: !!review?.isDraft,
+            timestamp: new Date(review?.updatedAt || review?.submittedAt || review?.createdAt || 0).getTime()
+          };
+        };
+        for (const review of allManagerReviews) {
+          const reviewId = review.reviewId || review.id;
+          const empId = review.employeeId;
+          if (!reviewId || !empId) continue;
+          
+          if (!managerReviewsByEmployee.has(empId)) {
+            managerReviewsByEmployee.set(empId, new Map());
+          }
+          
+          const employeeReviews = managerReviewsByEmployee.get(empId)!;
+          const existing = employeeReviews.get(reviewId);
+          
+          if (!existing) {
+            employeeReviews.set(reviewId, review);
+          } else {
+            const existingPriority = getPriority(existing);
+            const candidatePriority = getPriority(review);
+
+            if (candidatePriority.isActive !== existingPriority.isActive) {
+              if (candidatePriority.isActive) {
+                employeeReviews.set(reviewId, review);
+              }
+              continue;
+            }
+
+            if (candidatePriority.isDraft !== existingPriority.isDraft) {
+              if (!candidatePriority.isDraft) {
+                employeeReviews.set(reviewId, review);
+              }
+              continue;
+            }
+
+            if (candidatePriority.timestamp >= existingPriority.timestamp) {
+              employeeReviews.set(reviewId, review);
+            }
+          }
+        }
+        
+        // Flatten back to array
+        const managerReviews: any[] = [];
+        for (const employeeReviewsMap of managerReviewsByEmployee.values()) {
+          for (const review of employeeReviewsMap.values()) {
+            managerReviews.push(review);
+          }
+        }
+        
+        // Debug: Log manager reviews after deduplication
+        console.log('[ManagerPerformanceView] Manager reviews after deduplication:', {
+          total: managerReviews.length,
+          reviews: managerReviews.map((r: any) => ({
+            reviewId: r.reviewId,
+            employeeId: r.employeeId,
+            status: getReviewStatus(r),
+            isDraft: r.isDraft,
+            submittedAt: r.submittedAt,
+            updatedAt: r.updatedAt
+          }))
+        });
+        
+        // Combine self reviews
+        const selfReviews = [...selfSubmitted, ...selfDraft];
         
         // Group reviews by employee ID for efficient processing
         const reviewsByEmployee = new Map<string, { manager: any[], self: any[] }>();
@@ -798,28 +948,61 @@ export function ManagerPerformanceView() {
           allReviews.push(review);
         });
         
+        const getReviewTimestamp = (review: any) =>
+          new Date(review.updatedAt || review.submittedAt || review.createdAt || 0).getTime();
+
         // Process reviews for each employee to determine status
         for (const empId of employeeIds) {
           const { manager, self } = reviewsByEmployee.get(empId) || { manager: [], self: [] };
           
           // Process manager reviews
           if (manager.length > 0) {
-            // Sort by submittedAt or updatedAt (most recent first)
-            const sortedReviews = [...manager].sort((a: any, b: any) => {
-              const dateA = a.submittedAt || a.updatedAt || a.createdAt || '';
-              const dateB = b.submittedAt || b.updatedAt || b.createdAt || '';
-              return new Date(dateB).getTime() - new Date(dateA).getTime();
+            let latestSubmitTs = -Infinity;
+            let latestProcessedTs = -Infinity;
+            let latestDraftTs = -Infinity;
+            let latestProcessedStatus: 'needs_clarification' | 'clarification_requested' | null = null;
+            let latestSubmittedReview: any = null;
+
+            manager.forEach((review: any) => {
+              const status = getReviewStatus(review);
+              const timestamp = getReviewTimestamp(review);
+              const isActive = review.isActive !== false;
+              const isDraft = !!review.isDraft;
+              const isSubmitted = !isDraft && (status === 'manager_submitted' || review.submittedAt) && isActive;
+              const isProcessedStatus =
+                status === 'needs_clarification' ||
+                status === 'changes_requested' ||
+                status === 'hr_rejected' ||
+                status === 'clarification_requested';
+
+              if (isSubmitted && timestamp > latestSubmitTs) {
+                latestSubmitTs = timestamp;
+                latestSubmittedReview = review;
+              }
+
+              if (isDraft && isActive && timestamp > latestDraftTs) {
+                latestDraftTs = timestamp;
+              }
+
+              if (isProcessedStatus && timestamp > latestProcessedTs) {
+                latestProcessedTs = timestamp;
+                latestProcessedStatus = status === 'clarification_requested' ? 'clarification_requested' : 'needs_clarification';
+              }
             });
-            
-            const latestReview = sortedReviews[0];
-            const metadataStatus = latestReview.metadata?.status || '';
-            
-            // Determine review status - prioritize clarification status
-            if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected') {
-              statusMap.set(empId, 'clarification_requested');
-            } else if (metadataStatus === 'manager_submitted' || latestReview.submittedAt) {
+
+            console.log('[ManagerPerformanceView] Status timeline', {
+              empId,
+              latestSubmitTs,
+              latestProcessedTs,
+              latestDraftTs,
+              latestProcessedStatus
+            });
+
+            if (latestProcessedTs !== -Infinity && (latestSubmitTs === -Infinity || latestProcessedTs >= latestSubmitTs)) {
+              statusMap.set(empId, latestProcessedStatus || 'needs_clarification');
+            } else if (latestSubmitTs !== -Infinity && latestSubmittedReview?.isActive !== false) {
               statusMap.set(empId, 'manager_submitted');
-            } else if (latestReview.isDraft) {
+            } else if (latestDraftTs !== -Infinity) {
               statusMap.set(empId, 'manager_reviewing');
             }
           }
@@ -828,7 +1011,7 @@ export function ManagerPerformanceView() {
           if (self.length > 0) {
             // Check if employee has responded to clarification
             const respondedSelfReview = self.find((r: any) => {
-              const metadataStatus = r.metadata?.status;
+            const metadataStatus = getReviewStatus(r);
               return metadataStatus === 'clarification_responded' || 
                      (r.metadata?.employeeClarificationRespondedAt && r.submittedAt);
             });
@@ -841,7 +1024,8 @@ export function ManagerPerformanceView() {
               const submittedSelfReview = self.find((r: any) => r.submittedAt && !r.isDraft);
               if (submittedSelfReview) {
                 // Check if there was a clarification request that hasn't been responded to
-                const hasPendingClarification = submittedSelfReview.metadata?.status === 'clarification_requested' ||
+                const selfReviewStatus = getReviewStatus(submittedSelfReview) as EmployeeReviewStatus;
+                const hasPendingClarification = isClarificationStatus(selfReviewStatus) ||
                   (submittedSelfReview.metadata?.clarificationRequests && 
                    submittedSelfReview.metadata.clarificationRequests.some((req: any) => req.status === 'pending'));
                 
@@ -867,6 +1051,19 @@ export function ManagerPerformanceView() {
         
         setReviews(allReviews);
         setEmployeeReviewStatuses(statusMap);
+
+        setDirectReports((prev) => {
+          let hasChanges = false;
+          const next = prev.map((report) => {
+            const status = statusMap.get(report.id);
+            if (!status || report.reviewStatus === status) {
+              return report;
+            }
+            hasChanges = true;
+            return { ...report, reviewStatus: status };
+          });
+          return hasChanges ? next : prev;
+        });
       } catch (error) {
         console.error("Error fetching reviews:", error);
         toast({
@@ -905,8 +1102,11 @@ export function ManagerPerformanceView() {
         
         if (response.ok) {
           const cycles = await response.json();
+          // Filter out draft cycles - draft cycles should not be visible to anyone in performance module
+          const filteredCycles = cycles.filter((cycle: any) => cycle.status !== 'draft');
+          
           // Sort by year descending (most recent first)
-          const sortedCycles = cycles.sort((a: any, b: any) => b.year.localeCompare(a.year));
+          const sortedCycles = filteredCycles.sort((a: any, b: any) => b.year.localeCompare(a.year));
           setAllCycles(sortedCycles);
           
           // Find the active cycle (status === 'open' in backend, 'active' in frontend)
@@ -927,17 +1127,32 @@ export function ManagerPerformanceView() {
   }, [initialLoading]);
 
   const filteredReports = directReports.filter(emp => {
-    const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           emp.position.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // Filter by clarification status if filter is active
-    if (filterByClarification) {
-      const reviewStatus = employeeReviewStatuses.get(emp.id);
-      return matchesSearch && reviewStatus === 'clarification_requested';
+    const matchesSearch =
+      emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.position.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const reviewStatus = employeeReviewStatuses.get(emp.id);
+    let matchesFilter = true;
+
+    switch (activeFilter) {
+      case 'needs_clarification':
+        matchesFilter = isClarificationStatus(reviewStatus);
+        break;
+      case 'review_pending':
+        matchesFilter = isPendingReviewStatus(reviewStatus);
+        break;
+      case 'review_completed':
+        matchesFilter = reviewStatus === 'manager_submitted';
+        break;
+      case 'has_goals':
+        matchesFilter = (employeeGoals.get(emp.id)?.length ?? 0) > 0;
+        break;
+      default:
+        matchesFilter = true;
     }
-    
-    return matchesSearch;
+
+    return matchesSearch && matchesFilter;
   });
 
   const getGoalsForEmployee = (employeeId: string) => {
@@ -1277,6 +1492,11 @@ export function ManagerPerformanceView() {
     );
   }
 
+  const isGoalsFilterActive = activeFilter === 'has_goals';
+  const isPendingFilterActive = activeFilter === 'review_pending';
+  const isCompletedFilterActive = activeFilter === 'review_completed';
+  const isClarificationFilterActive = activeFilter === 'needs_clarification';
+
   return (
     <div className="space-y-6">
       <Tabs value={viewMode} onValueChange={(v) => {
@@ -1310,7 +1530,7 @@ export function ManagerPerformanceView() {
         <TabsContent value="my-team" className="space-y-4">
           {/* Summary Cards - only shown in My Team section */}
           {!showReviewWorkspace && (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -1325,27 +1545,101 @@ export function ManagerPerformanceView() {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+        <Card
+          className={cn(
+            "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
+            isGoalsFilterActive
+              ? "border-green-500/60 ring-2 ring-green-500/30 cursor-pointer"
+              : "border-border/50 hover:border-green-500/40 hover:ring-2 hover:ring-green-500/20 cursor-pointer"
+          )}
+          onClick={() => toggleFilter('has_goals')}
+        >
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Individual goal set</p>
                 <p className="text-3xl font-bold mt-2">
-                  {Array.from(employeeGoals.values()).flat().length}
+                  {teamMembersWithGoalsCount}
                 </p>
+                {!isGoalsFilterActive && (
+                  <p className="text-xs text-green-600/70 dark:text-green-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Click to filter
+                  </p>
+                )}
               </div>
-              <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
+              <div className={cn(
+                "h-12 w-12 rounded-full flex items-center justify-center transition-all",
+                isGoalsFilterActive
+                  ? "bg-green-500/20 text-green-600 scale-110 shadow-green-500/20"
+                  : "bg-green-500/10 text-green-500"
+              )}>
                 <CheckCircle2 className="h-6 w-6 text-green-500" />
               </div>
             </div>
+            {isGoalsFilterActive && (
+              <Badge variant="outline" className="mt-3 text-xs bg-green-500/20 text-green-700 border-green-500/40">
+                Active
+              </Badge>
+            )}
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+        <Card
+          className={cn(
+            "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
+            isPendingFilterActive
+              ? "border-blue-500/60 ring-2 ring-blue-500/30 cursor-pointer"
+              : "border-border/50 hover:border-blue-500/40 hover:ring-2 hover:ring-blue-500/20 cursor-pointer"
+          )}
+          onClick={() => toggleFilter('review_pending')}
+        >
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Performance Review's Set</p>
+                <p className="text-sm font-medium text-muted-foreground">Performance Review Pending</p>
+                <p className="text-3xl font-bold mt-2">
+                  {loadingReviews ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  ) : (
+                    pendingReviewsCount
+                  )}
+                </p>
+                {!isPendingFilterActive && !loadingReviews && (
+                  <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Click to filter
+                  </p>
+                )}
+              </div>
+              <div className={cn(
+                "h-12 w-12 rounded-full flex items-center justify-center transition-all",
+                isPendingFilterActive
+                  ? "bg-blue-500/20 text-blue-600 scale-110 shadow-blue-500/20"
+                  : "bg-blue-500/10 text-blue-500"
+              )}>
+                <Clock className="h-6 w-6" />
+              </div>
+            </div>
+            {isPendingFilterActive && (
+              <Badge variant="outline" className="mt-3 text-xs bg-blue-500/20 text-blue-700 border-blue-500/40">
+                Active
+              </Badge>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card
+          className={cn(
+            "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
+            isCompletedFilterActive
+              ? "border-primary/50 ring-2 ring-primary/30 cursor-pointer"
+              : "border-border/50 hover:border-primary/40 hover:ring-2 hover:ring-primary/20 cursor-pointer"
+          )}
+          onClick={() => toggleFilter('review_completed')}
+        >
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Performance Review Completed</p>
                 <p className="text-3xl font-bold mt-2">
                   {loadingReviewsCount ? (
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -1353,53 +1647,58 @@ export function ManagerPerformanceView() {
                     reviewsCount
                   )}
                 </p>
+                {!isCompletedFilterActive && !loadingReviewsCount && (
+                  <p className="text-xs text-muted-foreground/80 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Click to filter
+                  </p>
+                )}
               </div>
-              <div className="h-12 w-12 rounded-full bg-orange-500/10 flex items-center justify-center">
-                <FileText className="h-6 w-6 text-orange-500" />
+              <div className={cn(
+                "h-12 w-12 rounded-full flex items-center justify-center transition-all",
+                isCompletedFilterActive
+                  ? "bg-primary/15 text-primary scale-110 shadow-primary/20"
+                  : "bg-muted/40 text-muted-foreground"
+              )}>
+                <FileText className="h-6 w-6" />
               </div>
             </div>
+            {isCompletedFilterActive && (
+              <Badge variant="outline" className="mt-3 text-xs bg-primary/10 text-primary border-primary/30">
+                Active
+              </Badge>
+            )}
           </CardContent>
         </Card>
 
-        <Card 
+        <Card
           className={cn(
-            "bg-gradient-to-br backdrop-blur-sm shadow-lg transition-all duration-300 cursor-pointer border-2 group",
-            filterByClarification 
-              ? "from-amber-500/20 via-amber-500/10 to-amber-500/5 border-amber-500/50 shadow-amber-500/20 ring-2 ring-amber-500/30" 
-              : "from-amber-500/15 via-amber-500/8 to-amber-500/5 border-amber-500/30 hover:border-amber-500/50 hover:shadow-amber-500/10 hover:scale-[1.02] hover:ring-2 hover:ring-amber-500/20"
+            "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
+            isClarificationFilterActive
+              ? "border-amber-500/60 ring-2 ring-amber-500/30 cursor-pointer"
+              : "border-border/50 hover:border-amber-500/40 hover:ring-2 hover:ring-amber-500/20 cursor-pointer"
           )}
-          onClick={() => {
-            setFilterByClarification(!filterByClarification);
-            setSearchTerm(""); // Clear search when filtering
-          }}
+          onClick={() => toggleFilter('needs_clarification')}
         >
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <p className={cn(
-                    "text-sm font-medium transition-colors",
-                    filterByClarification ? "text-amber-700 dark:text-amber-400 font-semibold" : "text-amber-600 dark:text-amber-500"
-                  )}>
-                    Needs Clarification
-                  </p>
-                  {filterByClarification && (
-                    <Badge variant="outline" className="text-xs bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40">
-                      Active
-                    </Badge>
-                  )}
-      </div>
+                <p className={cn(
+                  "text-sm font-medium transition-colors",
+                  isClarificationFilterActive ? "text-amber-700 dark:text-amber-400" : "text-amber-600 dark:text-amber-500"
+                )}>
+                  Needs Clarification
+                </p>
                 <p className={cn(
                   "text-3xl font-bold mt-2 transition-colors",
-                  filterByClarification ? "text-amber-700 dark:text-amber-400" : "text-foreground"
+                  isClarificationFilterActive ? "text-amber-700 dark:text-amber-400" : "text-foreground"
                 )}>
                   {loadingReviews ? (
                     <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
                   ) : (
-                    Array.from(employeeReviewStatuses.values()).filter(status => status === 'clarification_requested').length
+                    clarificationCount
                   )}
                 </p>
-                {!filterByClarification && (
+                {!isClarificationFilterActive && !loadingReviews && (
                   <p className="text-xs text-amber-600/70 dark:text-amber-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     Click to filter
                   </p>
@@ -1407,16 +1706,18 @@ export function ManagerPerformanceView() {
               </div>
               <div className={cn(
                 "h-12 w-12 rounded-full flex items-center justify-center transition-all",
-                filterByClarification 
-                  ? "bg-amber-500/20 shadow-lg shadow-amber-500/20 scale-110" 
-                  : "bg-amber-500/10 group-hover:bg-amber-500/20 group-hover:scale-110"
+                isClarificationFilterActive
+                  ? "bg-amber-500/20 text-amber-600 scale-110 shadow-amber-500/20"
+                  : "bg-amber-500/10 text-amber-500"
               )}>
-                <AlertCircle className={cn(
-                  "h-6 w-6 transition-all",
-                  filterByClarification ? "text-amber-600 dark:text-amber-400" : "text-amber-500"
-                )} />
+                <AlertCircle className="h-6 w-6" />
               </div>
             </div>
+            {isClarificationFilterActive && (
+              <Badge variant="outline" className="mt-3 text-xs bg-amber-500/20 text-amber-700 border-amber-500/40">
+                Active
+              </Badge>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1596,23 +1897,26 @@ export function ManagerPerformanceView() {
                   className="pl-9 bg-background/50"
                 />
               </div>
-                {filterByClarification && (
+                {activeFilter && (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setFilterByClarification(false)}
-                    className="text-amber-600 border-amber-500/30 hover:bg-amber-500/10 whitespace-nowrap"
+                    onClick={() => {
+                      setActiveFilter(null);
+                      setSearchTerm("");
+                    }}
+                    className="text-primary border-primary/30 hover:bg-primary/10 whitespace-nowrap"
                   >
                     <X className="h-4 w-4 mr-1" />
                     Clear Filter
                   </Button>
                 )}
               </div>
-              {filterByClarification && (
-                <div className="mt-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                  <p className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+              {activeFilter && (
+                <div className="mt-3 p-2 rounded-lg bg-primary/10 border border-primary/20">
+                  <p className="text-xs text-primary flex items-center gap-1.5">
                     <AlertCircle className="h-3.5 w-3.5" />
-                    Showing only employees with reviews needing clarification
+                    Showing only employees with {FILTER_DESCRIPTIONS[activeFilter]}
                   </p>
                 </div>
               )}

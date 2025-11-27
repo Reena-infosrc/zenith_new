@@ -82,6 +82,26 @@ interface EmployeeAssignment {
   selfReviewSubmittedAt?: string;
   managerReviewSubmittedAt?: string;
   hrApprovedAt?: string;
+  selfReview?: {
+    reviewId: string;
+    submittedAt?: string;
+    metadata?: {
+      selfReviewFields?: any;
+      selfRating?: number;
+      goalAssessments?: any[];
+    };
+    ratings?: any;
+  };
+  managerReview?: {
+    reviewId: string;
+    submittedAt?: string;
+    metadata?: {
+      goalReviews?: any[];
+      competencyReviews?: any[];
+      finalRating?: any;
+    };
+    ratings?: any;
+  };
 }
 
 interface CycleFormData {
@@ -959,9 +979,77 @@ interface CycleRosterModalProps {
 function CycleRosterModal({ open, onOpenChange, cycle, employees }: CycleRosterModalProps) {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [rosterData, setRosterData] = useState<EmployeeAssignment[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
 
-  // Mock roster data - replace with API call
-  const rosterData: EmployeeAssignment[] = cycle.assignments || [];
+  // Fetch review data for all employees in the roster
+  useEffect(() => {
+    if (!open || !cycle.assignments || cycle.assignments.length === 0) {
+      setRosterData(cycle.assignments || []);
+      return;
+    }
+
+    const fetchReviewData = async () => {
+      setLoadingReviews(true);
+      try {
+        const cycleYear = cycle.id || cycle.name?.match(/\d{4}/)?.[0] || new Date().getFullYear().toString();
+        const updatedRoster = await Promise.all(
+          (cycle.assignments || []).map(async (assignment) => {
+            try {
+              // Fetch both self-review and manager review
+              const [selfReviewResponse, managerReviewResponse] = await Promise.all([
+                authenticatedFetch(
+                  `${API_BASE_URL}/reviews?employeeId=${assignment.employeeId}&cycleYear=${cycleYear}&reviewType=self`,
+                  { method: 'GET' }
+                ),
+                authenticatedFetch(
+                  `${API_BASE_URL}/reviews?employeeId=${assignment.employeeId}&cycleYear=${cycleYear}&reviewType=manager`,
+                  { method: 'GET' }
+                )
+              ]);
+
+              let selfReview: any = null;
+              let managerReview: any = null;
+
+              if (selfReviewResponse.ok) {
+                const selfReviews = await selfReviewResponse.json();
+                if (Array.isArray(selfReviews) && selfReviews.length > 0) {
+                  // Prefer submitted review over draft
+                  selfReview = selfReviews.find((r: any) => !r.isDraft && r.submittedAt) || selfReviews[0];
+                }
+              }
+
+              if (managerReviewResponse.ok) {
+                const managerReviews = await managerReviewResponse.json();
+                if (Array.isArray(managerReviews) && managerReviews.length > 0) {
+                  // Prefer submitted review over draft
+                  managerReview = managerReviews.find((r: any) => !r.isDraft && r.submittedAt) || managerReviews[0];
+                }
+              }
+
+              return {
+                ...assignment,
+                selfReview: selfReview || undefined,
+                managerReview: managerReview || undefined
+              };
+            } catch (error) {
+              console.error(`Error fetching reviews for ${assignment.employeeId}:`, error);
+              return assignment;
+            }
+          })
+        );
+
+        setRosterData(updatedRoster);
+      } catch (error) {
+        console.error('Error fetching review data:', error);
+        setRosterData(cycle.assignments || []);
+      } finally {
+        setLoadingReviews(false);
+      }
+    };
+
+    fetchReviewData();
+  }, [open, cycle.assignments, cycle.id, cycle.name]);
 
   const filteredRoster = rosterData.filter(assignment => {
     const matchesStatus = filterStatus === 'all' || assignment.status === filterStatus;
@@ -1079,8 +1167,40 @@ function CycleRosterModal({ open, onOpenChange, cycle, employees }: CycleRosterM
                       </div>
                     </TableCell>
                     <TableCell>{getStatusBadge(assignment.status)}</TableCell>
-                    <TableCell>
-                      {assignment.selfReviewSubmittedAt ? (
+                    <TableCell className="max-w-[300px]">
+                      {loadingReviews ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                          Loading...
+                        </div>
+                      ) : assignment.selfReview ? (
+                        <div className="space-y-1 text-xs">
+                          <div className="font-semibold text-foreground">Self Review</div>
+                          {assignment.selfReview.submittedAt && (
+                            <div className="text-muted-foreground">
+                              Submitted: {new Date(assignment.selfReview.submittedAt).toLocaleDateString()}
+                            </div>
+                          )}
+                          {assignment.selfReview.metadata?.selfReviewFields && (
+                            <div className="mt-2 space-y-1">
+                              <div className="text-muted-foreground line-clamp-2">
+                                <strong>Accomplishments:</strong> {assignment.selfReview.metadata.selfReviewFields.significantAccomplishments || 'N/A'}
+                              </div>
+                              <div className="text-muted-foreground line-clamp-2">
+                                <strong>Beyond Role:</strong> {assignment.selfReview.metadata.selfReviewFields.beyondRoleContributions || 'N/A'}
+                              </div>
+                            </div>
+                          )}
+                          {assignment.selfReview.metadata?.selfRating && (
+                            <div className="text-muted-foreground">
+                              <strong>Self Rating:</strong> {assignment.selfReview.metadata.selfRating}/5
+                            </div>
+                          )}
+                          {!assignment.selfReview.metadata?.selfReviewFields && !assignment.selfReview.metadata?.selfRating && (
+                            <div className="text-muted-foreground">Review data available</div>
+                          )}
+                        </div>
+                      ) : assignment.selfReviewSubmittedAt ? (
                         <span className="text-sm text-muted-foreground">
                           {new Date(assignment.selfReviewSubmittedAt).toLocaleDateString()}
                         </span>
@@ -1088,8 +1208,47 @@ function CycleRosterModal({ open, onOpenChange, cycle, employees }: CycleRosterM
                         <span className="text-sm text-muted-foreground">-</span>
                       )}
                     </TableCell>
-                    <TableCell>
-                      {assignment.managerReviewSubmittedAt ? (
+                    <TableCell className="max-w-[300px]">
+                      {loadingReviews ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                          Loading...
+                        </div>
+                      ) : assignment.managerReview ? (
+                        <div className="space-y-1 text-xs">
+                          <div className="font-semibold text-foreground">Manager Review</div>
+                          {assignment.managerReview.submittedAt && (
+                            <div className="text-muted-foreground">
+                              Submitted: {new Date(assignment.managerReview.submittedAt).toLocaleDateString()}
+                            </div>
+                          )}
+                          {assignment.managerReview.metadata?.finalRating?.overallRating && (
+                            <div className="text-muted-foreground">
+                              <strong>Overall Rating:</strong> {assignment.managerReview.metadata.finalRating.overallRating}/5
+                            </div>
+                          )}
+                          {assignment.managerReview.metadata?.goalReviews && assignment.managerReview.metadata.goalReviews.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              <div className="text-muted-foreground">
+                                <strong>Goals Reviewed:</strong> {assignment.managerReview.metadata.goalReviews.length}
+                              </div>
+                              {assignment.managerReview.metadata.goalReviews.slice(0, 2).map((goal: any, idx: number) => (
+                                <div key={idx} className="text-muted-foreground line-clamp-1">
+                                  {goal.goalDescription}: {goal.managerRating}/5
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {assignment.managerReview.metadata?.finalRating?.summaryFeedback && (
+                            <div className="text-muted-foreground line-clamp-2 mt-1">
+                              <strong>Feedback:</strong> {assignment.managerReview.metadata.finalRating.summaryFeedback}
+                            </div>
+                          )}
+                          {!assignment.managerReview.metadata?.finalRating && !assignment.managerReview.metadata?.goalReviews && (
+                            <div className="text-muted-foreground">Review data available</div>
+                          )}
+                        </div>
+                      ) : assignment.managerReviewSubmittedAt ? (
                         <span className="text-sm text-muted-foreground">
                           {new Date(assignment.managerReviewSubmittedAt).toLocaleDateString()}
                         </span>

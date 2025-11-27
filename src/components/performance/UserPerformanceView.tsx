@@ -324,39 +324,39 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
 
   // Fetch reviews for Annual Reviews section
   const fetchReviews = useCallback(async () => {
-    if (!currentEmployeeId || !user?.email) return;
-    
-    try {
-      setLoadingReviews(true);
+      if (!currentEmployeeId || !user?.email) return;
       
-      const response = await authenticatedFetch(
-        `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}`,
-        { method: 'GET' }
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          // Sort by cycle year and created date (most recent first)
-          const sortedReviews = data.sort((a: any, b: any) => {
-            if (a.cycleYear !== b.cycleYear) {
-              return b.cycleYear.localeCompare(a.cycleYear);
-            }
-            return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-          });
-          setReviews(sortedReviews);
+      try {
+        setLoadingReviews(true);
+        
+        const response = await authenticatedFetch(
+          `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}`,
+          { method: 'GET' }
+        );
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            // Sort by cycle year and created date (most recent first)
+            const sortedReviews = data.sort((a: any, b: any) => {
+              if (a.cycleYear !== b.cycleYear) {
+                return b.cycleYear.localeCompare(a.cycleYear);
+              }
+              return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+            });
+            setReviews(sortedReviews);
+          }
         }
+      } catch (error) {
+        console.error("Error fetching reviews:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load reviews",
+          variant: "destructive"
+        });
+      } finally {
+        setLoadingReviews(false);
       }
-    } catch (error) {
-      console.error("Error fetching reviews:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load reviews",
-        variant: "destructive"
-      });
-    } finally {
-      setLoadingReviews(false);
-    }
   }, [currentEmployeeId, user, toast]);
 
   useEffect(() => {
@@ -379,8 +379,11 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
         
         if (response.ok) {
           const cycles = await response.json();
+          // Filter out draft cycles - draft cycles should not be visible to anyone in performance module
+          const filteredCycles = cycles.filter((cycle: any) => cycle.status !== 'draft');
+          
           // Sort by year descending (most recent first)
-          const sortedCycles = cycles.sort((a: any, b: any) => b.year.localeCompare(a.year));
+          const sortedCycles = filteredCycles.sort((a: any, b: any) => b.year.localeCompare(a.year));
           setAllCycles(sortedCycles);
           
           // Find the active cycle (status === 'open' in backend, 'active' in frontend)
@@ -1030,36 +1033,66 @@ const normalizeCategory = (category: string): string => {
                 </Card>
               ) : allCycles.length > 0 ? (
                 <div className="space-y-3">
-                  {allCycles.map((cycle) => {
+                  {allCycles
+                    .filter((cycle) => {
+                      // Filter out draft cycles - draft cycles should not be visible to anyone in performance module
+                      return cycle.status !== 'draft';
+                    })
+                    .map((cycle) => {
                     const isActive = cycle.status === 'open' || cycle.status === 'active';
                     
-                    // Find review for this cycle
-                    const cycleReview = reviews.find((r: any) => 
-                      r.cycleYear === cycle.year && 
-                      r.reviewType === 'self' &&
-                      r.employeeId === currentEmployeeId
-                    );
+                    // Normalize year comparison and prefer submitted reviews if both draft and submitted exist
+                    const normalizedCycleYear = (cycle.year || cycle.metadata?.cycleYear || cycle.name?.match(/\d{4}/)?.[0] || '').toString().trim();
+                    const isSameCycle = (item: any) => {
+                      const reviewYear = (item.cycleYear || item.metadata?.cycleYear || '').toString().trim();
+                      return normalizedCycleYear && reviewYear ? reviewYear === normalizedCycleYear : false;
+                    };
+                    
+                    const cycleSelfReviews = reviews.filter((r: any) => {
+                      const reviewYear = (r.cycleYear || r.metadata?.cycleYear || '').toString().trim();
+                      const sameYear = normalizedCycleYear && reviewYear ? reviewYear === normalizedCycleYear : false;
+                      return sameYear && r.reviewType === 'self' && r.employeeId === currentEmployeeId;
+                    });
+                    
+                    const submittedReview = cycleSelfReviews.find((r: any) => !r.isDraft && r.submittedAt);
+                    const cycleReview = submittedReview || cycleSelfReviews[0];
+                    
+                    // If self-review is missing, fall back to manager review to determine state (self must have been submitted)
+                    const cycleManagerReview = reviews.find((r: any) => isSameCycle(r) && r.reviewType === 'manager' && r.employeeId === currentEmployeeId);
                     
                     // Determine review status
                     let reviewStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' | 'needs_clarification' = 'not_started';
                     if (cycleReview) {
-                      if (cycleReview.isDraft) {
+                      if (cycleReview.isDraft || !cycleReview.submittedAt) {
                         reviewStatus = 'draft';
-                      } else if (cycleReview.submittedAt) {
-                        // Check metadata status for more specific status
+                      }
+                      if (cycleReview.submittedAt && !cycleReview.isDraft) {
                         const metadataStatus = cycleReview.metadata?.status;
-                        if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected') {
+                        if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected' || metadataStatus === 'clarification_requested') {
                           reviewStatus = 'needs_clarification';
-                        } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing') {
+                        } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing' || metadataStatus === 'clarification_responded') {
                           reviewStatus = 'under_manager_review';
-                        } else {
+                        } else if (metadataStatus === 'manager_submitted' || metadataStatus === 'finalized') {
+                          reviewStatus = 'finalized';
+                        } else if (!metadataStatus || metadataStatus === 'self_submitted') {
                           reviewStatus = 'submitted';
+                        } else {
+                          reviewStatus = 'under_manager_review';
                         }
+                      }
+                    } else if (cycleManagerReview && !cycleManagerReview.isDraft) {
+                      const managerStatus = cycleManagerReview.metadata?.status;
+                      if (managerStatus === 'hr_rejected' || managerStatus === 'changes_requested' || managerStatus === 'clarification_requested') {
+                        reviewStatus = 'needs_clarification';
+                      } else if (managerStatus === 'hr_approved' || managerStatus === 'manager_submitted' || managerStatus === 'finalized') {
+                        reviewStatus = 'finalized';
+                      } else {
+                        reviewStatus = 'under_manager_review';
                       }
                     }
                     
-                    // Enable button only if cycle is active and review is not submitted
-                    const isEnabled = isActive && (reviewStatus === 'not_started' || reviewStatus === 'draft');
+                    // Enable button when action is required
+                    const isEnabled = isActive && (reviewStatus === 'not_started' || reviewStatus === 'draft' || reviewStatus === 'needs_clarification');
                     
                     // Determine badge status and styling
                     let badgeConfig: { label: string; className: string; icon: any } = {
@@ -1079,6 +1112,12 @@ const normalizeCategory = (category: string): string => {
                         label: reviewStatus === 'under_manager_review' ? 'Under Review' : 'Submitted',
                         className: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
                         icon: FileText
+                      };
+                    } else if (reviewStatus === 'finalized') {
+                      badgeConfig = {
+                        label: 'Completed',
+                        className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+                        icon: CheckCircle2
                       };
                     } else if (reviewStatus === 'draft') {
                       badgeConfig = {
@@ -1122,19 +1161,19 @@ const normalizeCategory = (category: string): string => {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-3 flex-wrap">
                                 <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors">
-                                  {cycle.name || `${cycle.year} Annual Performance Review`}
-                                </h3>
-                                <Badge 
-                                  variant="outline" 
-                                  className={cn(
+                                {cycle.name || `${cycle.year} Annual Performance Review`}
+                              </h3>
+                            <Badge 
+                              variant="outline" 
+                              className={cn(
                                     "rounded-full border px-2.5 py-0.5 text-xs font-semibold flex items-center gap-1.5 flex-shrink-0",
                                     badgeConfig.className
                                   )}
                                 >
                                   <BadgeIcon className="h-3 w-3" />
                                   {badgeConfig.label}
-                                </Badge>
-                              </div>
+                            </Badge>
+                          </div>
                               <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                                 {cycle.startDate && cycle.endDate && (
                                   <p className="text-sm text-muted-foreground flex items-center gap-1.5">
@@ -1142,11 +1181,11 @@ const normalizeCategory = (category: string): string => {
                                     {new Date(cycle.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - {new Date(cycle.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                   </p>
                                 )}
-                                {cycle.metadata?.selfReviewEnabled && (
+                            {cycle.metadata?.selfReviewEnabled && (
                                   <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2">
-                                    <FileText className="h-3 w-3" /> Self Review
-                                  </Badge>
-                                )}
+                                <FileText className="h-3 w-3" /> Self Review
+                              </Badge>
+                            )}
                                 {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' ? (
                                   <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-purple-500/10 text-purple-600 border-purple-500/20">
                                     <Send className="h-3 w-3" /> Submitted to Manager
@@ -1156,7 +1195,7 @@ const normalizeCategory = (category: string): string => {
                                     <SquarePen className="h-3 w-3" /> In Progress
                                   </Badge>
                                 ) : null}
-                              </div>
+                          </div>
                             </div>
                           </div>
                           
@@ -1190,15 +1229,20 @@ const normalizeCategory = (category: string): string => {
                               variant={isEnabled ? "default" : "outline"}
                               size="sm"
                             >
-                              {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' ? (
+                              {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' || reviewStatus === 'finalized' ? (
                                 <>
                                   <FileText className="h-4 w-4 mr-2" />
-                                  View Review
+                                  {reviewStatus === 'finalized' ? 'View Submission' : 'View Review'}
                                 </>
                               ) : reviewStatus === 'draft' ? (
                                 <>
-                                  <SquarePen className="h-4 w-4 mr-2" />
-                                  Continue
+                              <SquarePen className="h-4 w-4 mr-2" />
+                              Continue
+                                </>
+                              ) : reviewStatus === 'needs_clarification' ? (
+                                <>
+                                  <AlertCircle className="h-4 w-4 mr-2" />
+                                  Resolve Feedback
                                 </>
                               ) : (
                                 <>
@@ -1228,8 +1272,8 @@ const normalizeCategory = (category: string): string => {
                 <h3 className="text-lg font-semibold">Self Assessment</h3>
                 <div className="flex flex-wrap items-center gap-2">
                   {!selfAssessmentReadOnly && (
-                    <Button
-                      variant="outline"
+                <Button
+                  variant="outline"
                       onClick={async (e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -1260,20 +1304,20 @@ const normalizeCategory = (category: string): string => {
                   <Button
                     variant="outline"
                     onClick={async () => {
-                      setShowSelfAssessmentForm(false);
-                      setSelectedCycleYear(null);
+                    setShowSelfAssessmentForm(false);
+                    setSelectedCycleYear(null);
                       setSelfAssessmentSaveDraft(null);
                       setSelfAssessmentSaving(false);
                       setSelfAssessmentReadOnly(false);
                       // Refresh reviews to get updated status
                       await fetchReviews();
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                    Back to Cycles
-                  </Button>
-                </div>
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Back to Cycles
+                </Button>
+              </div>
               </div>
               <EmployeeSelfAssessment
                 initialSection="form"
