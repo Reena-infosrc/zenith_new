@@ -87,7 +87,8 @@ type EmployeeReviewStatus =
   | 'clarification_requested'
   | 'clarification_responded'
   | 'needs_clarification'
-  | 'manager_submitted';
+  | 'manager_submitted'
+  | 'hr_approved';
 
 type ManagerFilter =
   | 'needs_clarification'
@@ -737,16 +738,16 @@ export function ManagerPerformanceView() {
   // Derive completed reviews count from employee status map
   useEffect(() => {
     if (loadingReviews) {
-        setLoadingReviewsCount(true);
+      setLoadingReviewsCount(true);
       return;
     }
     
     const completedReviews = Array.from(employeeReviewStatuses.values()).filter(
-      (status) => status === 'manager_submitted'
+      (status) => status === 'manager_submitted' || status === 'hr_approved'
     ).length;
     
     setReviewsCount(completedReviews);
-        setLoadingReviewsCount(false);
+    setLoadingReviewsCount(false);
   }, [employeeReviewStatuses, loadingReviews]);
 
   // Fetch reviews for Annual Reviews section - OPTIMIZED with parallel requests
@@ -960,6 +961,7 @@ export function ManagerPerformanceView() {
             let latestSubmitTs = -Infinity;
             let latestProcessedTs = -Infinity;
             let latestDraftTs = -Infinity;
+            let latestHrApprovalTs = -Infinity;
             let latestProcessedStatus: 'needs_clarification' | 'clarification_requested' | null = null;
             let latestSubmittedReview: any = null;
 
@@ -974,6 +976,10 @@ export function ManagerPerformanceView() {
                 status === 'changes_requested' ||
                 status === 'hr_rejected' ||
                 status === 'clarification_requested';
+              const isHrApprovedStatus =
+                status === 'hr_approved' ||
+                status === 'approved' ||
+                status === 'finalized';
 
               if (isSubmitted && timestamp > latestSubmitTs) {
                 latestSubmitTs = timestamp;
@@ -988,6 +994,10 @@ export function ManagerPerformanceView() {
                 latestProcessedTs = timestamp;
                 latestProcessedStatus = status === 'clarification_requested' ? 'clarification_requested' : 'needs_clarification';
               }
+
+              if (isHrApprovedStatus && timestamp > latestHrApprovalTs) {
+                latestHrApprovalTs = timestamp;
+              }
             });
 
             console.log('[ManagerPerformanceView] Status timeline', {
@@ -998,7 +1008,9 @@ export function ManagerPerformanceView() {
               latestProcessedStatus
             });
 
-            if (latestProcessedTs !== -Infinity && (latestSubmitTs === -Infinity || latestProcessedTs >= latestSubmitTs)) {
+            if (latestHrApprovalTs !== -Infinity) {
+              statusMap.set(empId, 'hr_approved');
+            } else if (latestProcessedTs !== -Infinity && (latestSubmitTs === -Infinity || latestProcessedTs >= latestSubmitTs)) {
               statusMap.set(empId, latestProcessedStatus || 'needs_clarification');
             } else if (latestSubmitTs !== -Infinity && latestSubmittedReview?.isActive !== false) {
               statusMap.set(empId, 'manager_submitted');
@@ -1143,7 +1155,7 @@ export function ManagerPerformanceView() {
         matchesFilter = isPendingReviewStatus(reviewStatus);
         break;
       case 'review_completed':
-        matchesFilter = reviewStatus === 'manager_submitted';
+        matchesFilter = reviewStatus === 'manager_submitted' || reviewStatus === 'hr_approved';
         break;
       case 'has_goals':
         matchesFilter = (employeeGoals.get(emp.id)?.length ?? 0) > 0;

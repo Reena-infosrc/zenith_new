@@ -121,6 +121,14 @@ const convertGoalToPerformanceGoal = (goal: Goal): PerformanceGoal => {
   };
 };
 
+const resolveReviewStatus = (review?: any) =>
+  review?.metadata?.status ||
+  review?.status ||
+  review?.state ||
+  review?.lifecycleStatus ||
+  review?.reviewStatus ||
+  '';
+
 interface GrowthData {
   month: string;
   performance: number;
@@ -1062,32 +1070,51 @@ const normalizeCategory = (category: string): string => {
                     
                     // Determine review status
                     let reviewStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' | 'needs_clarification' = 'not_started';
+                    let isHrApprovedStatus = false;
                     if (cycleReview) {
                       if (cycleReview.isDraft || !cycleReview.submittedAt) {
                         reviewStatus = 'draft';
                       }
                       if (cycleReview.submittedAt && !cycleReview.isDraft) {
-                        const metadataStatus = cycleReview.metadata?.status;
+                        const metadataStatus = resolveReviewStatus(cycleReview);
                         if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected' || metadataStatus === 'clarification_requested') {
                           reviewStatus = 'needs_clarification';
+                          isHrApprovedStatus = false;
                         } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing' || metadataStatus === 'clarification_responded') {
                           reviewStatus = 'under_manager_review';
-                        } else if (metadataStatus === 'manager_submitted' || metadataStatus === 'finalized') {
+                          isHrApprovedStatus = false;
+                        } else if (
+                          metadataStatus === 'manager_submitted' ||
+                          metadataStatus === 'finalized' ||
+                          metadataStatus === 'hr_approved' ||
+                          metadataStatus === 'approved'
+                        ) {
                           reviewStatus = 'finalized';
+                          isHrApprovedStatus = metadataStatus === 'hr_approved' || metadataStatus === 'approved';
                         } else if (!metadataStatus || metadataStatus === 'self_submitted') {
                           reviewStatus = 'submitted';
+                          isHrApprovedStatus = false;
                         } else {
                           reviewStatus = 'under_manager_review';
+                          isHrApprovedStatus = false;
                         }
                       }
-                    } else if (cycleManagerReview && !cycleManagerReview.isDraft) {
-                      const managerStatus = cycleManagerReview.metadata?.status;
+                    }
+                    
+                    if (cycleManagerReview && !cycleManagerReview.isDraft) {
+                      const managerStatus = resolveReviewStatus(cycleManagerReview);
                       if (managerStatus === 'hr_rejected' || managerStatus === 'changes_requested' || managerStatus === 'clarification_requested') {
                         reviewStatus = 'needs_clarification';
-                      } else if (managerStatus === 'hr_approved' || managerStatus === 'manager_submitted' || managerStatus === 'finalized') {
+                        isHrApprovedStatus = false;
+                      } else if (managerStatus === 'hr_approved' || managerStatus === 'approved') {
                         reviewStatus = 'finalized';
-                      } else {
+                        isHrApprovedStatus = true;
+                      } else if (managerStatus === 'manager_submitted' || managerStatus === 'finalized') {
+                        reviewStatus = 'finalized';
+                        // keep existing isHrApprovedStatus flag (could already be true from self review)
+                      } else if (reviewStatus === 'not_started' || reviewStatus === 'draft' || reviewStatus === 'submitted') {
                         reviewStatus = 'under_manager_review';
+                        isHrApprovedStatus = false;
                       }
                     }
                     
@@ -1115,7 +1142,7 @@ const normalizeCategory = (category: string): string => {
                       };
                     } else if (reviewStatus === 'finalized') {
                       badgeConfig = {
-                        label: 'Completed',
+                        label: isHrApprovedStatus ? 'HR Approved' : 'Completed',
                         className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
                         icon: CheckCircle2
                       };
@@ -1189,6 +1216,15 @@ const normalizeCategory = (category: string): string => {
                                 {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' ? (
                                   <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-purple-500/10 text-purple-600 border-purple-500/20">
                                     <Send className="h-3 w-3" /> Submitted to Manager
+                                  </Badge>
+                                ) : reviewStatus === 'finalized' ? (
+                                  <Badge variant="outline" className={cn(
+                                    "flex items-center gap-1.5 text-xs h-5 px-2 border shadow-sm",
+                                    isHrApprovedStatus
+                                      ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                      : "bg-green-500/10 text-green-600 border-green-500/20"
+                                  )}>
+                                    <CheckCircle2 className="h-3 w-3" /> {isHrApprovedStatus ? "HR Approved" : "Completed"}
                                   </Badge>
                                 ) : reviewStatus === 'draft' ? (
                                   <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-blue-500/10 text-blue-600 border-blue-500/20">

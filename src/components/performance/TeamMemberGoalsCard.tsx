@@ -12,7 +12,8 @@ import {
   FileText,
   HelpCircle,
   AlertCircle,
-  Bell
+  Bell,
+  CheckCircle2
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -93,7 +94,7 @@ export interface TeamMemberGoalsCardProps {
   onViewReviews?: () => void;
   activeGoalId?: string | null;
   panelId?: string;
-  reviewStatus?: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'needs_clarification' | 'manager_submitted';
+  reviewStatus?: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'needs_clarification' | 'manager_submitted' | 'hr_approved';
 }
 
 export function TeamMemberGoalsCard({
@@ -192,6 +193,12 @@ export function TeamMemberGoalsCard({
                 <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/30 shadow-sm flex items-center gap-1 w-fit">
                   <FileText className="h-3 w-3" />
                   Submitted to HR
+                </Badge>
+              )}
+              {reviewStatus === 'hr_approved' && (
+                <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30 shadow-sm flex items-center gap-1 w-fit">
+                  <CheckCircle2 className="h-3 w-3" />
+                  HR Approved
                 </Badge>
               )}
             </div>
