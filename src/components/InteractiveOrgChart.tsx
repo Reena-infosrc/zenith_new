@@ -365,58 +365,129 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
     setLocalSearchQuery('');
 
     // Wait for DOM to update, then scroll to the node
-    // Use multiple timeouts to ensure tree is fully expanded and rendered
+    // Use requestAnimationFrame and multiple timeouts to ensure tree is fully expanded and rendered
+    const scrollToNode = (attempt = 0) => {
+      const nodeElement = nodeRefs.current.get(employee.id);
+      if (!nodeElement || !chartContainerRef.current) {
+        // Retry if element not found yet (max 5 attempts)
+        if (attempt < 5) {
+          setTimeout(() => scrollToNode(attempt + 1), 150);
+        } else {
+          console.warn('Could not find node element for employee:', employee.id);
+        }
+        return;
+      }
+      
+      const container = chartContainerRef.current;
+      const containerInner = container.querySelector('.p-8') as HTMLElement;
+      
+      if (!containerInner) {
+        if (attempt < 5) {
+          setTimeout(() => scrollToNode(attempt + 1), 150);
+        }
+        return;
+      }
+
+      // Get positions in content coordinate system (not affected by transform scale)
+      // offsetLeft/offsetTop are relative to the offset parent (.p-8 div)
+      const nodeX = nodeElement.offsetLeft;
+      const nodeY = nodeElement.offsetTop;
+      
+      // Get element dimensions
+      const elementWidth = nodeElement.offsetWidth;
+      const elementHeight = nodeElement.offsetHeight;
+      
+      // Calculate element center in content coordinates
+      const elementCenterX = nodeX + (elementWidth / 2);
+      const elementCenterY = nodeY + (elementHeight / 2);
+      
+      // Get viewport dimensions (in content coordinates, not scaled)
+      const viewportWidth = container.clientWidth;
+      const viewportHeight = container.clientHeight;
+      
+      // Calculate scroll position to center the element
+      // Scroll positions are in content coordinates
+      const targetScrollLeft = elementCenterX - (viewportWidth / 2);
+      const targetScrollTop = elementCenterY - (viewportHeight / 2);
+      
+      // Ensure scroll position is within bounds
+      const maxScrollLeft = Math.max(0, container.scrollWidth - viewportWidth);
+      const maxScrollTop = Math.max(0, container.scrollHeight - viewportHeight);
+      
+      const finalScrollLeft = Math.max(0, Math.min(targetScrollLeft, maxScrollLeft));
+      const finalScrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
+      
+      // Perform the scroll
+      container.scrollTo({
+        left: finalScrollLeft,
+        top: finalScrollTop,
+        behavior: 'smooth'
+      });
+
+      // Verify the scroll worked after a short delay and use fallback if needed
+      setTimeout(() => {
+        const nodeRect = nodeElement.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        
+        // Check if element is roughly centered (with some tolerance)
+        const elementCenterX = nodeRect.left + (nodeRect.width / 2);
+        const elementCenterY = nodeRect.top + (nodeRect.height / 2);
+        const viewportCenterX = containerRect.left + (containerRect.width / 2);
+        const viewportCenterY = containerRect.top + (containerRect.height / 2);
+        
+        const distanceX = Math.abs(elementCenterX - viewportCenterX);
+        const distanceY = Math.abs(elementCenterY - viewportCenterY);
+        const tolerance = 50; // pixels
+        
+        // If not centered, try alternative method
+        if ((distanceX > tolerance || distanceY > tolerance) && attempt < 2) {
+          // Use getBoundingClientRect approach as fallback
+          const relativeLeft = nodeRect.left - containerRect.left;
+          const relativeTop = nodeRect.top - containerRect.top;
+          const relElementCenterX = relativeLeft + (nodeRect.width / 2);
+          const relElementCenterY = relativeTop + (nodeRect.height / 2);
+          const relViewportCenterX = container.clientWidth / 2;
+          const relViewportCenterY = container.clientHeight / 2;
+          
+          const scrollX = container.scrollLeft + relElementCenterX - relViewportCenterX;
+          const scrollY = container.scrollTop + relElementCenterY - relViewportCenterY;
+          
+          const fallbackMaxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+          const fallbackMaxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+          
+          container.scrollTo({
+            left: Math.max(0, Math.min(scrollX, fallbackMaxScrollLeft)),
+            top: Math.max(0, Math.min(scrollY, fallbackMaxScrollTop)),
+            behavior: 'smooth'
+          });
+        }
+      }, 200);
+
+      // Highlight the node briefly
+      nodeElement.classList.add('ring-4', 'ring-primary', 'ring-offset-2');
+      setTimeout(() => {
+        nodeElement.classList.remove('ring-4', 'ring-primary', 'ring-offset-2');
+      }, 2000);
+    };
+
+    // Use multiple timeouts and requestAnimationFrame to ensure DOM is fully updated
+    // First timeout: wait for state updates (expanded nodes)
     setTimeout(() => {
       setConnectorUpdateKey(prev => prev + 1); // Force connector update
+      
+      // Second timeout: wait for connector rendering and layout
       setTimeout(() => {
-        const nodeElement = nodeRefs.current.get(employee.id);
-        if (nodeElement && chartContainerRef.current) {
-          // Get the node's position relative to its offset parent
-          // Account for zoom level by calculating actual position
-          const containerPadding = 32; // 8 * 4 (p-8)
-          
-          // Calculate scroll position accounting for zoom
-          // The container is scaled, so we need to account for that
-          const containerScrollLeft = chartContainerRef.current.scrollLeft;
-          const containerScrollTop = chartContainerRef.current.scrollTop;
-          
-          // Get the element's position within the scaled container
-          const containerInner = chartContainerRef.current.querySelector('.p-8') as HTMLElement;
-          if (containerInner) {
-            const nodeOffsetLeft = nodeElement.offsetLeft;
-            const nodeOffsetTop = nodeElement.offsetTop;
-            
-            // Account for container padding
-            const targetScrollLeft = nodeOffsetLeft * zoomLevel - containerPadding;
-            const targetScrollTop = nodeOffsetTop * zoomLevel - containerPadding;
-            
-            chartContainerRef.current.scrollTo({
-              left: Math.max(0, targetScrollLeft),
-              top: Math.max(0, targetScrollTop),
-              behavior: 'smooth'
-            });
-          } else {
-            // Fallback: use bounding rect
-            const nodeRect = nodeElement.getBoundingClientRect();
-            const containerRect = chartContainerRef.current.getBoundingClientRect();
-            const scrollLeft = nodeRect.left - containerRect.left + chartContainerRef.current.scrollLeft - 100;
-            const scrollTop = nodeRect.top - containerRect.top + chartContainerRef.current.scrollTop - 100;
-            
-            chartContainerRef.current.scrollTo({
-              left: scrollLeft,
-              top: scrollTop,
-              behavior: 'smooth'
-            });
-          }
-
-          // Highlight the node briefly
-          nodeElement.classList.add('ring-4', 'ring-primary', 'ring-offset-2');
-          setTimeout(() => {
-            nodeElement.classList.remove('ring-4', 'ring-primary', 'ring-offset-2');
-          }, 2000);
-        }
-      }, 300);
-    }, 500);
+        // Use requestAnimationFrame to ensure layout is complete
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            // Additional delay to ensure all nodes are rendered
+            setTimeout(() => {
+              scrollToNode(0);
+            }, 100);
+          });
+        });
+      }, 400);
+    }, 600);
   }, [findParentChain, zoomLevel]);
 
   // Highlight matching employees in search
