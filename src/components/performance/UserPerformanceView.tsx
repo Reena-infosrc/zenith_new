@@ -26,7 +26,8 @@ import {
   SquarePen,
   ChevronLeft,
   Users,
-  AlertCircle
+  AlertCircle,
+  MessageSquare
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -184,6 +185,9 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   const [selectedCycleYear, setSelectedCycleYear] = useState<string | null>(null);
   const [allCycles, setAllCycles] = useState<any[]>([]);
   const [loadingAllCycles, setLoadingAllCycles] = useState(false);
+  const [showManagerFeedbackModal, setShowManagerFeedbackModal] = useState(false);
+  const [managerReviewData, setManagerReviewData] = useState<any | null>(null);
+  const [loadingManagerReview, setLoadingManagerReview] = useState(false);
 
   const currentEmployeeSummary = useMemo(() => {
     if (!currentEmployeeId) return null;
@@ -372,6 +376,68 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
       fetchReviews();
     }
   }, [currentEmployeeId, fetchReviews]);
+
+  // Fetch manager review for feedback modal
+  const fetchManagerReview = useCallback(async (cycleYear: string) => {
+    if (!currentEmployeeId) {
+      toast({
+        title: "Error",
+        description: "Employee ID not found",
+        variant: "destructive"
+      });
+      setShowManagerFeedbackModal(false);
+      return;
+    }
+    
+    setManagerReviewData(null);
+    setLoadingManagerReview(true);
+    
+    try {
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}&cycleYear=${cycleYear}&reviewType=manager&isDraft=false&includeInactive=true`,
+        { method: 'GET' }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Find the most recent submitted manager review
+        const managerReviews = Array.isArray(data) ? data : [];
+        const submittedReview = managerReviews
+          .filter((r: any) => !r.isDraft && r.submittedAt)
+          .sort((a: any, b: any) => 
+            new Date(b.submittedAt || b.updatedAt || 0).getTime() - 
+            new Date(a.submittedAt || a.updatedAt || 0).getTime()
+          )[0];
+        
+        setManagerReviewData(submittedReview || null);
+        
+        if (!submittedReview) {
+          toast({
+            title: "No Feedback Available",
+            description: "Manager feedback is not available for this review cycle.",
+            variant: "default"
+          });
+        }
+      } else {
+        const errorText = await response.text();
+        console.error("Error fetching manager review:", errorText);
+        toast({
+          title: "Error",
+          description: "Failed to load manager feedback",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching manager review:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load manager feedback",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingManagerReview(false);
+    }
+  }, [currentEmployeeId, toast]);
 
   // Fetch all review cycles
   useEffect(() => {
@@ -1235,8 +1301,39 @@ const normalizeCategory = (category: string): string => {
                             </div>
                           </div>
                           
-                          {/* Right Section - Action Button */}
-                          <div className="flex-shrink-0">
+                          {/* Right Section - Action Buttons */}
+                          <div className="flex-shrink-0 flex items-center gap-2">
+                            {isHrApprovedStatus && (
+                              <Button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  console.log('Manager Feedback button clicked for cycle:', cycle.year, 'employeeId:', currentEmployeeId);
+                                  // Open modal immediately
+                                  setShowManagerFeedbackModal(true);
+                                  setManagerReviewData(null);
+                                  // Then fetch data
+                                  fetchManagerReview(cycle.year);
+                                }}
+                                className="transition-all duration-300 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-md hover:shadow-lg"
+                                type="button"
+                                variant="default"
+                                size="sm"
+                                disabled={loadingManagerReview}
+                              >
+                                {loadingManagerReview ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Loading...
+                                  </>
+                                ) : (
+                                  <>
+                                    <MessageSquare className="h-4 w-4 mr-2" />
+                                    Manager Feedback
+                                  </>
+                                )}
+                              </Button>
+                            )}
                             <Button
                               onClick={(e) => {
                                 e.preventDefault();
@@ -1630,6 +1727,267 @@ const normalizeCategory = (category: string): string => {
                   Add Milestone
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manager Feedback Modal - Sleek Enhanced Design
+          Enhanced design features:
+          - Optimized spacing with consistent padding (px-8, py-5) for better breathing room
+          - Sleeker header with refined typography and icon treatment
+          - Enhanced overall rating card with better visual hierarchy
+          - Refined card designs with improved padding and spacing
+          - Better content spacing (space-y-5) for clearer section separation
+          - Polished goal review cards with refined hover states
+          - Improved typography scale and line heights
+          - Enhanced visual polish with subtle shadows and borders
+          - All functionality remains unchanged
+      */}
+      <Dialog open={showManagerFeedbackModal} onOpenChange={setShowManagerFeedbackModal}>
+        <DialogContent className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 max-w-4xl max-h-[92vh] overflow-hidden flex flex-col p-0">
+          {/* Sleek Header Section */}
+          <DialogHeader className="px-8 pt-7 pb-5 border-b border-border/40">
+            <div className="flex items-start gap-4">
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 shadow-sm">
+                <MessageSquare className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div className="flex-1 pt-0.5">
+                <DialogTitle className="text-2xl font-semibold tracking-tight mb-1.5">Manager Feedback</DialogTitle>
+                <DialogDescription className="text-sm leading-relaxed">
+                  Review your manager's comprehensive feedback and final performance rating
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {/* Scrollable Content Area - Optimized Spacing */}
+          <div className="flex-1 overflow-y-auto px-8 py-6">
+            {loadingManagerReview ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="relative">
+                  <Loader2 className="h-9 w-9 animate-spin text-emerald-600 dark:text-emerald-400" />
+                  <div className="absolute inset-0 h-9 w-9 animate-ping opacity-20">
+                    <Loader2 className="h-9 w-9 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mt-5 font-medium">Loading manager feedback...</p>
+              </div>
+            ) : managerReviewData ? (
+              <div className="space-y-5">
+                {/* Overall Rating Card - Enhanced Prominence */}
+                <Card className="border-emerald-200/60 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50/60 via-emerald-50/30 to-background dark:from-emerald-950/15 dark:via-emerald-950/8 dark:to-background shadow-md hover:shadow-lg transition-shadow duration-300">
+                  <CardContent className="p-7">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                            <Award className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                          </div>
+                          <Label className="text-sm font-semibold text-muted-foreground tracking-wide uppercase">Overall Rating</Label>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1.5">
+                            {[1, 2, 3, 4, 5].map((rating) => (
+                              <Star
+                                key={rating}
+                                className={cn(
+                                  "h-8 w-8 transition-all duration-200",
+                                  (managerReviewData.metadata?.finalRating?.overallRating || 
+                                   managerReviewData.ratings?.overall || 0) >= rating
+                                    ? "fill-emerald-500 text-emerald-500 drop-shadow-sm"
+                                    : "fill-muted/15 text-muted-foreground/15"
+                                )}
+                              />
+                            ))}
+                          </div>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-4xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
+                              {managerReviewData.metadata?.finalRating?.overallRating || 
+                               managerReviewData.ratings?.overall || '—'}
+                            </span>
+                            <span className="text-lg font-medium text-muted-foreground">/5</span>
+                          </div>
+                        </div>
+                      </div>
+                      <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25 shadow-sm px-4 py-1.5 h-auto text-sm font-medium">
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                        HR Approved
+                      </Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Summary Feedback - Refined Card */}
+                {managerReviewData.metadata?.finalRating?.summaryFeedback || managerReviewData.comments ? (
+                  <Card className="hover:shadow-md transition-shadow duration-200">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-base font-semibold flex items-center gap-3">
+                        <div className="p-1.5 rounded-md bg-blue-100 dark:bg-blue-900/20">
+                          <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        </div>
+                        Summary Feedback
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                          {managerReviewData.metadata?.finalRating?.summaryFeedback || managerReviewData.comments || 'No feedback provided'}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : null}
+
+                {/* Development Recommendations - Refined Card */}
+                {managerReviewData.metadata?.finalRating?.developmentRecommendations ? (
+                  <Card className="hover:shadow-md transition-shadow duration-200">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-base font-semibold flex items-center gap-3">
+                        <div className="p-1.5 rounded-md bg-purple-100 dark:bg-purple-900/20">
+                          <TrendingUp className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                        </div>
+                        Development Recommendations
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                          {managerReviewData.metadata.finalRating.developmentRecommendations}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : null}
+
+                {/* Development Need - Refined Card */}
+                {managerReviewData.metadata?.finalRating?.developmentNeed ? (
+                  <Card className="hover:shadow-md transition-shadow duration-200">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-base font-semibold flex items-center gap-3">
+                        <div className="p-1.5 rounded-md bg-orange-100 dark:bg-orange-900/20">
+                          <Target className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                        </div>
+                        Development Need
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                          {managerReviewData.metadata.finalRating.developmentNeed}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : null}
+
+                {/* Action Plan - Refined Card */}
+                {managerReviewData.metadata?.finalRating?.actionPlan ? (
+                  <Card className="hover:shadow-md transition-shadow duration-200">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-base font-semibold flex items-center gap-3">
+                        <div className="p-1.5 rounded-md bg-indigo-100 dark:bg-indigo-900/20">
+                          <CheckCircle2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                        Action Plan
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                          {managerReviewData.metadata.finalRating.actionPlan}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : null}
+
+                {/* Goal Reviews - Enhanced Card */}
+                {managerReviewData.metadata?.goalReviews && managerReviewData.metadata.goalReviews.length > 0 ? (
+                  <Card className="hover:shadow-md transition-shadow duration-200">
+                    <CardHeader className="pb-4">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base font-semibold flex items-center gap-3">
+                          <div className="p-1.5 rounded-md bg-cyan-100 dark:bg-cyan-900/20">
+                            <Briefcase className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
+                          </div>
+                          Goal Reviews
+                        </CardTitle>
+                        <Badge variant="secondary" className="text-xs font-medium px-2.5 py-1">
+                          {managerReviewData.metadata.goalReviews.length} {managerReviewData.metadata.goalReviews.length === 1 ? 'Goal' : 'Goals'}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0 space-y-4">
+                      {managerReviewData.metadata.goalReviews.map((goalReview: any, index: number) => (
+                        <div 
+                          key={goalReview.goalId || index} 
+                          className="group p-5 rounded-xl border border-border/60 bg-muted/40 hover:bg-muted/60 hover:border-border transition-all duration-200"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-3">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-sm text-foreground mb-2 leading-snug">
+                                {goalReview.goalDescription || `Goal ${index + 1}`}
+                              </h4>
+                              {goalReview.weightage && (
+                                <Badge variant="outline" className="text-xs font-medium px-2 py-0.5">
+                                  <Target className="h-3 w-3 mr-1" />
+                                  Weightage: {goalReview.weightage}%
+                                </Badge>
+                              )}
+                            </div>
+                            {goalReview.managerRating && (
+                              <div className="flex items-center gap-3 flex-shrink-0">
+                                <div className="flex items-center gap-1">
+                                  {[1, 2, 3, 4, 5].map((rating) => (
+                                    <Star
+                                      key={rating}
+                                      className={cn(
+                                        "h-5 w-5 transition-all duration-200",
+                                        goalReview.managerRating >= rating
+                                          ? "fill-emerald-500 text-emerald-500"
+                                          : "fill-muted/20 text-muted-foreground/20"
+                                      )}
+                                    />
+                                  ))}
+                                </div>
+                                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 min-w-[2.25rem] text-right">
+                                  {goalReview.managerRating}/5
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          {goalReview.managerComments && (
+                            <div className="mt-4 pt-4 border-t border-border/50">
+                              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                                {goalReview.managerComments}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="p-4 rounded-full bg-muted/50 mb-4">
+                  <AlertCircle className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground font-medium">No manager feedback available for this review cycle.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Sleek Footer */}
+          <DialogFooter className="px-8 py-5 border-t border-border/40 bg-muted/20">
+            <Button 
+              onClick={() => setShowManagerFeedbackModal(false)} 
+              variant="outline"
+              className="min-w-[100px]"
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
