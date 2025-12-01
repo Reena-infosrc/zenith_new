@@ -67,6 +67,8 @@ import {
 import { TeamMemberGoalsCard } from "./TeamMemberGoalsCard";
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
+import { getCachedManagerData, getCachedViewMode } from "@/hooks/use-performance-preload";
+import { usePerformancePreload } from "@/hooks/use-performance-preload";
 
 interface Employee {
   id: string;
@@ -572,7 +574,7 @@ export function ManagerPerformanceView() {
     });
   }, []);
 
-  // Initial data loading - load everything before showing UI
+  // Initial data loading - load everything before showing UI (check cache first)
   useEffect(() => {
     const loadAllData = async () => {
       if (!user?.email || employees.length === 0) {
@@ -582,8 +584,7 @@ export function ManagerPerformanceView() {
 
       try {
         setInitialLoading(true);
-        setLoadingMessage("Loading manager information...");
-
+        
         const employee = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
         if (!employee) {
           setInitialLoading(false);
@@ -592,6 +593,53 @@ export function ManagerPerformanceView() {
 
         const managerId = employee.id;
         setCurrentManagerEmployeeId(managerId);
+
+        // Check cache first
+        const cachedManagerData = getCachedManagerData(user.email);
+        if (cachedManagerData && cachedManagerData.directReports.length > 0) {
+          console.log('📦 Using cached manager data');
+          
+          // Use cached direct reports
+          setDirectReports(cachedManagerData.directReports);
+          
+          // Use cached manager goals
+          setLoadingMessage("Loading your goals...");
+          const managerApiGoals = await getEmployeeGoals(managerId);
+          const convertedManagerGoals = managerApiGoals.map(convertGoalToMyGoal);
+          setMyGoals(convertedManagerGoals);
+          const managerTeamGoals = managerApiGoals.map(convertGoalToTeamGoal);
+          refreshGoalPanelStateForEmployee(managerId, managerTeamGoals);
+          managerApiGoals.forEach(goal => {
+            allGoalsCache.current.set(goal.id, goal);
+          });
+          
+          // Use cached team goals
+          setLoadingMessage("Loading team goals...");
+          const teamGoalsMap = new Map<string, Goal[]>();
+          cachedManagerData.teamGoals.forEach((goals, employeeId) => {
+            const convertedGoals = goals.map(convertGoalToTeamGoal);
+            teamGoalsMap.set(employeeId, convertedGoals);
+            
+            // Also cache in allGoalsCache
+            goals.forEach(goal => {
+              allGoalsCache.current.set(goal.id, goal);
+            });
+          });
+          
+          setEmployeeGoals(teamGoalsMap);
+          
+          // Refresh goal panel state for all team members
+          teamGoalsMap.forEach((goals, employeeId) => {
+            refreshGoalPanelStateForEmployee(employeeId, goals);
+          });
+          
+          setInitialLoading(false);
+          setLoadingMyGoals(false);
+          return;
+        }
+
+        // If not cached, load from API
+        setLoadingMessage("Loading manager information...");
 
         setLoadingMessage("Loading team members...");
         const reports: DirectReport[] = employees
@@ -750,7 +798,7 @@ export function ManagerPerformanceView() {
     setLoadingReviewsCount(false);
   }, [employeeReviewStatuses, loadingReviews]);
 
-  // Fetch reviews for Annual Reviews section - OPTIMIZED with parallel requests
+  // Fetch reviews for Annual Reviews section - OPTIMIZED with parallel requests (check cache first)
   const fetchReviews = useCallback(async () => {
       if (!user?.email || employees.length === 0) return;
       
@@ -778,58 +826,76 @@ export function ManagerPerformanceView() {
         const allReviews: any[] = [];
         const statusMap = new Map<string, EmployeeReviewStatus>();
         
-        // OPTIMIZATION: Use batch endpoint to fetch all reviews in a single API call
-        // This reduces from 2N API calls (N employees × 2 review types) to just 2 calls
-        // Include inactive reviews to catch rejected reviews that might be marked inactive
-        const employeeIdsParam = employeeIds.join(',');
+        // Check cache first for manager view
+        let managerSubmitted: any[] = [];
+        let managerDraft: any[] = [];
+        let selfSubmitted: any[] = [];
+        let selfDraft: any[] = [];
         
-        // Fetch manager reviews and self reviews in parallel using batch endpoint
-        // Fetch both draft and submitted reviews to ensure we get rejected reviews
-        // Note: Batch endpoint doesn't support includeInactive, so we fetch both tables
-        const [managerSubmittedResponse, managerDraftResponse, selfSubmittedResponse, selfDraftResponse] = await Promise.all([
-          authenticatedFetch(
-            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=false&includeInactive=true`,
+        const cachedManagerData = currentManagerEmployeeId && directReports.length > 0 
+          ? getCachedManagerData(user.email) 
+          : null;
+          
+        if (cachedManagerData && cachedManagerData.teamReviews) {
+          console.log('📦 Using cached team reviews data');
+          managerSubmitted = cachedManagerData.teamReviews.managerSubmitted || [];
+          managerDraft = cachedManagerData.teamReviews.managerDraft || [];
+          selfSubmitted = cachedManagerData.teamReviews.selfSubmitted || [];
+          selfDraft = cachedManagerData.teamReviews.selfDraft || [];
+        } else {
+          // OPTIMIZATION: Use batch endpoint to fetch all reviews in a single API call
+          // This reduces from 2N API calls (N employees × 2 review types) to just 2 calls
+          // Include inactive reviews to catch rejected reviews that might be marked inactive
+          const employeeIdsParam = employeeIds.join(',');
+          
+          // Fetch manager reviews and self reviews in parallel using batch endpoint
+          // Fetch both draft and submitted reviews to ensure we get rejected reviews
+          // Note: Batch endpoint doesn't support includeInactive, so we fetch both tables
+          const [managerSubmittedResponse, managerDraftResponse, selfSubmittedResponse, selfDraftResponse] = await Promise.all([
+            authenticatedFetch(
+              `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=false&includeInactive=true`,
+                { method: 'GET' }
+            ).catch((error) => {
+              console.error('Error fetching manager submitted reviews batch:', error);
+              return { ok: false, json: async () => [] };
+            }),
+            authenticatedFetch(
+              `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=true&includeInactive=true`,
+                { method: 'GET' }
+            ).catch((error) => {
+              console.error('Error fetching manager draft reviews batch:', error);
+              return { ok: false, json: async () => [] };
+            }),
+            authenticatedFetch(
+              `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=false`,
               { method: 'GET' }
-          ).catch((error) => {
-            console.error('Error fetching manager submitted reviews batch:', error);
-            return { ok: false, json: async () => [] };
-          }),
-          authenticatedFetch(
-            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=true&includeInactive=true`,
+            ).catch((error) => {
+              console.error('Error fetching self submitted reviews batch:', error);
+              return { ok: false, json: async () => [] };
+            }),
+            authenticatedFetch(
+              `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=true`,
               { method: 'GET' }
-          ).catch((error) => {
-            console.error('Error fetching manager draft reviews batch:', error);
-            return { ok: false, json: async () => [] };
-          }),
-          authenticatedFetch(
-            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=false`,
-            { method: 'GET' }
-          ).catch((error) => {
-            console.error('Error fetching self submitted reviews batch:', error);
-            return { ok: false, json: async () => [] };
-          }),
-          authenticatedFetch(
-            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=true`,
-            { method: 'GET' }
-          ).catch((error) => {
-            console.error('Error fetching self draft reviews batch:', error);
-            return { ok: false, json: async () => [] };
-          })
-        ]);
-        
-        // Parse responses and combine draft and submitted reviews
-        const managerSubmitted = managerSubmittedResponse.ok 
-          ? await managerSubmittedResponse.json() 
-          : [];
-        const managerDraft = managerDraftResponse.ok 
-          ? await managerDraftResponse.json() 
-          : [];
-        const selfSubmitted = selfSubmittedResponse.ok 
-          ? await selfSubmittedResponse.json() 
-          : [];
-        const selfDraft = selfDraftResponse.ok 
-          ? await selfDraftResponse.json() 
-          : [];
+            ).catch((error) => {
+              console.error('Error fetching self draft reviews batch:', error);
+              return { ok: false, json: async () => [] };
+            })
+          ]);
+          
+          // Parse responses and combine draft and submitted reviews
+          managerSubmitted = managerSubmittedResponse.ok 
+            ? await managerSubmittedResponse.json() 
+            : [];
+          managerDraft = managerDraftResponse.ok 
+            ? await managerDraftResponse.json() 
+            : [];
+          selfSubmitted = selfSubmittedResponse.ok 
+            ? await selfSubmittedResponse.json() 
+            : [];
+          selfDraft = selfDraftResponse.ok 
+            ? await selfDraftResponse.json() 
+            : [];
+        }
         
         const getReviewStatus = (review: any) => review?.status || review?.metadata?.status || '';
 
@@ -1103,10 +1169,33 @@ export function ManagerPerformanceView() {
   // Fetch all review cycles
   useEffect(() => {
     const fetchCycles = async () => {
+      if (!user?.email) return;
+      
       try {
         setLoadingActiveCycle(true);
         setLoadingAllCycles(true);
         
+        // Check cache first
+        const cached = getCachedData(user.email);
+        if (cached && cached.cycles.length > 0) {
+          console.log('📦 Using cached cycles data');
+          const filteredCycles = cached.cycles.filter((cycle: any) => cycle.status !== 'draft');
+          if (filteredCycles.length > 0) {
+            const sortedCycles = filteredCycles.sort((a: any, b: any) => 
+              b.year.localeCompare(a.year)
+            );
+            setAllCycles(sortedCycles);
+            const active = sortedCycles.find((c: any) => c.status === 'open' || c.status === 'active');
+            if (active) {
+              setActiveCycle(active);
+            }
+          }
+          setLoadingActiveCycle(false);
+          setLoadingAllCycles(false);
+          return;
+        }
+        
+        // Fetch from API if not cached
         const response = await authenticatedFetch(
           `${API_BASE_URL}/reviews/cycles`,
           { method: 'GET' }

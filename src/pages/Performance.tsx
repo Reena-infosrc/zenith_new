@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { API_BASE_URL } from "@/config/api";
+import { getCachedViewMode } from "@/hooks/use-performance-preload";
 
 type ViewMode = 'admin' | 'manager' | 'user';
 
@@ -39,13 +40,24 @@ export default function Performance() {
         return;
       }
       
-      // If no view param, check API to determine view mode
+      // If no view param, check cache first, then API to determine view mode
       if (!user?.email) {
         // Default to user view if no user
         setViewMode('user');
         return;
       }
       
+      // Check cache first (from preload)
+      const cachedViewMode = getCachedViewMode(user.email);
+      if (cachedViewMode && ['admin', 'manager', 'user'].includes(cachedViewMode)) {
+        console.log('📦 Using cached view mode:', cachedViewMode);
+        setViewMode(cachedViewMode);
+        // Update URL to reflect the cached view mode
+        setSearchParams({ view: cachedViewMode }, { replace: true });
+        return;
+      }
+      
+      // If not in cache, fetch from API
       try {
         setIsLoadingViewMode(true);
         const response = await authenticatedFetch(`${API_BASE_URL}/employees/check-team-members`);

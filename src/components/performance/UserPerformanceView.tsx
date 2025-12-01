@@ -43,6 +43,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useGoals, Goal, Milestone as APIMilestone } from "@/hooks/use-goals";
 import { useEmployees } from "@/hooks/use-employees";
+import { usePerformancePreload } from "@/hooks/use-performance-preload";
 import { GoalDetailPanel, GoalDetailSnapshot } from "./GoalDetailPanel";
 import { GoalSummaryCard, GoalSummary } from "./GoalSummaryCard";
 import { EmployeeSelfAssessment } from "./EmployeeSelfAssessment";
@@ -151,6 +152,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   const { user } = useAuth();
   const { getEmployeeGoals, getGoal, createMilestone, updateMilestone, deleteMilestone, updateGoal, loading: goalsLoading } = useGoals();
   const { employees } = useEmployees();
+  const { getCachedData } = usePerformancePreload();
 
   const [goals, setGoals] = useState<PerformanceGoal[]>([]);
   const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(providedEmployeeId || null);
@@ -306,13 +308,31 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     }
   }, [providedEmployeeId, user?.email, employees]);
 
-  // Fetch goals when employee ID is available
+  // Fetch goals when employee ID is available - check cache first
   useEffect(() => {
     const fetchGoals = async () => {
-      if (!currentEmployeeId) return;
+      if (!currentEmployeeId || !user?.email) return;
 
       try {
         setLoading(true);
+        
+        // Check cache first
+        const cached = getCachedData(user.email);
+        if (cached && cached.employeeId === currentEmployeeId && cached.goals.length > 0) {
+          console.log('📦 Using cached goals data');
+          const convertedGoals = cached.goals.map(convertGoalToPerformanceGoal);
+          // Only update state if goals have actually changed
+          setGoals(prevGoals => {
+            const goalsChanged = prevGoals.length !== convertedGoals.length ||
+              prevGoals.some((g, i) => g.id !== convertedGoals[i]?.id);
+            return goalsChanged ? convertedGoals : prevGoals;
+          });
+          refreshGoalPanelState(convertedGoals);
+          setLoading(false);
+          return;
+        }
+
+        // Fetch from API if not cached
         const apiGoals = await getEmployeeGoals(currentEmployeeId);
         const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
         setGoals(convertedGoals);
@@ -332,15 +352,36 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     if (currentEmployeeId) {
       fetchGoals();
     }
-  }, [currentEmployeeId, getEmployeeGoals, toast, refreshGoalPanelState]);
+  }, [currentEmployeeId, getEmployeeGoals, toast, refreshGoalPanelState, user?.email, getCachedData]);
 
-  // Fetch reviews for Annual Reviews section
+  // Fetch reviews for Annual Reviews section - check cache first
   const fetchReviews = useCallback(async () => {
       if (!currentEmployeeId || !user?.email) return;
       
       try {
         setLoadingReviews(true);
         
+        // Check cache first
+        const cached = getCachedData(user.email);
+        if (cached && cached.employeeId === currentEmployeeId && cached.reviews.length > 0) {
+          console.log('📦 Using cached reviews data');
+          const sortedReviews = cached.reviews.sort((a: any, b: any) => {
+            if (a.cycleYear !== b.cycleYear) {
+              return b.cycleYear.localeCompare(a.cycleYear);
+            }
+            return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+          });
+          // Only update state if reviews have actually changed
+          setReviews(prevReviews => {
+            const reviewsChanged = prevReviews.length !== sortedReviews.length ||
+              prevReviews.some((r, i) => r.id !== sortedReviews[i]?.id);
+            return reviewsChanged ? sortedReviews : prevReviews;
+          });
+          setLoadingReviews(false);
+          return;
+        }
+        
+        // Fetch from API if not cached
         const response = await authenticatedFetch(
           `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}`,
           { method: 'GET' }
@@ -369,7 +410,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
       } finally {
         setLoadingReviews(false);
       }
-  }, [currentEmployeeId, user, toast]);
+  }, [currentEmployeeId, user?.email, toast, getCachedData]);
 
   useEffect(() => {
     if (currentEmployeeId) {
@@ -439,13 +480,41 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     }
   }, [currentEmployeeId, toast]);
 
-  // Fetch all review cycles
+  // Fetch all review cycles - check cache first
   useEffect(() => {
     const fetchCycles = async () => {
+      if (!user?.email) return;
+      
       try {
         setLoadingActiveCycle(true);
         setLoadingAllCycles(true);
         
+        // Check cache first
+        const cached = getCachedData(user.email);
+        if (cached && cached.cycles.length > 0) {
+          console.log('📦 Using cached cycles data');
+          const filteredCycles = cached.cycles.filter((cycle: any) => cycle.status !== 'draft');
+          if (filteredCycles.length > 0) {
+            const sortedCycles = filteredCycles.sort((a: any, b: any) => 
+              b.year.localeCompare(a.year)
+            );
+            // Only update state if cycles have actually changed
+            setAllCycles(prevCycles => {
+              const cyclesChanged = prevCycles.length !== sortedCycles.length ||
+                prevCycles.some((c, i) => c.id !== sortedCycles[i]?.id);
+              return cyclesChanged ? sortedCycles : prevCycles;
+            });
+            const active = sortedCycles.find((c: any) => c.status === 'open' || c.status === 'active');
+            if (active) {
+              setActiveCycle(prevActive => prevActive?.id === active.id ? prevActive : active);
+            }
+          }
+          setLoadingActiveCycle(false);
+          setLoadingAllCycles(false);
+          return;
+        }
+        
+        // Fetch from API if not cached
         const response = await authenticatedFetch(
           `${API_BASE_URL}/reviews/cycles`,
           { method: 'GET' }
@@ -463,19 +532,25 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           // Find the active cycle (status === 'open' in backend, 'active' in frontend)
           const active = sortedCycles.find((cycle: any) => cycle.status === 'open' || cycle.status === 'active');
           setActiveCycle(active || null);
+        } else {
+          console.error("Failed to fetch cycles:", response.status, response.statusText);
         }
       } catch (error) {
         console.error("Error fetching cycles:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load review cycles",
+          variant: "destructive"
+        });
       } finally {
         setLoadingActiveCycle(false);
         setLoadingAllCycles(false);
       }
     };
 
-    if (currentEmployeeId) {
-      fetchCycles();
-    }
-  }, [currentEmployeeId]);
+    // Always fetch cycles (they're not employee-specific)
+    fetchCycles();
+  }, [user?.email, getCachedData, toast]);
 
   const growthData: GrowthData[] = [
     { month: "Jan", performance: 65, goalsCompleted: 1 },
