@@ -309,7 +309,7 @@ export function ManagerPerformanceView() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<ManagerFilter | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
-  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals' | 'feedback'>('my-team');
+  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals'>('my-team');
   const [showReviewWorkspace, setShowReviewWorkspace] = useState(false);
   const [reviewEmployee, setReviewEmployee] = useState<Employee | null>(null);
   const [hasReviewData, setHasReviewData] = useState(false);
@@ -1622,10 +1622,11 @@ export function ManagerPerformanceView() {
             <Target className="h-4 w-4 mr-2" />
             My Goals
           </TabsTrigger>
-          <TabsTrigger value="feedback">
+          {/* Feedback tab - commented out/hidden */}
+          {/* <TabsTrigger value="feedback">
             <MessageSquare className="h-4 w-4 mr-2" />
             Feedback
-          </TabsTrigger>
+          </TabsTrigger> */}
         </TabsList>
 
         <TabsContent value="my-team" className="space-y-4">
@@ -2101,9 +2102,10 @@ export function ManagerPerformanceView() {
           <UserPerformanceView employeeId={currentManagerEmployeeId} />
         </TabsContent>
 
-        <TabsContent value="feedback" className="space-y-4">
+        {/* Feedback tab content - commented out/hidden */}
+        {/* <TabsContent value="feedback" className="space-y-4">
           <ContinuousFeedback />
-        </TabsContent>
+        </TabsContent> */}
 
       </Tabs>
 
