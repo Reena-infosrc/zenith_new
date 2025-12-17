@@ -541,7 +541,16 @@ async def check_team_members(current_user: dict = Depends(get_current_active_use
             }
         )
         
-        team_members = [parse_dynamodb_item(item) for item in reports_scan.get("Items", [])]
+        # Parse and filter out inactive team members (default to active if status missing)
+        raw_items = reports_scan.get("Items", [])
+        team_members = []
+        for item in raw_items:
+            emp = parse_dynamodb_item(item)
+            emp_status = emp.get("status", "active")
+            if emp_status == "inactive":
+                continue
+            team_members.append(emp)
+        
         has_team = len(team_members) > 0
         
         return {

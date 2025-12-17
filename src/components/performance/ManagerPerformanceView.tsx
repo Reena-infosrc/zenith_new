@@ -80,6 +80,8 @@ interface Employee {
   skills?: string[];
   photoUrl?: string;
   reporting_to?: string;
+  // Employment status from employee API: "active" (default) or "inactive"
+  status?: string;
 }
 
 type EmployeeReviewStatus =
@@ -599,8 +601,10 @@ export function ManagerPerformanceView() {
         if (cachedManagerData && cachedManagerData.directReports.length > 0) {
           console.log('📦 Using cached manager data');
           
-          // Use cached direct reports
-          setDirectReports(cachedManagerData.directReports);
+          // Use cached direct reports, but only keep active employees
+          const cachedReports = cachedManagerData.directReports as DirectReport[];
+          const activeCachedReports = cachedReports.filter((emp) => !emp.status || emp.status !== "inactive");
+          setDirectReports(activeCachedReports);
           
           // Use cached manager goals
           setLoadingMessage("Loading your goals...");
@@ -643,7 +647,11 @@ export function ManagerPerformanceView() {
 
         setLoadingMessage("Loading team members...");
         const reports: DirectReport[] = employees
-          .filter(emp => emp.reporting_to === managerId)
+          // Only include active employees in manager's team
+          .filter(emp => {
+            const empStatus = (emp as any).status ?? "active";
+            return emp.reporting_to === managerId && empStatus !== "inactive";
+          })
           .map(emp => ({
             ...emp,
             reviewStatus: 'not_started'

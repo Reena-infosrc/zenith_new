@@ -199,9 +199,12 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       const currentUser = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
       if (!currentUser) return;
 
-      // Find direct reports (employees who report to current user)
+      // Find direct reports (employees who report to current user and are active)
       const reports = employees
-        .filter(emp => emp.reporting_to === currentUser.id)
+        .filter(emp => {
+          const empStatus = (emp as any).status ?? "active";
+          return emp.reporting_to === currentUser.id && empStatus !== "inactive";
+        })
         .map(emp => ({
           id: emp.id,
           name: emp.name || 'Unknown',

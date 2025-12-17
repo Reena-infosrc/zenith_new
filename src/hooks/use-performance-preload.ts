@@ -131,7 +131,11 @@ export function usePerformancePreload() {
           let managerData = undefined;
           if (viewMode === 'manager') {
             console.log('🚀 Preloading manager data...');
-            const directReports = employees.filter(emp => emp.reporting_to === employeeId);
+            // Only include active employees as direct reports
+            const directReports = employees.filter(emp => {
+              const empStatus = (emp as any).status ?? 'active';
+              return emp.reporting_to === employeeId && empStatus !== 'inactive';
+            });
             
             if (directReports.length > 0) {
               const teamEmployeeIds = directReports.map(r => r.id);
