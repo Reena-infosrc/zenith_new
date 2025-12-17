@@ -56,6 +56,13 @@ interface TeamPerformance {
   employees: number;
 }
 
+interface DashboardCycle {
+  id: string;
+  year: string;
+  name: string;
+  status: string;
+}
+
 export function PerformanceDashboard() {
   const { employees, fetchEmployees } = useEmployees();
   const { toast } = useToast();
@@ -86,7 +93,11 @@ export function PerformanceDashboard() {
     { week: 'Week 4', completed: 105, pending: 45 }
   ]);
 
+  // Review cycles for dashboard filter
+  const [dashboardCycles, setDashboardCycles] = useState<DashboardCycle[]>([]);
+  const [loadingCycles, setLoadingCycles] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState('current');
+  const [exporting, setExporting] = useState(false);
 
   const COLORS = ['#4facfe', '#00f2fe', '#42b983', '#ffd93d', '#ff6b6b'];
 
@@ -139,6 +150,59 @@ export function PerformanceDashboard() {
     fetchDashboardStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty deps - only run once on mount
+
+  // Fetch review cycles and keep only currently active ones for the dropdown
+  useEffect(() => {
+    const fetchCyclesForDashboard = async () => {
+      try {
+        setLoadingCycles(true);
+        const response = await authenticatedFetch(
+          `${API_BASE_URL}/reviews/cycles`,
+          { method: 'GET' }
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to load review cycles');
+        }
+
+        const apiCycles = await response.json();
+
+        // Map API response and normalize status so "open" becomes "active"
+        const mapped: DashboardCycle[] = (apiCycles || []).map((cycle: any) => ({
+          id: cycle.cycleId || cycle.year,
+          year: cycle.year,
+          name: cycle.name || `${cycle.year} Annual Performance Review`,
+          status: cycle.status === 'open' ? 'active' : (cycle.status || 'draft')
+        }));
+
+        // Only keep currently active cycles for the dashboard dropdown, sorted by year (most recent first)
+        const activeCycles = mapped
+          .filter(cycle => cycle.status === 'active')
+          .sort((a, b) => b.year.localeCompare(a.year));
+
+        setDashboardCycles(activeCycles);
+
+        // Ensure the selected value is valid
+        if (activeCycles.length === 0) {
+          setSelectedCycle('none');
+        } else if (selectedCycle === 'none' || !selectedCycle) {
+          setSelectedCycle('current');
+        }
+      } catch (error) {
+        console.error('Error fetching review cycles for dashboard:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load review cycles for dashboard",
+          variant: "destructive"
+        });
+      } finally {
+        setLoadingCycles(false);
+      }
+    };
+
+    fetchCyclesForDashboard();
+    // We only depend on toast here; selectedCycle is managed inside
+  }, [toast]);
 
   // Calculate team performance by Director
   useEffect(() => {
@@ -227,9 +291,81 @@ export function PerformanceDashboard() {
     ]);
   }, [employees]);
 
-  const handleExport = () => {
-    // TODO: Export to CSV
-    console.log('Exporting dashboard data...');
+  const handleExport = async () => {
+    try {
+      if (loadingCycles && dashboardCycles.length === 0) {
+        toast({
+          title: "Please wait",
+          description: "Review cycles are still loading",
+          variant: "default"
+        });
+        return;
+      }
+
+      // Determine which cycle year to export
+      let cycleYear: string | null = null;
+      if (selectedCycle === 'current') {
+        const currentCycle = dashboardCycles[0];
+        if (currentCycle) {
+          cycleYear = currentCycle.year;
+        }
+      } else if (selectedCycle && selectedCycle !== 'none' && selectedCycle !== 'loading') {
+        cycleYear = selectedCycle;
+      }
+
+      if (!cycleYear) {
+        toast({
+          title: "Select cycle",
+          description: "Please select an active review cycle to export",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      setExporting(true);
+
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/reviews/dashboard/export?cycleYear=${encodeURIComponent(cycleYear)}`,
+        { method: 'GET' }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        console.error('Failed to export CSV:', response.status, response.statusText, errorText);
+        toast({
+          title: "Export failed",
+          description: "Unable to export CSV for the selected cycle",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const today = new Date().toISOString().split('T')[0];
+
+      link.href = url;
+      link.download = `performance-dashboard-${cycleYear}-${today}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Export started",
+        description: `Downloading CSV for cycle ${cycleYear}`,
+      });
+    } catch (error) {
+      console.error('Error exporting dashboard CSV:', error);
+      toast({
+        title: "Export failed",
+        description: "An unexpected error occurred while exporting CSV",
+        variant: "destructive"
+      });
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -243,17 +379,36 @@ export function PerformanceDashboard() {
         <div className="flex items-center gap-2">
           <Select value={selectedCycle} onValueChange={setSelectedCycle}>
             <SelectTrigger className="w-[200px] bg-background/50">
-              <SelectValue />
+              <SelectValue placeholder="Select cycle" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="current">Current Cycle</SelectItem>
-              <SelectItem value="q1-2024">Q1 2024</SelectItem>
-              <SelectItem value="q2-2024">Q2 2024</SelectItem>
+              {loadingCycles ? (
+                <SelectItem value="loading" disabled>
+                  Loading cycles...
+                </SelectItem>
+              ) : dashboardCycles.length === 0 ? (
+                <SelectItem value="none" disabled>
+                  No active cycles
+                </SelectItem>
+              ) : (
+                <>
+                  <SelectItem value="current">Current Cycle</SelectItem>
+                  {dashboardCycles.map((cycle) => (
+                    <SelectItem key={cycle.id} value={cycle.year}>
+                      {cycle.name}
+                    </SelectItem>
+                  ))}
+                </>
+              )}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={handleExport}>
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={exporting || (loadingCycles && dashboardCycles.length === 0)}
+          >
             <Download className="h-4 w-4 mr-2" />
-            Export CSV
+            {exporting ? "Exporting..." : "Export CSV"}
           </Button>
         </div>
       </div>

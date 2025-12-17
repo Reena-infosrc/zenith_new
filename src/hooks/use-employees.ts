@@ -646,6 +646,7 @@ export function useEmployees() {
       }
 
       const requestBody = {
+          employee_id: formattedData.employeeId,
           name: formattedData.name,
           position: formattedData.position,
           department: formattedData.department,

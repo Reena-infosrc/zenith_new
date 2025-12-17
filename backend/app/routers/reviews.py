@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Tuple, List
 import time
+import csv
+import io
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import Response
 from boto3.dynamodb.conditions import Key, Attr
 from botocore.exceptions import ClientError
 import logging
@@ -117,6 +120,25 @@ def _map_review(item: Dict[str, Any], is_draft: bool = False) -> ReviewInDB:
         updatedAt=parsed.get("updatedAt"),
         isDraft=is_draft,  # Set based on which table the data came from
     )
+
+
+def _get_review_status_value(review: ReviewInDB) -> str:
+    """Get the unified status value from a ReviewInDB (status or metadata.status)."""
+    if review.status:
+        return str(review.status)
+    metadata = review.metadata or {}
+    return str(metadata.get("status", ""))
+
+
+def _parse_timestamp(value: Optional[str]) -> float:
+    """Parse ISO timestamp string to epoch seconds for comparison."""
+    if not value:
+        return 0.0
+    try:
+        # Handle possible Z suffix
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
 
 
 async def _ensure_cycle(year: str) -> Dict[str, Any]:
@@ -870,6 +892,238 @@ async def get_dashboard_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error getting dashboard statistics",
+        ) from exc
+
+
+@router.get("/dashboard/export")
+async def export_dashboard_csv(
+    cycleYear: str = Query(..., description="Review cycle year to export, e.g. 2025"),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Export organization-wide performance data for a specific cycle as CSV.
+
+    Includes one row per manager review in the selected cycle with:
+    - Employee details (name, department, position)
+    - Manager details
+    - Manager sign-off status (pending, approved, rejected, escalated)
+    - Overall manager rating and key timestamps
+    """
+    del current_user
+
+    # Basic validation for year format
+    if not cycleYear or len(cycleYear) != 4 or not cycleYear.isdigit():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="cycleYear must be a 4-digit year, e.g. 2025",
+        )
+
+    try:
+        # Load employees (active only) for enrichment
+        employees_table = await get_employees_table()
+        employees_by_id: Dict[str, Dict[str, Any]] = {}
+
+        last_evaluated_key = None
+        while True:
+            scan_kwargs: Dict[str, Any] = {}
+            if last_evaluated_key:
+                scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+            response = await employees_table.scan(**scan_kwargs)
+            for item in response.get("Items", []):
+                emp = parse_dynamodb_item(item)
+                emp_id = emp.get("id")
+                if not emp_id:
+                    continue
+
+                # Default status to "active" if missing, skip inactive employees
+                emp_status = emp.get("status", "active")
+                if emp_status == "inactive":
+                    continue
+
+                employees_by_id[emp_id] = emp
+
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                break
+
+        # Load cycles to resolve human-friendly cycle names
+        cycles_table = await get_cycles_table()
+        cycles_by_year: Dict[str, str] = {}
+
+        last_evaluated_key = None
+        while True:
+            scan_kwargs = {}
+            if last_evaluated_key:
+                scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+            response = await cycles_table.scan(**scan_kwargs)
+            for item in response.get("Items", []):
+                cycle = _map_cycle(item)
+                cycles_by_year[cycle.year] = cycle.name or f"{cycle.year} Annual Performance Review"
+
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                break
+
+        # Load manager reviews for the given cycle from both submitted and draft tables
+        reviews_table = await get_reviews_table()
+        drafts_table = await get_review_drafts_table()
+
+        review_map: Dict[str, ReviewInDB] = {}
+        processed_statuses = {
+            "changes_requested",
+            "hr_approved",
+            "hr_rejected",
+            "approved",
+            "rejected",
+            "escalated",
+        }
+
+        tables_to_query: List[Tuple[Any, bool]] = [
+            (reviews_table, False),
+            (drafts_table, True),
+        ]
+
+        for table, is_draft_table in tables_to_query:
+            last_evaluated_key = None
+            while True:
+                scan_kwargs: Dict[str, Any] = {}
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+
+                # Filter only manager reviews for the requested cycle year
+                filter_expr = Attr("cycleYear").eq(cycleYear) & Attr("reviewType").eq("manager")
+                scan_kwargs["FilterExpression"] = filter_expr
+
+                response = await table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    review_obj = _map_review(item, is_draft=is_draft_table)
+                    review_id = review_obj.reviewId
+                    if not review_id:
+                        continue
+
+                    existing = review_map.get(review_id)
+                    if not existing:
+                        review_map[review_id] = review_obj
+                        continue
+
+                    existing_status = _get_review_status_value(existing).lower()
+                    new_status = _get_review_status_value(review_obj).lower()
+                    existing_is_processed = existing_status in processed_statuses
+                    new_is_processed = new_status in processed_statuses
+
+                    if new_is_processed and not existing_is_processed:
+                        review_map[review_id] = review_obj
+                    elif existing_is_processed and not new_is_processed:
+                        # keep existing
+                        pass
+                    else:
+                        # Same priority - keep the one with the most recent timestamp
+                        existing_ts = _parse_timestamp(existing.updatedAt or existing.createdAt)
+                        new_ts = _parse_timestamp(review_obj.updatedAt or review_obj.createdAt)
+                        if new_ts > existing_ts:
+                            review_map[review_id] = review_obj
+
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+
+        reviews = list(review_map.values())
+
+        # Build CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # CSV header
+        writer.writerow(
+            [
+                "cycleYear",
+                "cycleName",
+                "employee_id",  # Business employee ID from Zenith HR employees table
+                "employeeName",
+                "employeeEmail",
+                "employeeDepartment",
+                "employeePosition",
+                "managerId",
+                "managerSignOffStatus",
+                "managerOverallRating",
+                "submittedAt",
+                "rawStatus",
+            ]
+        )
+
+        # Helper to map review status to sign-off status
+        def map_signoff_status(review: ReviewInDB) -> str:
+            raw = _get_review_status_value(review).lower()
+            if raw in {"hr_approved", "approved"}:
+                return "approved"
+            if raw in {"hr_rejected", "rejected", "changes_requested"}:
+                return "rejected"
+            if raw == "escalated":
+                return "escalated"
+            if raw == "manager_submitted" or review.submittedAt:
+                return "pending"
+            return "pending"
+
+        for review in reviews:
+            emp = employees_by_id.get(review.employeeId, {})
+            manager = employees_by_id.get(review.reviewerId, {})
+
+            # Skip if employee is not in the active employees set (safety)
+            if not emp:
+                continue
+
+            cycle_name = cycles_by_year.get(
+                review.cycleYear,
+                f"{review.cycleYear} Annual Performance Review",
+            )
+
+            signoff_status = map_signoff_status(review)
+
+            # Extract overall rating from ratings/metadata
+            overall_rating = None
+            if review.ratings and isinstance(review.ratings, dict):
+                overall_rating = review.ratings.get("overall")
+            if overall_rating is None:
+                metadata = review.metadata or {}
+                final_rating = metadata.get("finalRating") or {}
+                overall_rating = final_rating.get("overallRating")
+
+            submitted_at = review.submittedAt or review.updatedAt or review.createdAt or ""
+
+            writer.writerow(
+                [
+                    review.cycleYear,
+                    cycle_name,
+                    emp.get("employee_id", ""),
+                    emp.get("name", ""),
+                    emp.get("email", ""),
+                    emp.get("department", ""),
+                    emp.get("position", ""),
+                    review.reviewerId,
+                    signoff_status,
+                    overall_rating if overall_rating is not None else "",
+                    submitted_at,
+                    _get_review_status_value(review),
+                ]
+            )
+
+        csv_data = output.getvalue()
+        filename = f"performance-dashboard-{cycleYear}.csv"
+
+        return Response(
+            content=csv_data,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            },
+        )
+    except Exception as exc:
+        logger.exception("Failed to export dashboard CSV")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to export dashboard CSV",
         ) from exc
 
 

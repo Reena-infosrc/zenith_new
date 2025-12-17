@@ -109,8 +109,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const canEditProfile = !isLoading && (isAdmin || (user?.email && employee?.email && user.email.toLowerCase() === employee.email.toLowerCase()));
   
   // Determine if user can edit basic information fields
-  // Only admins can edit basic information (Email, Phone, Department, etc.)
-  const canEditBasicInfo = isAdmin;
+  // When profile is editable (admin or self), allow all fields to be edited
+  const canEditBasicInfo = canEditProfile;
   
   // Debug logging - COMPREHENSIVE
   console.log('🔍 EmployeeProfile DEBUGGING:');
@@ -352,19 +352,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const handleSubmit = async () => {
     setIsUpdating(true);
     try {
-      // Validate inactive employee fields
-      if ((profileData.status !== undefined ? profileData.status : 'active') === 'inactive') {
-        if (!profileData.resignationDate || !profileData.reasonForResignation) {
-          toast({
-            title: "Missing required fields",
-            description: "Resignation date and reason are required for inactive employees.",
-            variant: "destructive"
-          });
-          setIsUpdating(false);
-          return;
-        }
-      }
-
       let photoUrl = profileData.photoUrl;
       
       // Upload photo if one is selected
@@ -401,6 +388,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       });
       
       const updatedEmployee = await updateEmployee(employee.id, {
+        employeeId: profileData.employeeId,
         name: toCamelCase(profileData.name),
         email: profileData.email,
         phone: profileData.phone,
@@ -700,15 +688,17 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Employee ID - Read Only */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Employee ID */}
                 <div className="space-y-2">
                   <Label htmlFor="employeeId">Employee ID</Label>
                   <Input 
                     id="employeeId"
+                    name="employeeId"
                     value={profileData.employeeId || ''} 
-                    disabled
-                    className="bg-muted"
+                    onChange={handleChange}
+                    disabled={!isEditing}
+                    className={!isEditing ? "bg-muted" : ""}
                   />
                 </div>
 
@@ -1054,11 +1044,11 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                   )}
                 </div>
 
-                {/* Resignation Date - Only show when inactive */}
+                {/* Resignation Date - Only show when inactive (optional for update) */}
                 {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
                   <div className="space-y-2">
                     <Label htmlFor="resignationDate">
-                      Resignation Date <span className="text-red-500">*</span>
+                      Resignation Date
                     </Label>
                     <Input 
                       id="resignationDate"
@@ -1068,16 +1058,15 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                       onChange={handleChange}
                       disabled={!isEditing}
                       className={!isEditing ? "bg-muted" : ""}
-                      required={(profileData.status !== undefined ? profileData.status : 'active') === 'inactive'}
                     />
                   </div>
                 )}
 
-                {/* Reason for Resignation - Only show when inactive */}
+                {/* Reason for Resignation - Only show when inactive (optional for update) */}
                 {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
                   <div className="space-y-2">
                     <Label htmlFor="reasonForResignation">
-                      Reason for Resignation <span className="text-red-500">*</span>
+                      Reason for Resignation
                     </Label>
                     <Textarea 
                       id="reasonForResignation"
@@ -1087,7 +1076,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                       disabled={!isEditing}
                       className={!isEditing ? "bg-muted" : ""}
                       placeholder="Enter reason for resignation..."
-                      required={(profileData.status !== undefined ? profileData.status : 'active') === 'inactive'}
                     />
                   </div>
                 )}

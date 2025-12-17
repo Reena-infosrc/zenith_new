@@ -746,10 +746,52 @@ async def update_employee(employee_id: str, employee_update: EmployeeUpdate, cur
     try:
         table = await get_employees_table()
         
-        # Get existing employee
+        # Get existing employee by primary key
         response = await table.get_item(Key={"id": employee_id})
+        
+        # If not found by ID, try to locate by business keys (employee_id or email)
         if "Item" not in response:
-            raise HTTPException(status_code=404, detail="Employee not found")
+            fallback_employee = None
+            
+            # Prefer lookup by employee_id when provided
+            if employee_update.employee_id:
+                try:
+                    scan_kwargs = {
+                        "FilterExpression": "employee_id = :emp_id",
+                        "ExpressionAttributeValues": {
+                            ":emp_id": employee_update.employee_id
+                        }
+                    }
+                    scan_response = await table.scan(**scan_kwargs)
+                    items = scan_response.get("Items", [])
+                    if items:
+                        fallback_employee = items[0]
+                        # Update employee_id to the real primary key from table
+                        employee_id = parse_dynamodb_item(fallback_employee).get("id", employee_id)
+                except Exception as e:
+                    print(f"DEBUG: Error scanning by employee_id in update_employee: {e}")
+            
+            # If still not found and email is provided, try lookup via EmailIndex
+            if not fallback_employee and employee_update.email:
+                try:
+                    email_normalized = employee_update.email.lower().strip()
+                    email_response = await table.query(
+                        IndexName="EmailIndex",
+                        KeyConditionExpression="email = :email",
+                        ExpressionAttributeValues={":email": email_normalized},
+                        Limit=1
+                    )
+                    items = email_response.get("Items", [])
+                    if items:
+                        fallback_employee = items[0]
+                        employee_id = parse_dynamodb_item(fallback_employee).get("id", employee_id)
+                except Exception as e:
+                    print(f"DEBUG: Error querying by email in update_employee: {e}")
+            
+            if fallback_employee:
+                response = {"Item": fallback_employee}
+            else:
+                raise HTTPException(status_code=404, detail="Employee not found")
         
         # Parse existing employee data
         existing_employee = parse_dynamodb_item(response["Item"])

@@ -91,6 +91,34 @@ class EmployeeUpdate(BaseModel):
     expertise: Optional[str] = None
     experience_years: Optional[int] = None
 
+    @validator(
+        "date_of_birth",
+        "date_of_joining",
+        "project_start_date",
+        "project_end_date",
+        "resignation_date",
+        pre=True,
+    )
+    def parse_optional_date(cls, v):
+        """
+        Allow empty strings or nulls for date fields and normalize valid strings to date objects.
+        This makes update APIs tolerant of "" from frontend forms and manual curl calls.
+        """
+        if v in (None, "", "null", "None"):
+            return None
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                # If a full datetime string is passed, keep only the date part
+                if "T" in v:
+                    v = v.split("T")[0]
+                return date.fromisoformat(v)
+            except Exception:
+                # Let Pydantic surface a clear error if format is invalid
+                raise ValueError("Invalid date format, expected YYYY-MM-DD")
+        return v
+
 class EmployeeInDB(EmployeeBase):
     id: str
     manager_name: Optional[str] = None
