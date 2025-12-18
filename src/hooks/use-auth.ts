@@ -42,29 +42,22 @@ export function useAuth() {
       const now = Date.now();
       
       if (cached && (now - cached.timestamp < CACHE_DURATION_MS)) {
-        console.log('📦 Using cached admin status for:', email);
         return cached.isAdmin;
       }
       
       // Check if there's already a pending request
       const pendingCheck = globalPendingChecks.get(email);
       if (pendingCheck) {
-        console.log('⏳ Waiting for pending admin check for:', email);
         return await pendingCheck;
       }
       
       // Make API call
-      console.log('🔍 Checking admin status for:', email);
-      console.log('🌐 API URL:', `${API_BASE_URL}/admin/check/${encodeURIComponent(email)}`);
-      
       const fetchPromise = (async () => {
         try {
           const response = await fetch(`${API_BASE_URL}/admin/check/${encodeURIComponent(email)}`);
-          console.log('📡 Response status:', response.status);
           
           if (response.ok) {
             const data = await response.json();
-            console.log('✅ Admin check result:', data);
             const isAdmin = data.is_admin || false;
             
             // Cache the result
@@ -75,7 +68,6 @@ export function useAuth() {
             
             return isAdmin;
           } else {
-            console.error('❌ Admin check failed:', response.status, response.statusText);
             const isAdmin = false;
             
             // Cache negative result
@@ -87,7 +79,6 @@ export function useAuth() {
             return isAdmin;
           }
         } catch (error) {
-          console.error('❌ Error checking admin status:', error);
           return false;
         } finally {
           // Remove from pending checks
@@ -100,18 +91,15 @@ export function useAuth() {
       
       return await fetchPromise;
     } catch (error) {
-      console.error('❌ Error in checkAdminStatus:', error);
       return false;
     }
   };
 
   // Function to update user admin status
   const updateAdminStatus = async (userEmail: string, userName: string) => {
-    console.log('🔄 Updating admin status for:', userEmail, userName);
     setIsLoading(true);
     try {
       const isAdmin = await checkAdminStatus(userEmail);
-      console.log('🎯 Final admin status:', isAdmin);
       
       setUser(prev => ({
         ...prev,
@@ -120,15 +108,8 @@ export function useAuth() {
         is_admin: isAdmin,
         role: isAdmin ? 'admin' : 'user'
       }));
-      
-      console.log('👤 User updated:', {
-        email: userEmail,
-        name: userName,
-        is_admin: isAdmin,
-        role: isAdmin ? 'admin' : 'user'
-      });
     } catch (error) {
-      console.error('❌ Error updating admin status:', error);
+      // Error updating admin status
     } finally {
       setIsLoading(false);
     }
@@ -136,24 +117,15 @@ export function useAuth() {
 
   // Update user info when MSAL account changes
   useEffect(() => {
-    console.log('🔐 MSAL accounts changed:', accounts);
-    
     if (accounts && accounts.length > 0) {
       const currentAccount = accounts[0];
       const userEmail = currentAccount.username || '';
       const userName = currentAccount.name || '';
       
-      console.log('👤 Current account:', {
-        email: userEmail,
-        name: userName,
-        account: currentAccount
-      });
-      
       if (userEmail) {
         updateAdminStatus(userEmail, userName);
       }
     } else {
-      console.log('🚫 No accounts logged in, resetting to default');
       // No account logged in, reset to default
       setUser({
         id: '1',

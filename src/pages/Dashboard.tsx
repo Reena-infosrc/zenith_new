@@ -173,18 +173,6 @@ export default function Dashboard() {
         }));
       }
       
-      // Debug: Log the received data structure
-      console.log('Dashboard data received:', {
-        total_employees: data.total_employees,
-        by_status: data.by_status,
-        by_account: data.by_account,
-        by_location: data.by_location,
-        by_employee_status: data.by_employee_status,
-        by_gender: data.by_gender,
-        hasEmployees: !!data.employees,
-        employeeCount: data.employees?.length || 0
-      });
-      
       setDashboardData(data);
       
       // Cache the data
@@ -200,12 +188,6 @@ export default function Dashboard() {
   const getLocationFilteredEmployees = (employees: Employee[]): Employee[] => {
     if (selectedLocation === "all") {
       return employees;
-    }
-    
-    // Debug: Log unique locations when filtering
-    if (selectedLocation !== "all" && employees.length > 0) {
-      const uniqueLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
-      console.log(`[Dashboard] Filtering by ${selectedLocation}. Available locations:`, uniqueLocations);
     }
     
     const filtered = employees.filter(emp => {
@@ -239,7 +221,6 @@ export default function Dashboard() {
       return true;
     });
     
-    console.log(`[Dashboard] Filtered ${filtered.length} employees for location: ${selectedLocation}`);
     return filtered;
   };
 

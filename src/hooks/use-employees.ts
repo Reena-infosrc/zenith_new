@@ -48,23 +48,10 @@ export function useEmployees() {
   const { toast } = useToast();
   const hasInitialized = useRef(false);
 
-  // Debug logging
-  console.log('useEmployees hook called:', {
-    globalEmployees: globalEmployees.length,
-    globalLoading,
-    globalError,
-    hasInitialized: hasInitialized.current
-  });
+  // Debug logging removed for security
 
   // Fetch all employees
   const fetchEmployees = async (sortBy?: string, sortOrder?: string) => {
-    console.log('fetchEmployees called:', {
-      globalLoading,
-      globalEmployeesLength: globalEmployees.length,
-      hasPromise: !!globalFetchPromise,
-      sortBy,
-      sortOrder
-    });
 
     // Create cache key that includes sorting parameters
     const cacheKey = sortBy ? `${CACHE_KEYS.EMPLOYEES}-${sortBy}-${sortOrder}` : CACHE_KEYS.EMPLOYEES;
@@ -72,29 +59,16 @@ export function useEmployees() {
     // Check cache first
     const cachedData = apiCache.get(cacheKey);
     if (cachedData) {
-      console.log('✅ Using cached employees data:', cachedData.length, 'employees', 'with sort:', sortBy, sortOrder);
-      console.log('🔍 Cached data sample:', cachedData[0] ? {
-        id: cachedData[0].id,
-        employeeId: cachedData[0].employeeId,
-        name: cachedData[0].name,
-        status: cachedData[0].status,
-        dateOfBirth: cachedData[0].dateOfBirth,
-        dateOfJoining: cachedData[0].dateOfJoining,
-        experienceYears: cachedData[0].experienceYears
-      } : null);
       globalEmployees = cachedData;
       globalError = null;
       setEmployees(cachedData);
       setIsLoading(false);
       setError(null);
       return;
-    } else {
-      console.log('❌ No cached employees data found for key:', cacheKey);
     }
 
     // If already loading, return the existing promise
     if (globalLoading && globalFetchPromise) {
-      console.log('Waiting for existing promise...');
       await globalFetchPromise;
       setEmployees(globalEmployees);
       setIsLoading(globalLoading);
@@ -104,7 +78,6 @@ export function useEmployees() {
 
     // If we already have data and not loading, just update local state
     if (globalEmployees.length > 0 && !globalLoading) {
-      console.log('Using cached data:', globalEmployees.length, 'employees');
       setEmployees(globalEmployees);
       setIsLoading(false);
       setError(null);
@@ -112,7 +85,6 @@ export function useEmployees() {
     }
 
     // Start loading
-    console.log('Starting fresh fetch...');
     globalLoading = true;
     setIsLoading(true);
     setError(null);
@@ -120,8 +92,6 @@ export function useEmployees() {
     // Create a promise for this fetch operation
     globalFetchPromise = (async () => {
       try {
-        console.log('Making API call to:', `${API_BASE_URL}/employees`);
-        
         // Get authentication token
         const token = localStorage.getItem('auth_token');
         const headers: HeadersInit = {
@@ -130,9 +100,6 @@ export function useEmployees() {
         
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
-          console.log("useEmployees - Authorization header set:", `Bearer ${token.substring(0, 20)}...`);
-        } else {
-          console.log("useEmployees - No token available");
         }
         
         // Build query parameters
@@ -147,16 +114,8 @@ export function useEmployees() {
         
         const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, { headers });
         
-        console.log('API response:', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok
-        });
-        
         if (!response.ok) {
-          console.error(`API error: ${response.status} ${response.statusText}`);
           // For now, use mock data when API fails
-          console.log("Using mock data due to API error");
           const mockEmployees = [
             { 
               id: "1", 
@@ -275,31 +234,16 @@ export function useEmployees() {
         }
         
         const data = await response.json();
-        console.log('API data received:', {
-          type: typeof data,
-          isArray: Array.isArray(data),
-          length: Array.isArray(data) ? data.length : 'not array'
-        });
         
         // Handle empty data case
         if (!data || !Array.isArray(data)) {
-          console.warn("API returned non-array data:", data);
           globalEmployees = [];
           globalError = null;
           return;
         }
       
         // Transform data to match our frontend model
-        console.log('🔄 Transforming data for', data.length, 'employees');
         const transformedData = data.map((emp: Record<string, unknown>) => {
-          console.log('🔍 Employee data transformation:', {
-            id: emp.id,
-            employee_id: emp.employee_id,
-            name: emp.name,
-            date_of_birth: emp.date_of_birth,
-            date_of_joining: emp.date_of_joining,
-            experience_years: emp.experience_years
-          });
           return {
             id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9),
             employeeId: emp.employee_id || "",
@@ -331,26 +275,13 @@ export function useEmployees() {
             reasonForResignation: emp.reason_for_resignation || ""
           };
         });
-        
-        console.log('🔍 Transformed data sample:', transformedData[0] ? {
-          id: transformedData[0].id,
-          employeeId: transformedData[0].employeeId,
-          name: transformedData[0].name,
-          status: transformedData[0].status,
-          employeeStatus: transformedData[0].employeeStatus,
-          dateOfBirth: transformedData[0].dateOfBirth,
-          dateOfJoining: transformedData[0].dateOfJoining,
-          experienceYears: transformedData[0].experienceYears
-        } : null);
       
       // Update global state
-      console.log('Updating global state with', transformedData.length, 'employees');
       globalEmployees = transformedData;
       globalError = null;
       
       // Cache the data with the appropriate key
       apiCache.set(cacheKey, transformedData);
-      console.log('✅ Cached employees data with key:', cacheKey);
       
       // Dispatch event to notify other components
       window.dispatchEvent(new CustomEvent('employeesUpdated'));
@@ -361,7 +292,6 @@ export function useEmployees() {
       
       // If it's a network error, use mock data
       if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
-        console.log("Network error detected, using mock data");
         const mockEmployees = [
           { 
             id: "1", 
@@ -467,7 +397,6 @@ export function useEmployees() {
       
       // Use mock data for development
       if (process.env.NODE_ENV === 'development') {
-        console.log("Using mock data for development");
         const mockEmployees = [
           { 
             id: "1", 
@@ -503,11 +432,6 @@ export function useEmployees() {
     await globalFetchPromise;
     
     // Update local state
-    console.log('Updating local state:', {
-      employees: globalEmployees.length,
-      loading: globalLoading,
-      error: globalError
-    });
     setEmployees(globalEmployees);
     setIsLoading(globalLoading);
     setError(globalError);
@@ -640,9 +564,6 @@ export function useEmployees() {
       
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
-        console.log("Update Employee - Authorization header set:", `Bearer ${token.substring(0, 20)}...`);
-      } else {
-        console.log("Update Employee - No token available");
       }
 
       const requestBody = {
@@ -673,13 +594,6 @@ export function useEmployees() {
           resignation_date: formattedData.resignation_date,
           reason_for_resignation: formattedData.reasonForResignation
       };
-      
-      console.log("🔍 Update Employee Request Body:", requestBody);
-      console.log("🔍 Status fields:", {
-        status: formattedData.status,
-        resignation_date: formattedData.resignation_date,
-        reason_for_resignation: formattedData.reasonForResignation
-      });
 
       const response = await fetch(`${API_BASE_URL}/employees/${id}`, {
         method: 'PUT',
@@ -722,15 +636,10 @@ export function useEmployees() {
       };
       
       // Update global state
-      console.log("🔄 Updating global employees state for employee:", id);
-      console.log("📊 Updated employee data:", updatedEmployee);
-      
       globalEmployees = globalEmployees.map(emp => 
         emp.id === id ? updatedEmployee : emp
       );
       setEmployees(globalEmployees);
-      
-      console.log("✅ Global state updated, total employees:", globalEmployees.length);
       
       // Dispatch event to notify other components
       window.dispatchEvent(new CustomEvent('employeesUpdated'));
@@ -793,16 +702,10 @@ export function useEmployees() {
       
       // Get authentication token
       const token = localStorage.getItem('auth_token');
-      console.log("CSV Import - Token from localStorage:", token ? token.substring(0, 20) + "..." : "No token found");
-      console.log("CSV Import - Full token length:", token ? token.length : 0);
-      console.log("CSV Import - Token starts with 'eyJ':", token ? token.startsWith('eyJ') : false);
       
       const headers: HeadersInit = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
-        console.log("CSV Import - Authorization header set:", `Bearer ${token.substring(0, 20)}...`);
-      } else {
-        console.log("CSV Import - No token available, request will fail");
       }
       
       const response = await fetch(`${API_BASE_URL}/employees/import-csv`, {  // Use the new CSV import endpoint
@@ -839,19 +742,10 @@ export function useEmployees() {
 
   // Load employees on component mount (only once globally)
   useEffect(() => {
-    console.log('useEffect triggered:', {
-      hasInitialized: hasInitialized.current,
-      globalEmployeesLength: globalEmployees.length,
-      globalLoading,
-      globalError
-    });
-    
     if (!hasInitialized.current) {
-      console.log('First time initialization, calling fetchEmployees');
       hasInitialized.current = true;
       fetchEmployees();
     } else {
-      console.log('Already initialized, syncing with global state');
       // If already initialized, just sync with global state
       setEmployees(globalEmployees);
       setIsLoading(globalLoading);
@@ -863,13 +757,6 @@ export function useEmployees() {
   // Use a custom event system to notify components of global state changes
   useEffect(() => {
     const handleGlobalStateChange = () => {
-      console.log('🔄 Global state changed, syncing local state:', {
-        globalEmployeesLength: globalEmployees.length,
-        localEmployeesLength: employees.length,
-        globalLoading,
-        globalError
-      });
-      
       setEmployees([...globalEmployees]); // Create new array to trigger re-render
       setIsLoading(globalLoading);
       setError(globalError);
@@ -886,14 +773,11 @@ export function useEmployees() {
   // Clear cache and force refresh
   const clearCache = () => {
     apiCache.clear();
-    console.log('🗑️ Cache cleared, forcing fresh data fetch');
   };
 
   // Bulk update employee names to camel case
   const bulkUpdateEmployeeNames = async () => {
     try {
-      console.log('🔄 Starting bulk update of employee names to camel case...');
-      
       const response = await fetch(`${API_BASE_URL}/employees/bulk-update-names`, {
         method: 'POST',
         headers: {
@@ -907,7 +791,6 @@ export function useEmployees() {
       }
 
       const result = await response.json();
-      console.log('✅ Bulk update completed:', result);
       
       // Clear cache and refresh data
       apiCache.clear();
@@ -915,7 +798,6 @@ export function useEmployees() {
       
       return result;
     } catch (error) {
-      console.error('❌ Error updating employee names:', error);
       throw error;
     }
   };

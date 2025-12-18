@@ -50,7 +50,6 @@ class EmployeeStatusesCache {
 
   private async fetchEmployeeStatusesFromAPI(): Promise<string[]> {
     try {
-      console.log('🔄 Fetching employee statuses from API...');
       const response = await authenticatedFetch(`${API_BASE_URL}/employees/employee-statuses`);
       
       if (!response.ok) {
@@ -58,7 +57,6 @@ class EmployeeStatusesCache {
       }
       
       const data: EmployeeStatusesResponse = await response.json();
-      console.log('✅ Employee statuses fetched successfully:', data.count, 'statuses');
       return data.employee_statuses || [];
       
     } catch (err) {
@@ -100,7 +98,6 @@ export function useEmployeeStatuses() {
 
     // Listen for cache invalidation events
     const handleCacheInvalidation = () => {
-      console.log('🔄 Employee statuses cache invalidated, refetching...');
       fetchEmployeeStatuses();
     };
 

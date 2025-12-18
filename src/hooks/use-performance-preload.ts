@@ -50,7 +50,6 @@ export function usePerformancePreload() {
       const cached = performanceCache.get(user.email);
       const now = Date.now();
       if (cached && (now - cached.timestamp < CACHE_DURATION_MS)) {
-        console.log('📦 Performance data already cached for:', user.email);
         hasPreloadedRef.current = true;
         return;
       }
@@ -58,14 +57,12 @@ export function usePerformancePreload() {
       // Check if preload is already in progress
       const existingPreload = preloadPromises.get(user.email);
       if (existingPreload) {
-        console.log('⏳ Performance preload already in progress for:', user.email);
         await existingPreload;
         hasPreloadedRef.current = true;
         return;
       }
 
       // Start preloading
-      console.log('🚀 Starting performance data preload for:', user.email);
       hasPreloadedRef.current = true;
 
       const preloadPromise = (async () => {
@@ -73,7 +70,6 @@ export function usePerformancePreload() {
           // Find employee
           const employee = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
           if (!employee) {
-            console.log('⚠️ Employee not found for preload');
             return;
           }
 
@@ -130,7 +126,6 @@ export function usePerformancePreload() {
           // If manager, preload ALL team data (not just first 5)
           let managerData = undefined;
           if (viewMode === 'manager') {
-            console.log('🚀 Preloading manager data...');
             // Only include active employees as direct reports
             const directReports = employees.filter(emp => {
               const empStatus = (emp as any).status ?? 'active';
@@ -142,7 +137,6 @@ export function usePerformancePreload() {
               const employeeIdsParam = teamEmployeeIds.join(',');
               
               // Preload ALL team member goals in parallel
-              console.log(`📦 Preloading goals for ${directReports.length} team members...`);
               const teamGoalsPromises = directReports.map(async (report) => {
                 try {
                   const apiGoals = await getEmployeeGoals(report.id);
@@ -154,7 +148,6 @@ export function usePerformancePreload() {
               });
               
               // Preload batch reviews for all team members in parallel
-              console.log(`📦 Preloading reviews for ${directReports.length} team members...`);
               const [teamGoalsResults, managerSubmittedRes, managerDraftRes, selfSubmittedRes, selfDraftRes] = await Promise.allSettled([
                 Promise.all(teamGoalsPromises),
                 authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=false&includeInactive=true`)
@@ -188,13 +181,6 @@ export function usePerformancePreload() {
                   selfDraft: selfDraftRes.status === 'fulfilled' ? selfDraftRes.value : []
                 }
               };
-              
-              console.log('✅ Manager data preloaded:', {
-                teamMembers: directReports.length,
-                teamGoals: Array.from(teamGoalsMap.values()).flat().length,
-                managerReviews: managerData.teamReviews.managerSubmitted.length + managerData.teamReviews.managerDraft.length,
-                selfReviews: managerData.teamReviews.selfSubmitted.length + managerData.teamReviews.selfDraft.length
-              });
             }
           }
 
@@ -208,16 +194,7 @@ export function usePerformancePreload() {
             managerData,
             timestamp: Date.now()
           });
-
-          console.log('✅ Performance data preloaded successfully:', {
-            goals: goals.length,
-            reviews: reviews.length,
-            cycles: cycles.length,
-            viewMode,
-            hasManagerData: !!managerData
-          });
         } catch (error) {
-          console.error('❌ Error during performance preload:', error);
         } finally {
           preloadPromises.delete(user.email);
         }
@@ -299,14 +276,12 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
   const cached = performanceCache.get(userEmail);
   const now = Date.now();
   if (cached && (now - cached.timestamp < CACHE_DURATION_MS)) {
-    console.log('📦 Performance data already cached');
     return Promise.resolve();
   }
 
   // Check if already in progress
   const existingPreload = preloadPromises.get(userEmail);
   if (existingPreload) {
-    console.log('⏳ Performance preload already in progress');
     return existingPreload;
   }
 
@@ -315,7 +290,6 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
     try {
       const employee = employees.find(emp => emp.email?.toLowerCase() === userEmail.toLowerCase());
       if (!employee) {
-        console.log('⚠️ Employee not found for preload');
         return;
       }
 
@@ -330,7 +304,7 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
           viewMode = data.view_mode || 'user';
         }
       } catch (error) {
-        console.error('Error checking view mode during preload:', error);
+        // Error checking view mode
       }
 
       // Preload essential data
@@ -352,10 +326,7 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
         viewMode,
         timestamp: Date.now()
       });
-
-      console.log('✅ Performance data preloaded successfully');
     } catch (error) {
-      console.error('❌ Error during performance preload:', error);
     } finally {
       preloadPromises.delete(userEmail);
     }

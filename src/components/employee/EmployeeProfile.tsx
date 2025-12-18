@@ -112,50 +112,11 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   // When profile is editable (admin or self), allow all fields to be edited
   const canEditBasicInfo = canEditProfile;
   
-  // Debug logging - COMPREHENSIVE
-  console.log('🔍 EmployeeProfile DEBUGGING:');
-  console.log('🔐 Permission check:', {
-    isAdmin,
-    userEmail: user?.email,
-    employeeEmail: employee?.email,
-    canEditProfile
-  });
-  console.log('📥 Received employee prop:', {
-    id: employee.id,
-    employeeId: employee.employeeId,
-    name: employee.name,
-    status: employee.status,
-    employeeStatus: employee.employeeStatus,
-    dateOfBirth: employee.dateOfBirth,
-    dateOfJoining: employee.dateOfJoining,
-    experienceYears: employee.experienceYears,
-    email: employee.email,
-    phone: employee.phone
-  });
-  console.log('📊 Current profileData status:', profileData.status);
-  console.log('🎯 Status display logic result:', (profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive');
-  
-  console.log('📊 ProfileData state:', {
-    id: profileData.id,
-    employeeId: profileData.employeeId,
-    name: profileData.name,
-    status: profileData.status,
-    employeeStatus: profileData.employeeStatus,
-    dateOfBirth: profileData.dateOfBirth,
-    dateOfJoining: profileData.dateOfJoining,
-    experienceYears: profileData.experienceYears,
-    email: profileData.email,
-    phone: profileData.phone
-  });
+  // Debug logging removed for security
 
   // Update profileData when employee prop changes
   useEffect(() => {
     if (!employee) return;
-    console.log('🔄 useEffect [employee] - Updating profileData with employee:', {
-      id: employee.id,
-      name: employee.name,
-      status: employee.status
-    });
     setProfileData(prev => ({
       ...employee,
       // Only update photoUrl if it hasn't been explicitly cleared by the user
@@ -172,11 +133,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     if (!employee) return;
     const updatedEmployee = employees.find(emp => emp.id === employee.id);
     if (updatedEmployee) {
-      console.log('🔄 useEffect [employees] - Found updated employee:', {
-        id: updatedEmployee.id,
-        name: updatedEmployee.name,
-        status: updatedEmployee.status
-      });
       setProfileData(prev => ({
         ...updatedEmployee,
         // Only update photoUrl if it hasn't been explicitly cleared by the user
@@ -270,7 +226,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       const previewUrl = URL.createObjectURL(file);
       setPhotoPreview(previewUrl);
       setShowCropModal(true);
-      console.log("Photo file selected:", file.name, file.size, "bytes");
     }
   };
 
@@ -356,7 +311,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       
       // Upload photo if one is selected
       if (photo) {
-        console.log("Uploading photo before updating employee...");
         const formData = new FormData();
         formData.append('file', photo);
         formData.append('name', employee.name);
@@ -372,7 +326,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         }
         
         const data = await response.json();
-        console.log("Photo uploaded successfully:", data.photo_url);
         photoUrl = data.photo_url;
         
         // Clear the photo state since it's now uploaded
@@ -380,13 +333,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       }
       
       // Update employee with all data including new photo URL
-      console.log("🔍 Profile data before update:", profileData);
-      console.log("🔍 Status fields being sent:", {
-        status: profileData.status !== undefined ? profileData.status : 'active',
-        resignationDate: profileData.resignationDate,
-        reasonForResignation: profileData.reasonForResignation
-      });
-      
       const updatedEmployee = await updateEmployee(employee.id, {
         employeeId: profileData.employeeId,
         name: toCamelCase(profileData.name),
@@ -414,8 +360,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       });
       
       if (updatedEmployee) {
-        console.log("✅ Employee update successful:", updatedEmployee);
-        
         // Update local state with the complete updated employee data
         setProfileData(prev => {
           const newData = {
@@ -423,7 +367,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
             ...updatedEmployee,
             photoUrl: photoUrl
           };
-          console.log("🔄 Updating profileData from:", prev, "to:", newData);
           return newData;
         });
         
@@ -431,7 +374,6 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         setSkillsInput(updatedEmployee.skills ? updatedEmployee.skills.join(', ') : '');
         
         // Force refresh the global employees list to ensure Directory gets updated
-        console.log("🔄 Refreshing global employees list...");
         await fetchEmployees();
         
         setIsEditing(false);
@@ -439,11 +381,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
           title: "Success",
           description: "Profile updated successfully",
         });
-      } else {
-        console.warn("⚠️ Employee update returned null/undefined");
       }
     } catch (error) {
-      console.error('Error updating profile:', error);
       toast({
         title: "Error",
         description: "Failed to update profile",

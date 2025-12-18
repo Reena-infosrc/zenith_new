@@ -18,7 +18,6 @@ export function isTokenExpired(token: string): boolean {
     const currentTime = Math.floor(Date.now() / 1000);
     return payload.exp < currentTime;
   } catch (error) {
-    console.error('Error checking token expiration:', error);
     return true; // Assume expired if we can't parse
   }
 }
@@ -30,11 +29,9 @@ export async function refreshAccessToken(): Promise<string | null> {
   try {
     const currentToken = localStorage.getItem('auth_token');
     if (!currentToken) {
-      console.error('❌ No token found in localStorage for refresh');
       return null;
     }
 
-    console.log('🔄 Attempting token refresh...');
     const response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
       method: 'POST',
       headers: {
@@ -43,11 +40,8 @@ export async function refreshAccessToken(): Promise<string | null> {
       },
     });
 
-    console.log('📡 Refresh response status:', response.status);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Token refresh failed:', response.status, response.statusText, errorText);
       // If credentials are invalid (401/403), clear token and force logout
       if (response.status === 401 || response.status === 403) {
         try {
@@ -65,10 +59,8 @@ export async function refreshAccessToken(): Promise<string | null> {
 
     const tokenData: TokenResponse = await response.json();
     localStorage.setItem('auth_token', tokenData.access_token);
-    console.log('✅ Token refreshed successfully');
     return tokenData.access_token;
   } catch (error) {
-    console.error('❌ Error refreshing token:', error);
     return null;
   }
 }
@@ -99,7 +91,6 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
   const token = await getValidToken();
   
   if (!token) {
-    console.error('❌ No valid authentication token available');
     throw new Error('No valid authentication token available');
   }
 
@@ -115,11 +106,9 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
 
   // If we get a 401, try refreshing the token once
   if (response.status === 401) {
-    console.log('🔐 Got 401, attempting token refresh...');
     const newToken = await refreshAccessToken();
     
     if (newToken) {
-      console.log('✅ Token refreshed, retrying request');
       // Retry the request with the new token
       const retryHeaders = {
         ...options.headers,
@@ -130,8 +119,6 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
         ...options,
         headers: retryHeaders,
       });
-    } else {
-      console.error('❌ Token refresh failed, request will fail');
     }
   }
 

@@ -266,6 +266,7 @@ export function ManagerPerformanceView() {
   const { toast } = useToast();
   const { getEmployeeGoals, getGoal, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
   const { employees } = useEmployees();
+  const { getCachedData } = usePerformancePreload();
   
   const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -910,20 +911,7 @@ export function ManagerPerformanceView() {
         // Combine manager reviews and deduplicate (prioritize processed statuses)
         const allManagerReviews = [...managerSubmitted, ...managerDraft];
         
-        // Debug: Log all manager reviews before deduplication
-        console.log('[ManagerPerformanceView] All manager reviews before deduplication:', {
-          submitted: managerSubmitted.length,
-          draft: managerDraft.length,
-          total: allManagerReviews.length,
-          reviews: allManagerReviews.map((r: any) => ({
-            reviewId: r.reviewId,
-            employeeId: r.employeeId,
-            status: getReviewStatus(r),
-            isDraft: r.isDraft,
-            submittedAt: r.submittedAt,
-            updatedAt: r.updatedAt
-          }))
-        });
+        // Debug logging removed for security
         
         // Group by employeeId first, then deduplicate by reviewId within each employee
         const managerReviewsByEmployee = new Map<string, Map<string, any>>();
@@ -981,18 +969,7 @@ export function ManagerPerformanceView() {
           }
         }
         
-        // Debug: Log manager reviews after deduplication
-        console.log('[ManagerPerformanceView] Manager reviews after deduplication:', {
-          total: managerReviews.length,
-          reviews: managerReviews.map((r: any) => ({
-            reviewId: r.reviewId,
-            employeeId: r.employeeId,
-            status: getReviewStatus(r),
-            isDraft: r.isDraft,
-            submittedAt: r.submittedAt,
-            updatedAt: r.updatedAt
-          }))
-        });
+        // Debug logging removed for security
         
         // Combine self reviews
         const selfReviews = [...selfSubmitted, ...selfDraft];
@@ -1233,7 +1210,7 @@ export function ManagerPerformanceView() {
     if (!initialLoading) {
       fetchCycles();
     }
-  }, [initialLoading]);
+  }, [initialLoading, user?.email, getCachedData]);
 
   const filteredReports = directReports.filter(emp => {
     const matchesSearch =

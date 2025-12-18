@@ -103,12 +103,9 @@ export default function Login() {
         // Store the backend token instead of MSAL token
         localStorage.setItem('auth_token', tokenData.access_token);
         
-        // Verify the token was stored correctly
-        const storedToken = localStorage.getItem('auth_token');
-        console.log('✅ Backend token stored successfully');
+        // Token stored successfully
       } else {
         const errorText = await backendRes.text();
-        console.error("❌ Failed to get backend token:", backendRes.status, errorText);
         // Clear any old tokens
         localStorage.removeItem('auth_token');
         setIsProcessingLogin(false);
@@ -116,7 +113,6 @@ export default function Login() {
         return;
       }
     } catch (error) {
-      console.error("❌ Error exchanging MSAL token:", error);
       // Clear any old tokens
       localStorage.removeItem('auth_token');
       setIsProcessingLogin(false);
@@ -168,17 +164,6 @@ export default function Login() {
           .then(async response => {
             if (response.ok) {
               const data = await response.json();
-              console.log("🔍 Pre-fetch Employees API response:", {
-                length: data.length,
-                firstEmployee: data[0] ? {
-                  id: data[0].id,
-                  employee_id: data[0].employee_id,
-                  name: data[0].name,
-                  date_of_birth: data[0].date_of_birth,
-                  date_of_joining: data[0].date_of_joining,
-                  experience_years: data[0].experience_years
-                } : null
-              });
               
               // Transform the data the same way useEmployees does
               const transformedData = data.map((emp: Record<string, unknown>) => ({
@@ -203,18 +188,6 @@ export default function Login() {
                 dateOfJoining: emp.date_of_joining || "",
                 gender: emp.gender || ""
               }));
-              
-              console.log("🔍 Transformed Employees data:", {
-                                length: transformedData.length,
-                firstEmployee: transformedData[0] ? {
-                  id: transformedData[0].id,
-                  employeeId: transformedData[0].employeeId,
-                  name: transformedData[0].name,
-                  dateOfBirth: transformedData[0].dateOfBirth,
-                  dateOfJoining: transformedData[0].dateOfJoining,
-                  experienceYears: transformedData[0].experienceYears
-                } : null
-              });
               
               // Cache the transformed data
               apiCache.set(CACHE_KEYS.EMPLOYEES, transformedData, 5 * 60 * 1000);
@@ -250,11 +223,6 @@ export default function Login() {
       // Wait for all API calls to complete (or fail gracefully)
       try {
         const results = await Promise.allSettled(apiCalls);
-        console.log("🚀 Pre-fetch API Results:", {
-                    featureFlags: results[0].status === 'fulfilled' ? '✅' : '❌',
-          employees: results[1].status === 'fulfilled' ? '✅' : '❌',
-          dashboard: results[2].status === 'fulfilled' ? '✅' : '❌'
-        });
         
         // Trigger event to notify FeatureFlagsContext that cache has been updated
         if (results[0].status === 'fulfilled' && results[0].value) {
@@ -346,7 +314,6 @@ export default function Login() {
         await completeLoginWithToken(result.accessToken);
       } catch (silentErr) {
         // If silent fails, let user click button again
-        console.warn("Silent token acquisition failed:", silentErr);
         setIsLoading(false);
         setIsProcessingLogin(false);
       }
@@ -355,21 +322,7 @@ export default function Login() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accounts?.[0]?.homeAccountId]);
 
-  // Add storage event listener to track auth_token changes
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'auth_token') {
-        console.log("🔑 Auth token changed:", {
-        oldValue: e.oldValue ? e.oldValue.substring(0, 20) + "..." : null,
-          newValue: e.newValue ? e.newValue.substring(0, 20) + "..." : null,
-          url: e.url
-        });
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+  // Storage event listener removed for security
 
   // Animation elements for the background
   const circles = Array.from({ length: 6 }, (_, i) => i);

@@ -54,7 +54,8 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [
-    react()  ].filter(Boolean),
+    react()
+  ].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
@@ -64,5 +65,16 @@ export default defineConfig(({ mode }) => ({
     __APP_VERSION__: JSON.stringify(packageJson.version),
     __GIT_COMMIT__: JSON.stringify(gitCommitHash),
     __BUILD_DATE__: JSON.stringify(gitCommitDate),
+  },
+  build: {
+    minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks: undefined,
+      },
+    },
+  },
+  esbuild: {
+    drop: mode === 'production' ? ['console', 'debugger'] : [],
   },
 }));

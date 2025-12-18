@@ -50,7 +50,6 @@ class ClientsCache {
 
   private async fetchClientsFromAPI(): Promise<string[]> {
     try {
-      console.log('🔄 Fetching clients from API...');
       const response = await authenticatedFetch(`${API_BASE_URL}/employees/clients`);
       
       if (!response.ok) {
@@ -58,7 +57,6 @@ class ClientsCache {
       }
       
       const data: ClientsResponse = await response.json();
-      console.log('✅ Clients fetched successfully:', data.count, 'clients');
       return data.clients || [];
       
     } catch (err) {
@@ -100,7 +98,6 @@ export function useClients() {
 
     // Listen for cache invalidation events
     const handleCacheInvalidation = () => {
-      console.log('🔄 Clients cache invalidated, refetching...');
       fetchClients();
     };
 
