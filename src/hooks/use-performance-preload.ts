@@ -271,6 +271,7 @@ export function getCachedManagerData(email: string) {
 }
 
 // Export function to manually trigger preload (can be called after login)
+// OPTIMIZED: Now preloads full manager data if user is a manager
 export function triggerPerformancePreload(userEmail: string, employees: any[], getEmployeeGoals: (id: string) => Promise<any[]>) {
   // Check if already cached
   const cached = performanceCache.get(userEmail);
@@ -295,7 +296,7 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
 
       const employeeId = employee.id;
 
-      // Determine view mode
+      // Determine view mode (ONLY API CALL - this is necessary to know if we need manager data)
       let viewMode: 'user' | 'manager' | 'admin' | null = 'user';
       try {
         const response = await authenticatedFetch(`${API_BASE_URL}/employees/check-team-members`);
@@ -304,10 +305,10 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
           viewMode = data.view_mode || 'user';
         }
       } catch (error) {
-        // Error checking view mode
+        console.error('Error checking view mode during preload:', error);
       }
 
-      // Preload essential data
+      // Preload essential data (always needed)
       const [goals, reviewsResponse, cyclesResponse] = await Promise.allSettled([
         getEmployeeGoals(employeeId),
         authenticatedFetch(`${API_BASE_URL}/reviews?employeeId=${employeeId}`).then(res => res.ok ? res.json() : []),
@@ -318,15 +319,79 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
       const reviewsData = reviewsResponse.status === 'fulfilled' ? reviewsResponse.value : [];
       const cyclesData = cyclesResponse.status === 'fulfilled' ? cyclesResponse.value : [];
 
+      // If manager, preload ALL team data (same as usePerformancePreload hook)
+      let managerData = undefined;
+      if (viewMode === 'manager') {
+        // Only include active employees as direct reports
+        const directReports = employees.filter(emp => {
+          const empStatus = (emp as any).status ?? 'active';
+          return emp.reporting_to === employeeId && empStatus !== 'inactive';
+        });
+        
+        if (directReports.length > 0) {
+          const teamEmployeeIds = directReports.map(r => r.id);
+          const employeeIdsParam = teamEmployeeIds.join(',');
+          
+          // Preload ALL team member goals in parallel
+          const teamGoalsPromises = directReports.map(async (report) => {
+            try {
+              const apiGoals = await getEmployeeGoals(report.id);
+              return { employeeId: report.id, goals: apiGoals };
+            } catch (err) {
+              console.error(`Error preloading goals for ${report.id}:`, err);
+              return { employeeId: report.id, goals: [] };
+            }
+          });
+          
+          // Preload batch reviews for all team members in parallel
+          const [teamGoalsResults, managerSubmittedRes, managerDraftRes, selfSubmittedRes, selfDraftRes] = await Promise.allSettled([
+            Promise.all(teamGoalsPromises),
+            authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=false&includeInactive=true`)
+              .then(res => res.ok ? res.json() : []),
+            authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=true&includeInactive=true`)
+              .then(res => res.ok ? res.json() : []),
+            authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=false`)
+              .then(res => res.ok ? res.json() : []),
+            authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=true`)
+              .then(res => res.ok ? res.json() : [])
+          ]);
+          
+          // Build team goals map
+          const teamGoalsMap = new Map<string, any[]>();
+          if (teamGoalsResults.status === 'fulfilled') {
+            teamGoalsResults.value.forEach(({ employeeId, goals }) => {
+              teamGoalsMap.set(employeeId, goals);
+            });
+          }
+          
+          managerData = {
+            directReports: directReports.map(r => ({
+              ...r,
+              reviewStatus: 'not_started' as const
+            })),
+            teamGoals: teamGoalsMap,
+            teamReviews: {
+              managerSubmitted: managerSubmittedRes.status === 'fulfilled' ? managerSubmittedRes.value : [],
+              managerDraft: managerDraftRes.status === 'fulfilled' ? managerDraftRes.value : [],
+              selfSubmitted: selfSubmittedRes.status === 'fulfilled' ? selfSubmittedRes.value : [],
+              selfDraft: selfDraftRes.status === 'fulfilled' ? selfDraftRes.value : []
+            }
+          };
+        }
+      }
+
+      // Store in cache with full manager data
       performanceCache.set(userEmail, {
         employeeId,
         goals: Array.isArray(goalsData) ? goalsData : [],
         reviews: Array.isArray(reviewsData) ? reviewsData : [],
         cycles: Array.isArray(cyclesData) ? cyclesData : [],
         viewMode,
+        managerData,
         timestamp: Date.now()
       });
     } catch (error) {
+      console.error('Error in triggerPerformancePreload:', error);
     } finally {
       preloadPromises.delete(userEmail);
     }

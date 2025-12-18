@@ -68,7 +68,8 @@ class DynamoDBService:
                     {"AttributeName": "position", "AttributeType": "S"},
                     {"AttributeName": "gender", "AttributeType": "S"},
                     {"AttributeName": "account", "AttributeType": "S"},
-                    {"AttributeName": "created_at", "AttributeType": "S"}
+                    {"AttributeName": "created_at", "AttributeType": "S"},
+                    {"AttributeName": "reporting_to", "AttributeType": "S"}
                 ],
                 "GlobalSecondaryIndexes": [
                     {
@@ -150,6 +151,14 @@ class DynamoDBService:
                         ],
                         "Projection": {"ProjectionType": "ALL"},
                         "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "ReportingToIndex",
+                        "KeySchema": [
+                            {"AttributeName": "reporting_to", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 10, "WriteCapacityUnits": 5}
                     }
                 ],
                 "ProvisionedThroughput": {"ReadCapacityUnits": 20, "WriteCapacityUnits": 10}
@@ -189,7 +198,7 @@ class DynamoDBService:
                             {"AttributeName": "employeeId", "KeyType": "HASH"}
                         ],
                         "Projection": {"ProjectionType": "ALL"},
-                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 10, "WriteCapacityUnits": 5}
                     }
                 ],
                 "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
@@ -329,7 +338,8 @@ class DynamoDBService:
                     {"AttributeName": "sk", "AttributeType": "S"},
                     {"AttributeName": "reviewId", "AttributeType": "S"},
                     {"AttributeName": "employeeId", "AttributeType": "S"},
-                    {"AttributeName": "reviewerId", "AttributeType": "S"}
+                    {"AttributeName": "reviewerId", "AttributeType": "S"},
+                    {"AttributeName": "reviewType", "AttributeType": "S"}
                 ],
                 "GlobalSecondaryIndexes": [
                     {
@@ -346,7 +356,7 @@ class DynamoDBService:
                             {"AttributeName": "employeeId", "KeyType": "HASH"}
                         ],
                         "Projection": {"ProjectionType": "ALL"},
-                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 10, "WriteCapacityUnits": 5}
                     },
                     {
                         "IndexName": "ReviewerIndex",
@@ -355,6 +365,14 @@ class DynamoDBService:
                         ],
                         "Projection": {"ProjectionType": "ALL"},
                         "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "ReviewTypeIndex",
+                        "KeySchema": [
+                            {"AttributeName": "reviewType", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 10, "WriteCapacityUnits": 5}
                     }
                 ],
                 "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
@@ -369,7 +387,8 @@ class DynamoDBService:
                     {"AttributeName": "sk", "AttributeType": "S"},
                     {"AttributeName": "reviewId", "AttributeType": "S"},
                     {"AttributeName": "employeeId", "AttributeType": "S"},
-                    {"AttributeName": "reviewerId", "AttributeType": "S"}
+                    {"AttributeName": "reviewerId", "AttributeType": "S"},
+                    {"AttributeName": "reviewType", "AttributeType": "S"}
                 ],
                 "GlobalSecondaryIndexes": [
                     {
@@ -386,7 +405,7 @@ class DynamoDBService:
                             {"AttributeName": "employeeId", "KeyType": "HASH"}
                         ],
                         "Projection": {"ProjectionType": "ALL"},
-                        "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 10, "WriteCapacityUnits": 5}
                     },
                     {
                         "IndexName": "ReviewerIndex",
@@ -395,6 +414,14 @@ class DynamoDBService:
                         ],
                         "Projection": {"ProjectionType": "ALL"},
                         "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+                    },
+                    {
+                        "IndexName": "ReviewTypeIndex",
+                        "KeySchema": [
+                            {"AttributeName": "reviewType", "KeyType": "HASH"}
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {"ReadCapacityUnits": 10, "WriteCapacityUnits": 5}
                     }
                 ],
                 "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}

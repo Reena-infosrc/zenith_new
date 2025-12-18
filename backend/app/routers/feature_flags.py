@@ -5,6 +5,7 @@ from ..database_dynamodb import get_feature_flags_table, parse_dynamodb_item
 from ..security import get_current_active_user
 import uuid
 from datetime import datetime
+import time
 
 router = APIRouter(
     prefix="/api/feature-flags",
@@ -12,10 +13,29 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+# In-memory cache for feature flags (TTL: 5 minutes)
+_feature_flags_cache = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 300  # 5 minutes
+}
+
+_feature_flags_status_cache = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 300  # 5 minutes
+}
+
 @router.get("/", response_model=List[FeatureFlagInDB])
 async def get_all_feature_flags(current_user: dict = Depends(get_current_active_user)):
-    """Get all feature flags"""
+    """Get all feature flags (cached for 5 minutes)"""
     try:
+        # Check cache first
+        current_time = time.time()
+        if (_feature_flags_cache["data"] is not None and 
+            current_time - _feature_flags_cache["timestamp"] < _feature_flags_cache["ttl"]):
+            return _feature_flags_cache["data"]
+        
         table = await get_feature_flags_table()
         response = await table.scan()
         
@@ -23,6 +43,10 @@ async def get_all_feature_flags(current_user: dict = Depends(get_current_active_
         for item in response.get('Items', []):
             parsed_item = parse_dynamodb_item(item)
             feature_flags.append(FeatureFlagInDB(**parsed_item))
+        
+        # Update cache
+        _feature_flags_cache["data"] = feature_flags
+        _feature_flags_cache["timestamp"] = current_time
         
         return feature_flags
     except Exception as e:
@@ -83,8 +107,14 @@ async def get_feature_flags_by_module(module: str, current_user: dict = Depends(
 
 @router.get("/status", response_model=Dict[str, str])
 async def get_feature_flag_status(current_user: dict = Depends(get_current_active_user)):
-    """Get all feature flags as a simple status map"""
+    """Get all feature flags as a simple status map (cached for 5 minutes)"""
     try:
+        # Check cache first
+        current_time = time.time()
+        if (_feature_flags_status_cache["data"] is not None and 
+            current_time - _feature_flags_status_cache["timestamp"] < _feature_flags_status_cache["ttl"]):
+            return _feature_flags_status_cache["data"]
+        
         table = await get_feature_flags_table()
         response = await table.scan()
         
@@ -92,6 +122,10 @@ async def get_feature_flag_status(current_user: dict = Depends(get_current_activ
         for item in response.get('Items', []):
             parsed_item = parse_dynamodb_item(item)
             status_map[parsed_item['name']] = parsed_item['status']
+        
+        # Update cache
+        _feature_flags_status_cache["data"] = status_map
+        _feature_flags_status_cache["timestamp"] = current_time
         
         return status_map
     except Exception as e:
@@ -147,6 +181,10 @@ async def create_feature_flag(feature_flag: FeatureFlagCreate, current_user: dic
         }
         
         await table.put_item(Item=item)
+        
+        # Invalidate cache
+        _feature_flags_cache["data"] = None
+        _feature_flags_status_cache["data"] = None
         
         return FeatureFlagInDB(**item)
     except Exception as e:
@@ -212,6 +250,10 @@ async def update_feature_flag(flag_id: str, feature_flag_update: FeatureFlagUpda
         
         await table.update_item(**update_kwargs)
         
+        # Invalidate cache
+        _feature_flags_cache["data"] = None
+        _feature_flags_status_cache["data"] = None
+        
         # Return updated item
         updated_item = {**existing_item, **update_data}
         return FeatureFlagInDB(**updated_item)
@@ -236,6 +278,10 @@ async def delete_feature_flag(flag_id: str, current_user: dict = Depends(get_cur
             raise HTTPException(status_code=404, detail="Feature flag not found")
         
         await table.delete_item(Key={'id': flag_id})
+        
+        # Invalidate cache
+        _feature_flags_cache["data"] = None
+        _feature_flags_status_cache["data"] = None
         
         return {"message": "Feature flag deleted successfully"}
     except HTTPException:

@@ -308,8 +308,16 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     }
   }, [providedEmployeeId, user?.email, employees]);
 
+  // Track if goals have been loaded to prevent re-fetching on navigation
+  const goalsLoadedRef = useRef<string | null>(null);
+
   // Fetch goals when employee ID is available - check cache first
   useEffect(() => {
+    // Skip if already loaded for this employee
+    if (goalsLoadedRef.current === currentEmployeeId) {
+      return;
+    }
+    
     const fetchGoals = async () => {
       if (!currentEmployeeId || !user?.email) return;
 
@@ -319,7 +327,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
         // Check cache first
         const cached = getCachedData(user.email);
         if (cached && cached.employeeId === currentEmployeeId && cached.goals.length > 0) {
-          console.log('📦 Using cached goals data');
+          console.log('📦 Using cached goals data - NO API CALL');
           const convertedGoals = cached.goals.map(convertGoalToPerformanceGoal);
           // Only update state if goals have actually changed
           setGoals(prevGoals => {
@@ -329,16 +337,19 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           });
           refreshGoalPanelState(convertedGoals);
           setLoading(false);
+          goalsLoadedRef.current = currentEmployeeId;
           return;
         }
 
-        // Fetch from API if not cached
+        // Fetch from API if not cached (only once per employee)
+        goalsLoadedRef.current = currentEmployeeId;
         const apiGoals = await getEmployeeGoals(currentEmployeeId);
         const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
         setGoals(convertedGoals);
         refreshGoalPanelState(convertedGoals);
       } catch (error) {
         console.error("Error fetching goals:", error);
+        goalsLoadedRef.current = null; // Allow retry on error
         toast({
           title: "Error",
           description: "Failed to load goals",
@@ -354,8 +365,16 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     }
   }, [currentEmployeeId, getEmployeeGoals, toast, refreshGoalPanelState, user?.email, getCachedData]);
 
+  // Track if reviews have been loaded to prevent re-fetching on navigation
+  const reviewsLoadedRef = useRef<string | null>(null);
+
   // Fetch reviews for Annual Reviews section - check cache first
   const fetchReviews = useCallback(async () => {
+      // Skip if already loaded for this employee
+      if (reviewsLoadedRef.current === currentEmployeeId) {
+        return;
+      }
+      
       if (!currentEmployeeId || !user?.email) return;
       
       try {
@@ -364,7 +383,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
         // Check cache first
         const cached = getCachedData(user.email);
         if (cached && cached.employeeId === currentEmployeeId && cached.reviews.length > 0) {
-          console.log('📦 Using cached reviews data');
+          console.log('📦 Using cached reviews data - NO API CALL');
           const sortedReviews = cached.reviews.sort((a: any, b: any) => {
             if (a.cycleYear !== b.cycleYear) {
               return b.cycleYear.localeCompare(a.cycleYear);
@@ -378,10 +397,12 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
             return reviewsChanged ? sortedReviews : prevReviews;
           });
           setLoadingReviews(false);
+          reviewsLoadedRef.current = currentEmployeeId;
           return;
         }
         
-        // Fetch from API if not cached
+        // Fetch from API if not cached (only once per employee)
+        reviewsLoadedRef.current = currentEmployeeId;
         const response = await authenticatedFetch(
           `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}`,
           { method: 'GET' }
@@ -402,6 +423,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
         }
       } catch (error) {
         console.error("Error fetching reviews:", error);
+        reviewsLoadedRef.current = null; // Allow retry on error
         toast({
           title: "Error",
           description: "Failed to load reviews",
@@ -480,8 +502,16 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     }
   }, [currentEmployeeId, toast]);
 
+  // Track if cycles have been loaded to prevent re-fetching on navigation
+  const cyclesLoadedRef = useRef(false);
+
   // Fetch all review cycles - check cache first
   useEffect(() => {
+    // Skip if already loaded
+    if (cyclesLoadedRef.current) {
+      return;
+    }
+    
     const fetchCycles = async () => {
       if (!user?.email) return;
       
@@ -492,7 +522,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
         // Check cache first
         const cached = getCachedData(user.email);
         if (cached && cached.cycles.length > 0) {
-          console.log('📦 Using cached cycles data');
+          console.log('📦 Using cached cycles data - NO API CALL');
           const filteredCycles = cached.cycles.filter((cycle: any) => cycle.status !== 'draft');
           if (filteredCycles.length > 0) {
             const sortedCycles = filteredCycles.sort((a: any, b: any) => 
@@ -511,10 +541,12 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           }
           setLoadingActiveCycle(false);
           setLoadingAllCycles(false);
+          cyclesLoadedRef.current = true;
           return;
         }
         
-        // Fetch from API if not cached
+        // Fetch from API if not cached (only once)
+        cyclesLoadedRef.current = true;
         const response = await authenticatedFetch(
           `${API_BASE_URL}/reviews/cycles`,
           { method: 'GET' }
@@ -534,9 +566,11 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           setActiveCycle(active || null);
         } else {
           console.error("Failed to fetch cycles:", response.status, response.statusText);
+          cyclesLoadedRef.current = false; // Allow retry on error
         }
       } catch (error) {
         console.error("Error fetching cycles:", error);
+        cyclesLoadedRef.current = false; // Allow retry on error
         toast({
           title: "Error",
           description: "Failed to load review cycles",
@@ -548,7 +582,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
       }
     };
 
-    // Always fetch cycles (they're not employee-specific)
+    // Always fetch cycles (they're not employee-specific) - but only once
     fetchCycles();
   }, [user?.email, getCachedData, toast]);
 

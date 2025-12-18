@@ -6,7 +6,7 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
-from boto3.dynamodb.conditions import Key, Attr
+from boto3.dynamodb.conditions import Key, Attr, And
 from botocore.exceptions import ClientError
 import logging
 
@@ -41,12 +41,22 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# Simple in-memory cache for dashboard stats (TTL: 60 seconds)
+# Simple in-memory cache for dashboard stats (TTL: 120 seconds)
 _dashboard_stats_cache = {
     "data": None,
     "timestamp": 0,
-    "ttl": 60  # Cache for 60 seconds
+    "ttl": 120  # Cache for 2 minutes
 }
+
+# Cache for cycles endpoint (TTL: 5 minutes - cycles don't change often)
+_cycles_cache = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 300  # Cache for 5 minutes
+}
+
+# Cache for reviews queries without employeeId/reviewerId (TTL: 2 minutes)
+_reviews_query_cache = {}
 
 CYCLE_PK_PREFIX = "CYCLE#"
 REVIEW_SK_PREFIX = "REVIEW#"
@@ -360,8 +370,16 @@ async def create_cycle(
 async def list_cycles(
     current_user: dict = Depends(get_current_active_user),
 ):
-    """List all review cycles."""
+    """List all review cycles (cached for 5 minutes)."""
     del current_user
+    
+    # Check cache first
+    current_time = time.time()
+    if (_cycles_cache["data"] is not None and 
+        current_time - _cycles_cache["timestamp"] < _cycles_cache["ttl"]):
+        logger.info("Returning cached cycles")
+        return _cycles_cache["data"]
+    
     cycles_table = await get_cycles_table()
     cycles = []
     
@@ -385,6 +403,10 @@ async def list_cycles(
         
         # Sort by year descending (most recent first)
         cycles.sort(key=lambda x: x.year, reverse=True)
+        
+        # Update cache
+        _cycles_cache["data"] = cycles
+        _cycles_cache["timestamp"] = current_time
         
     except ClientError as exc:
         logger.exception("Failed to list review cycles")
@@ -765,71 +787,133 @@ async def get_dashboard_stats(
         import asyncio
         
         # Helper function to count items in a table with filter
+        # Optimized to use ProjectionExpression to reduce data transfer
         async def count_table_items(table, filter_func=None):
-            """Count items in a table, optionally filtering."""
+            """Count items in a table, optionally filtering. Uses COUNT projection for efficiency."""
             count = 0
             last_evaluated_key = None
             while True:
-                scan_kwargs = {}
+                scan_kwargs = {
+                    "Select": "COUNT"  # Only return count, not full items
+                }
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-                response = await table.scan(**scan_kwargs)
-                items = response.get("Items", [])
+                
+                # If we have a filter function, we need to scan with FilterExpression
+                # Otherwise, we can use COUNT projection
                 if filter_func:
+                    # Need full items for filtering, so use regular scan
+                    scan_kwargs.pop("Select")
+                    response = await table.scan(**scan_kwargs)
+                    items = response.get("Items", [])
                     count += sum(1 for item in items if filter_func(parse_dynamodb_item(item)))
                 else:
-                    count += len(items)
+                    # No filter - use COUNT projection for efficiency
+                    response = await table.scan(**scan_kwargs)
+                    count += response.get("Count", 0)
+                
                 last_evaluated_key = response.get("LastEvaluatedKey")
                 if not last_evaluated_key:
                     break
             return count
         
         # Helper function to process reviews table
+        # Optimized to use ReviewTypeIndex for manager reviews
         async def process_reviews_table():
-            """Process reviews table to get completed reviews and ratings."""
+            """Process reviews table to get completed reviews and ratings. Uses ReviewTypeIndex for efficiency."""
             reviews_table = await get_reviews_table()
             completed_reviews = 0
             pending_reviews = 0
             ratings_sum = 0.0
             ratings_count = 0
             
-            last_evaluated_key = None
-            while True:
-                scan_kwargs = {}
-                if last_evaluated_key:
-                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-                response = await reviews_table.scan(**scan_kwargs)
-                for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
-                    review_type = parsed.get("reviewType")
-                    submitted_at = parsed.get("submittedAt")
+            # Use ReviewTypeIndex to query manager reviews directly (more efficient than scanning)
+            try:
+                # Query manager reviews using ReviewTypeIndex
+                last_evaluated_key = None
+                while True:
+                    query_kwargs = {
+                        "IndexName": "ReviewTypeIndex",
+                        "KeyConditionExpression": Key("reviewType").eq("manager"),
+                        "FilterExpression": Attr("submittedAt").exists()  # Only submitted reviews
+                    }
+                    if last_evaluated_key:
+                        query_kwargs["ExclusiveStartKey"] = last_evaluated_key
                     
-                    if not submitted_at:
-                        pending_reviews += 1
-                        continue
+                    response = await reviews_table.query(**query_kwargs)
+                    for item in response.get("Items", []):
+                        parsed = parse_dynamodb_item(item)
+                        submitted_at = parsed.get("submittedAt")
+                        
+                        if submitted_at:
+                            completed_reviews += 1
+                            metadata = parsed.get("metadata", {})
+                            final_rating = metadata.get("finalRating", {})
+                            overall_rating = final_rating.get("overallRating")
+                            
+                            if overall_rating is None:
+                                ratings_obj = parsed.get("ratings", {})
+                                overall_rating = ratings_obj.get("overall")
+                            
+                            if overall_rating is not None:
+                                try:
+                                    rating_value = float(overall_rating)
+                                    if 0 < rating_value <= 5:
+                                        ratings_sum += rating_value
+                                        ratings_count += 1
+                                except (ValueError, TypeError):
+                                    pass
                     
-                    if review_type == "manager":
-                        completed_reviews += 1
-                        metadata = parsed.get("metadata", {})
-                        final_rating = metadata.get("finalRating", {})
-                        overall_rating = final_rating.get("overallRating")
-                        
-                        if overall_rating is None:
-                            ratings_obj = parsed.get("ratings", {})
-                            overall_rating = ratings_obj.get("overall")
-                        
-                        if overall_rating is not None:
-                            try:
-                                rating_value = float(overall_rating)
-                                if 0 < rating_value <= 5:
-                                    ratings_sum += rating_value
-                                    ratings_count += 1
-                            except (ValueError, TypeError):
-                                pass
+                    last_evaluated_key = response.get("LastEvaluatedKey")
+                    if not last_evaluated_key:
+                        break
                 
-                last_evaluated_key = response.get("LastEvaluatedKey")
-                if not last_evaluated_key:
-                    break
+                # Note: We don't count manager reviews without submittedAt as "pending"
+                # because those would be manager drafts, not pending reviews.
+                # Pending reviews = draft self-reviews (counted in draft_count)
+                # Manager pending = self-reviews submitted but no manager review yet (not counted here)
+                # This is handled separately if needed
+                        
+            except ClientError as exc:
+                # Fallback to scan if index doesn't exist
+                logger.warning(f"ReviewTypeIndex not available, falling back to scan: {exc}")
+                last_evaluated_key = None
+                while True:
+                    scan_kwargs = {}
+                    if last_evaluated_key:
+                        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                    response = await reviews_table.scan(**scan_kwargs)
+                    for item in response.get("Items", []):
+                        parsed = parse_dynamodb_item(item)
+                        review_type = parsed.get("reviewType")
+                        submitted_at = parsed.get("submittedAt")
+                        
+                        # Note: Reviews in the reviews table should have submittedAt
+                        # If they don't, they might be incorrectly placed (should be in drafts table)
+                        # We don't count these as pending reviews
+                        
+                        if review_type == "manager" and submitted_at:
+                            completed_reviews += 1
+                            metadata = parsed.get("metadata", {})
+                            final_rating = metadata.get("finalRating", {})
+                            overall_rating = final_rating.get("overallRating")
+                            
+                            if overall_rating is None:
+                                ratings_obj = parsed.get("ratings", {})
+                                overall_rating = ratings_obj.get("overall")
+                            
+                            if overall_rating is not None:
+                                try:
+                                    rating_value = float(overall_rating)
+                                    if 0 < rating_value <= 5:
+                                        ratings_sum += rating_value
+                                        ratings_count += 1
+                                except (ValueError, TypeError):
+                                    pass
+                    
+                    last_evaluated_key = response.get("LastEvaluatedKey")
+                    if not last_evaluated_key:
+                        break
             
             return completed_reviews, pending_reviews, ratings_sum, ratings_count
         
@@ -846,7 +930,23 @@ async def get_dashboard_stats(
             )
         
         async def count_draft_reviews():
-            return await count_table_items(drafts_table)
+            """Count only draft self-reviews (pending self-reviews that need to be submitted)."""
+            count = 0
+            last_evaluated_key = None
+            while True:
+                scan_kwargs = {}
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                response = await drafts_table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    # Only count self-reviews (pending self-reviews that employees need to complete)
+                    if parsed.get("reviewType") == "self":
+                        count += 1
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+            return count
         
         # Run parallel queries
         results = await asyncio.gather(
@@ -858,8 +958,9 @@ async def get_dashboard_stats(
         draft_count = results[1]
         completed_reviews, pending_from_reviews, ratings_sum, ratings_count = results[2]
         
-        # Total pending = drafts + pending from reviews table
-        pending_reviews = draft_count + pending_from_reviews
+        # Total pending = draft self-reviews (employees who haven't submitted their self-review yet)
+        # Note: pending_from_reviews is now 0 (we removed counting manager reviews without submittedAt)
+        pending_reviews = draft_count
         
         # Calculate average rating
         average_rating = ratings_sum / ratings_count if ratings_count > 0 else 0.0
@@ -1223,8 +1324,71 @@ async def get_reviews(
                         continue
                     reviews.append(_map_review(item, is_draft=is_draft_table))
             else:
-                # No specific filter - scan with filters
+                # No specific filter - use ReviewTypeIndex if available, otherwise scan with filters
+                # Check cache for this query pattern
+                cache_key = f"{is_draft_table}_{reviewType}_{cycleYear}_{includeInactive}"
+                current_time = time.time()
+                if cache_key in _reviews_query_cache:
+                    cached_data, cached_time = _reviews_query_cache[cache_key]
+                    if current_time - cached_time < 120:  # 2 minute cache
+                        logger.info(f"Returning cached reviews for query: {cache_key}")
+                        reviews.extend(cached_data)
+                        continue
+                
+                # Try to use ReviewTypeIndex if reviewType is specified
+                if reviewType:
+                    try:
+                        # Use ReviewTypeIndex GSI for fast query
+                        last_evaluated_key = None
+                        query_reviews = []
+                        while True:
+                            query_kwargs = {
+                                "IndexName": "ReviewTypeIndex",
+                                "KeyConditionExpression": Key("reviewType").eq(reviewType)
+                            }
+                            if last_evaluated_key:
+                                query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                            
+                            # Add FilterExpression for cycleYear and isActive if needed
+                            filter_conditions = []
+                            if cycleYear:
+                                filter_conditions.append(Attr("cycleYear").eq(cycleYear))
+                            if not includeInactive:
+                                filter_conditions.append(Attr("isActive").eq(True))
+                            
+                            if filter_conditions:
+                                if len(filter_conditions) == 1:
+                                    query_kwargs["FilterExpression"] = filter_conditions[0]
+                                else:
+                                    query_kwargs["FilterExpression"] = And(*filter_conditions)
+                            
+                            response = await table.query(**query_kwargs)
+                            
+                            for item in response.get("Items", []):
+                                parsed = parse_dynamodb_item(item)
+                                item_is_active = parsed.get("isActive", True)
+                                
+                                # Skip inactive items (unless includeInactive=True)
+                                if item_is_active is False and not includeInactive:
+                                    continue
+                                
+                                query_reviews.append(_map_review(item, is_draft=is_draft_table))
+                            
+                            last_evaluated_key = response.get("LastEvaluatedKey")
+                            if not last_evaluated_key:
+                                break
+                        
+                        reviews.extend(query_reviews)
+                        # Cache the results
+                        _reviews_query_cache[cache_key] = (query_reviews, current_time)
+                        continue
+                    except ClientError as exc:
+                        # Fallback to scan if index doesn't exist
+                        logger.warning(f"ReviewTypeIndex not available, falling back to scan: {exc}")
+                
+                # Fallback to scan with filters (if no reviewType or index unavailable)
                 last_evaluated_key = None
+                scan_reviews = []
                 while True:
                     scan_kwargs = {}
                     if last_evaluated_key:
@@ -1239,6 +1403,11 @@ async def get_reviews(
                             filter_expr = filter_expr & Attr("reviewType").eq(reviewType)
                         else:
                             filter_expr = Attr("reviewType").eq(reviewType)
+                    if not includeInactive:
+                        if filter_expr:
+                            filter_expr = filter_expr & Attr("isActive").eq(True)
+                        else:
+                            filter_expr = Attr("isActive").eq(True)
                     
                     if filter_expr:
                         scan_kwargs["FilterExpression"] = filter_expr
@@ -1253,11 +1422,16 @@ async def get_reviews(
                         if item_is_active is False and not includeInactive:
                             continue
                         
-                        reviews.append(_map_review(item, is_draft=is_draft_table))
+                        scan_reviews.append(_map_review(item, is_draft=is_draft_table))
                     
                     last_evaluated_key = response.get("LastEvaluatedKey")
                     if not last_evaluated_key:
                         break
+                
+                reviews.extend(scan_reviews)
+                # Cache the results
+                if not reviewType:  # Only cache if we used scan (no reviewType means no index)
+                    _reviews_query_cache[cache_key] = (scan_reviews, current_time)
         
         logger.info(f"Total reviews found after filtering: {len(reviews)}")
         
@@ -1353,26 +1527,41 @@ async def get_reviews_batch(
             
             for table, is_draft_table in tables_to_query:
                 try:
-                    # Query by employeeId using EmployeeIndex GSI
-                    response = await table.query(
-                        IndexName="EmployeeIndex",
-                        KeyConditionExpression=Key("employeeId").eq(emp_id)
-                    )
+                    # Build filter expression for DynamoDB query (server-side filtering)
+                    filter_conditions = []
+                    
+                    # Filter by isActive if needed
+                    if not includeInactive:
+                        filter_conditions.append(Attr("isActive").eq(True))
+                    
+                    # Filter by reviewType if provided
+                    if reviewType:
+                        filter_conditions.append(Attr("reviewType").eq(reviewType))
+                    
+                    # Filter by cycleYear if provided
+                    if cycleYear:
+                        filter_conditions.append(Attr("cycleYear").eq(cycleYear))
+                    
+                    # Build query parameters
+                    query_params = {
+                        "IndexName": "EmployeeIndex",
+                        "KeyConditionExpression": Key("employeeId").eq(emp_id)
+                    }
+                    
+                    # Add FilterExpression if we have any filters
+                    if filter_conditions:
+                        if len(filter_conditions) == 1:
+                            query_params["FilterExpression"] = filter_conditions[0]
+                        else:
+                            # Combine multiple conditions with AND
+                            query_params["FilterExpression"] = And(*filter_conditions)
+                    
+                    # Query by employeeId using EmployeeIndex GSI with server-side filtering
+                    response = await table.query(**query_params)
                     items = response.get("Items", [])
                     
-                    # Apply additional filters
+                    # Map reviews (no client-side filtering needed, DynamoDB did it)
                     for item in items:
-                        parsed = parse_dynamodb_item(item)
-                        item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
-                        
-                        # Skip inactive items unless explicitly requested
-                        if item_is_active is False and not includeInactive:
-                            continue
-                        
-                        if reviewType and parsed.get("reviewType") != reviewType:
-                            continue
-                        if cycleYear and parsed.get("cycleYear") != cycleYear:
-                            continue
                         emp_reviews.append((_map_review(item, is_draft=is_draft_table), emp_id))
                 except ClientError as exc:
                     logger.warning(f"Failed to fetch reviews for employee {emp_id}: {exc}")

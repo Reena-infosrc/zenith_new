@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 import datetime
+import time
 
 from ..database_dynamodb import get_employees_table, parse_dynamodb_item
 from ..security import get_current_active_user
@@ -11,20 +12,45 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+# In-memory cache for dashboard data (TTL: 2 minutes)
+_dashboard_cache = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 120  # 2 minutes
+}
+
 @router.get("/")
 async def get_employees_dashboard(current_user: dict = Depends(get_current_active_user)):
-    """Get comprehensive employee analytics data for dashboard visualization"""
+    """Get comprehensive employee analytics data for dashboard visualization (cached for 2 minutes)"""
     try:
-        # Get all employees - use parallel queries for better performance
+        # Check cache first
+        current_time = time.time()
+        if (_dashboard_cache["data"] is not None and 
+            current_time - _dashboard_cache["timestamp"] < _dashboard_cache["ttl"]):
+            return _dashboard_cache["data"]
+        
+        # Get all employees - use pagination to get all items
         table = await get_employees_table()
         
-        # For dashboard, we need all employees, so we'll use scan but with better pagination
-        # In a production environment, consider using parallel scans or caching
-        response = await table.scan(
-            Limit=1000  # Limit initial scan to avoid timeout
-        )
+        # Scan with pagination to get all employees
+        all_items = []
+        last_evaluated_key = None
         
-        if "Items" not in response:
+        while True:
+            scan_kwargs = {}
+            if last_evaluated_key:
+                scan_kwargs['ExclusiveStartKey'] = last_evaluated_key
+            
+            response = await table.scan(**scan_kwargs)
+            items = response.get("Items", [])
+            all_items.extend(items)
+            
+            # Check if there are more items to scan
+            last_evaluated_key = response.get('LastEvaluatedKey')
+            if not last_evaluated_key:
+                break
+        
+        if not all_items:
             return {
                 "total_employees": 0,
                 "monthly_headcount": [],
@@ -40,7 +66,7 @@ async def get_employees_dashboard(current_user: dict = Depends(get_current_activ
             }
         
         employees = []
-        for item in response["Items"]:
+        for item in all_items:
             employee = parse_dynamodb_item(item)
             employees.append(employee)
         
@@ -141,7 +167,7 @@ async def get_employees_dashboard(current_user: dict = Depends(get_current_activ
         # Count only active employees - default to "active" if status field doesn't exist
         active_employees = [emp for emp in employees if emp.get("status", "active") != "inactive"]
         
-        return {
+        result = {
             "total_employees": len(active_employees),
             "monthly_headcount": monthly_headcount,
             "by_account": by_account,
@@ -155,6 +181,12 @@ async def get_employees_dashboard(current_user: dict = Depends(get_current_activ
             "by_status": by_status,
             "employees": employees  # Include full employee data for filtering
         }
+        
+        # Update cache
+        _dashboard_cache["data"] = result
+        _dashboard_cache["timestamp"] = current_time
+        
+        return result
         
     except Exception as e:
         print(f"Error getting dashboard data: {e}")

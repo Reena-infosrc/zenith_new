@@ -577,8 +577,16 @@ export function ManagerPerformanceView() {
     });
   }, []);
 
+  // Track if initial data has been loaded to prevent re-fetching on navigation
+  const initialDataLoadedRef = useRef<string | null>(null);
+
   // Initial data loading - load everything before showing UI (check cache first)
   useEffect(() => {
+    // Skip if already loaded for this user
+    if (initialDataLoadedRef.current === user?.email) {
+      return;
+    }
+    
     const loadAllData = async () => {
       if (!user?.email || employees.length === 0) {
         setInitialLoading(false);
@@ -596,29 +604,30 @@ export function ManagerPerformanceView() {
 
         const managerId = employee.id;
         setCurrentManagerEmployeeId(managerId);
+        initialDataLoadedRef.current = user.email; // Mark as loaded
 
         // Check cache first
         const cachedManagerData = getCachedManagerData(user.email);
         if (cachedManagerData && cachedManagerData.directReports.length > 0) {
-          console.log('📦 Using cached manager data');
+          console.log('📦 Using cached manager data - NO API CALLS');
           
           // Use cached direct reports, but only keep active employees
           const cachedReports = cachedManagerData.directReports as DirectReport[];
           const activeCachedReports = cachedReports.filter((emp) => !emp.status || emp.status !== "inactive");
           setDirectReports(activeCachedReports);
           
-          // Use cached manager goals
+          // Use cached manager goals from preload (no API call!)
           setLoadingMessage("Loading your goals...");
-          const managerApiGoals = await getEmployeeGoals(managerId);
-          const convertedManagerGoals = managerApiGoals.map(convertGoalToMyGoal);
+          const cachedManagerGoals = cachedManagerData.teamGoals.get(managerId) || [];
+          const convertedManagerGoals = cachedManagerGoals.map(convertGoalToMyGoal);
           setMyGoals(convertedManagerGoals);
-          const managerTeamGoals = managerApiGoals.map(convertGoalToTeamGoal);
+          const managerTeamGoals = cachedManagerGoals.map(convertGoalToTeamGoal);
           refreshGoalPanelStateForEmployee(managerId, managerTeamGoals);
-          managerApiGoals.forEach(goal => {
+          cachedManagerGoals.forEach(goal => {
             allGoalsCache.current.set(goal.id, goal);
           });
           
-          // Use cached team goals
+          // Use cached team goals (no API calls!)
           setLoadingMessage("Loading team goals...");
           const teamGoalsMap = new Map<string, Goal[]>();
           cachedManagerData.teamGoals.forEach((goals, employeeId) => {
@@ -640,6 +649,7 @@ export function ManagerPerformanceView() {
           
           setInitialLoading(false);
           setLoadingMyGoals(false);
+          initialDataLoadedRef.current = user.email; // Mark as loaded even when using cache
           return;
         }
 
@@ -706,8 +716,10 @@ export function ManagerPerformanceView() {
 
         setInitialLoading(false);
         setLoadingMyGoals(false);
+        initialDataLoadedRef.current = user.email; // Mark as loaded after API fetch
       } catch (error) {
         console.error("Error loading initial data:", error);
+        initialDataLoadedRef.current = null; // Allow retry on error
         toast({
           title: "Error",
           description: "Failed to load data. Please refresh the page.",
@@ -719,7 +731,7 @@ export function ManagerPerformanceView() {
     };
 
     loadAllData();
-  }, [user?.email, employees, getEmployeeGoals, getGoal, refreshGoalPanelStateForEmployee, toast]);
+  }, [user?.email, employees.length, getEmployeeGoals, getGoal, refreshGoalPanelStateForEmployee, toast]);
 
   // Fetch goals for a team member (with caching check)
   const fetchTeamMemberGoals = async (employeeId: string, forceRefresh: boolean = false) => {
@@ -1145,14 +1157,152 @@ export function ManagerPerformanceView() {
     return directReports.map(r => r.id);
   }, [currentManagerEmployeeId, directReports]);
 
+  // Track if reviews have been loaded to prevent re-fetching on navigation
+  const reviewsLoadedRef = useRef(false);
+
   useEffect(() => {
+    // Skip if already loaded or if we have cached data
+    if (reviewsLoadedRef.current) {
+      return;
+    }
+    
+    // Check if we have cached reviews data
+    const cachedManagerData = currentManagerEmployeeId && directReports.length > 0 
+      ? getCachedManagerData(user?.email || '') 
+      : null;
+    
+    if (cachedManagerData && cachedManagerData.teamReviews) {
+      console.log('📦 Using cached reviews - skipping fetchReviews API call');
+      // Process cached reviews data
+      const managerSubmitted = cachedManagerData.teamReviews.managerSubmitted || [];
+      const managerDraft = cachedManagerData.teamReviews.managerDraft || [];
+      const selfSubmitted = cachedManagerData.teamReviews.selfSubmitted || [];
+      const selfDraft = cachedManagerData.teamReviews.selfDraft || [];
+      
+      // Process and set reviews from cache (same logic as fetchReviews but without API call)
+      const allReviews: any[] = [];
+      const statusMap = new Map<string, EmployeeReviewStatus>();
+      
+      const allManagerReviews = [...managerSubmitted, ...managerDraft];
+      const selfReviews = [...selfSubmitted, ...selfDraft];
+      
+      // Group reviews by employee ID
+      const reviewsByEmployee = new Map<string, { manager: any[], self: any[] }>();
+      employeeIdsForReviews.forEach(empId => {
+        reviewsByEmployee.set(empId, { manager: [], self: [] });
+      });
+      
+      allManagerReviews.forEach((review: any) => {
+        const empId = review.employeeId;
+        if (reviewsByEmployee.has(empId)) {
+          reviewsByEmployee.get(empId)!.manager.push(review);
+        }
+        allReviews.push(review);
+      });
+      
+      selfReviews.forEach((review: any) => {
+        const empId = review.employeeId;
+        if (reviewsByEmployee.has(empId)) {
+          reviewsByEmployee.get(empId)!.self.push(review);
+        }
+        allReviews.push(review);
+      });
+      
+      // Process statuses (simplified - same logic as fetchReviews)
+      const getReviewStatus = (review: any) => review?.status || review?.metadata?.status || '';
+      const getReviewTimestamp = (review: any) =>
+        new Date(review.updatedAt || review.submittedAt || review.createdAt || 0).getTime();
+      
+      for (const empId of employeeIdsForReviews) {
+        const { manager, self } = reviewsByEmployee.get(empId) || { manager: [], self: [] };
+        
+        if (manager.length > 0) {
+          let latestHrApprovalTs = -Infinity;
+          let latestProcessedTs = -Infinity;
+          let latestSubmitTs = -Infinity;
+          let latestDraftTs = -Infinity;
+          let latestProcessedStatus: 'needs_clarification' | 'clarification_requested' | null = null;
+          
+          manager.forEach((review: any) => {
+            const status = getReviewStatus(review);
+            const timestamp = getReviewTimestamp(review);
+            const isActive = review.isActive !== false;
+            const isDraft = !!review.isDraft;
+            const isSubmitted = !isDraft && (status === 'manager_submitted' || review.submittedAt) && isActive;
+            const isProcessedStatus = status === 'needs_clarification' || status === 'changes_requested' || status === 'hr_rejected' || status === 'clarification_requested';
+            const isHrApprovedStatus = status === 'hr_approved' || status === 'approved' || status === 'finalized';
+            
+            if (isSubmitted && timestamp > latestSubmitTs) latestSubmitTs = timestamp;
+            if (isDraft && isActive && timestamp > latestDraftTs) latestDraftTs = timestamp;
+            if (isProcessedStatus && timestamp > latestProcessedTs) {
+              latestProcessedTs = timestamp;
+              latestProcessedStatus = status === 'clarification_requested' ? 'clarification_requested' : 'needs_clarification';
+            }
+            if (isHrApprovedStatus && timestamp > latestHrApprovalTs) latestHrApprovalTs = timestamp;
+          });
+          
+          if (latestHrApprovalTs !== -Infinity) {
+            statusMap.set(empId, 'hr_approved');
+          } else if (latestProcessedTs !== -Infinity && (latestSubmitTs === -Infinity || latestProcessedTs >= latestSubmitTs)) {
+            statusMap.set(empId, latestProcessedStatus || 'needs_clarification');
+          } else if (latestSubmitTs !== -Infinity) {
+            statusMap.set(empId, 'manager_submitted');
+          } else if (latestDraftTs !== -Infinity) {
+            statusMap.set(empId, 'manager_reviewing');
+          }
+        }
+        
+        if (self.length > 0 && !statusMap.has(empId)) {
+          const submittedSelfReview = self.find((r: any) => r.submittedAt && !r.isDraft);
+          if (submittedSelfReview) {
+            const selfReviewStatus = getReviewStatus(submittedSelfReview) as EmployeeReviewStatus;
+            const hasPendingClarification = isClarificationStatus(selfReviewStatus);
+            statusMap.set(empId, hasPendingClarification ? 'clarification_requested' : 'self_submitted');
+          }
+        }
+      }
+      
+      allReviews.sort((a, b) => {
+        const yearA = String(a.cycleYear || '');
+        const yearB = String(b.cycleYear || '');
+        if (yearA !== yearB) return yearB.localeCompare(yearA);
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+      
+      setReviews(allReviews);
+      setEmployeeReviewStatuses(statusMap);
+      setDirectReports((prev) => {
+        let hasChanges = false;
+        const next = prev.map((report) => {
+          const status = statusMap.get(report.id);
+          if (!status || report.reviewStatus === status) return report;
+          hasChanges = true;
+          return { ...report, reviewStatus: status };
+        });
+        return hasChanges ? next : prev;
+      });
+      
+      reviewsLoadedRef.current = true;
+      return;
+    }
+    
+    // Only fetch if not cached and initial loading is complete
     if (!initialLoading && user?.email && employees.length > 0 && employeeIdsForReviews.length > 0) {
+      reviewsLoadedRef.current = true;
       fetchReviews();
     }
-  }, [initialLoading, user, employees, employeeIdsForReviews.length, fetchReviews]);
+  }, [initialLoading, user?.email, employees.length, employeeIdsForReviews.length, currentManagerEmployeeId, directReports.length, fetchReviews]);
+
+  // Track if cycles have been loaded to prevent re-fetching on navigation
+  const cyclesLoadedRef = useRef(false);
 
   // Fetch all review cycles
   useEffect(() => {
+    // Skip if already loaded
+    if (cyclesLoadedRef.current) {
+      return;
+    }
+    
     const fetchCycles = async () => {
       if (!user?.email) return;
       
@@ -1163,7 +1313,7 @@ export function ManagerPerformanceView() {
         // Check cache first
         const cached = getCachedData(user.email);
         if (cached && cached.cycles.length > 0) {
-          console.log('📦 Using cached cycles data');
+          console.log('📦 Using cached cycles data - NO API CALL');
           const filteredCycles = cached.cycles.filter((cycle: any) => cycle.status !== 'draft');
           if (filteredCycles.length > 0) {
             const sortedCycles = filteredCycles.sort((a: any, b: any) => 
@@ -1177,10 +1327,12 @@ export function ManagerPerformanceView() {
           }
           setLoadingActiveCycle(false);
           setLoadingAllCycles(false);
+          cyclesLoadedRef.current = true;
           return;
         }
         
-        // Fetch from API if not cached
+        // Fetch from API if not cached (only once)
+        cyclesLoadedRef.current = true;
         const response = await authenticatedFetch(
           `${API_BASE_URL}/reviews/cycles`,
           { method: 'GET' }
@@ -1201,6 +1353,7 @@ export function ManagerPerformanceView() {
         }
       } catch (error) {
         console.error("Error fetching cycles:", error);
+        cyclesLoadedRef.current = false; // Allow retry on error
       } finally {
         setLoadingActiveCycle(false);
         setLoadingAllCycles(false);

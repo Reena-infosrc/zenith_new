@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
@@ -15,11 +15,17 @@ import { getCachedViewMode } from "@/hooks/use-performance-preload";
 
 type ViewMode = 'admin' | 'manager' | 'user';
 
+// Cache for check-team-members API result to prevent repeated calls
+const viewModeCache = new Map<string, { viewMode: ViewMode; timestamp: number }>();
+const VIEW_MODE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const pendingViewModeChecks = new Map<string, Promise<ViewMode>>();
+
 export default function Performance() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoadingViewMode, setIsLoadingViewMode] = useState(false);
+  const hasCheckedViewMode = useRef(false);
   
   // Get view mode from URL params
   const urlViewMode = searchParams.get('view') as ViewMode | null;
@@ -32,11 +38,13 @@ export default function Performance() {
   const activeModule = viewMode === 'admin' ? '' : 'Performance';
   
   // Check team members and set view mode if no URL param is provided
+  // OPTIMIZED: Always use preload cache first, never make API call if cache exists
   useEffect(() => {
     const checkTeamMembersAndSetView = async () => {
-      // If view is explicitly set in URL, use it
+      // If view is explicitly set in URL, use it (no API call needed)
       if (urlViewMode && ['admin', 'manager', 'user'].includes(urlViewMode)) {
         setViewMode(urlViewMode);
+        hasCheckedViewMode.current = true;
         return;
       }
       
@@ -44,49 +52,101 @@ export default function Performance() {
       if (!user?.email) {
         // Default to user view if no user
         setViewMode('user');
+        hasCheckedViewMode.current = true;
         return;
       }
       
-      // Check cache first (from preload)
+      // PRIORITY 1: Check preload cache first (from use-performance-preload hook)
+      // This cache is populated during login, so it should always be available
       const cachedViewMode = getCachedViewMode(user.email);
       if (cachedViewMode && ['admin', 'manager', 'user'].includes(cachedViewMode)) {
-        console.log('📦 Using cached view mode:', cachedViewMode);
+        console.log('📦 Using cached view mode from preload (NO API CALL):', cachedViewMode);
         setViewMode(cachedViewMode);
         // Update URL to reflect the cached view mode
         setSearchParams({ view: cachedViewMode }, { replace: true });
+        hasCheckedViewMode.current = true;
+        // Also update in-memory cache for consistency
+        viewModeCache.set(user.email, { viewMode: cachedViewMode, timestamp: Date.now() });
         return;
       }
       
-      // If not in cache, fetch from API
-      try {
-        setIsLoadingViewMode(true);
-        const response = await authenticatedFetch(`${API_BASE_URL}/employees/check-team-members`);
-        
-        if (!response.ok) {
-          console.error('Failed to check team members:', response.status);
-          setViewMode('user'); // Default to user view on error
-          return;
-        }
-        
-        const data = await response.json();
-        const suggestedView = data.view_mode as ViewMode;
-        
-        if (suggestedView && ['admin', 'manager', 'user'].includes(suggestedView)) {
-          setViewMode(suggestedView);
-          // Update URL to reflect the determined view mode
-          setSearchParams({ view: suggestedView }, { replace: true });
-        } else {
+      
+      // PRIORITY 2: Check in-memory cache (from previous API calls in this session)
+      const cached = viewModeCache.get(user.email);
+      const now = Date.now();
+      if (cached && (now - cached.timestamp < VIEW_MODE_CACHE_TTL)) {
+        console.log('📦 Using cached view mode from session (NO API CALL):', cached.viewMode);
+        setViewMode(cached.viewMode);
+        setSearchParams({ view: cached.viewMode }, { replace: true });
+        hasCheckedViewMode.current = true;
+        return;
+      }
+      
+      // PRIORITY 3: Check if there's already a pending request for this user
+      const pendingCheck = pendingViewModeChecks.get(user.email);
+      if (pendingCheck) {
+        console.log('⏳ Waiting for pending view mode check...');
+        try {
+          const result = await pendingCheck;
+          setViewMode(result);
+          setSearchParams({ view: result }, { replace: true });
+          hasCheckedViewMode.current = true;
+        } catch {
           setViewMode('user');
+          hasCheckedViewMode.current = true;
         }
-      } catch (error) {
-        console.error('Error checking team members:', error);
-        setViewMode('user'); // Default to user view on error
+        return;
+      }
+      
+      // LAST RESORT: Only fetch from API if cache is completely unavailable
+      // This should rarely happen if preload is working correctly
+      console.warn('⚠️ No cached view mode found, making API call (should be rare)');
+      const checkPromise = (async (): Promise<ViewMode> => {
+        try {
+          setIsLoadingViewMode(true);
+          const response = await authenticatedFetch(`${API_BASE_URL}/employees/check-team-members`);
+          
+          if (!response.ok) {
+            console.error('Failed to check team members:', response.status);
+            return 'user'; // Default to user view on error
+          }
+          
+          const data = await response.json();
+          const suggestedView = data.view_mode as ViewMode;
+          
+          if (suggestedView && ['admin', 'manager', 'user'].includes(suggestedView)) {
+            // Cache the result in both caches
+            viewModeCache.set(user.email, { viewMode: suggestedView, timestamp: now });
+            return suggestedView;
+          } else {
+            return 'user';
+          }
+        } catch (error) {
+          console.error('Error checking team members:', error);
+          return 'user'; // Default to user view on error
+        } finally {
+          setIsLoadingViewMode(false);
+          pendingViewModeChecks.delete(user.email);
+        }
+      })();
+      
+      pendingViewModeChecks.set(user.email, checkPromise);
+      
+      try {
+        const result = await checkPromise;
+        setViewMode(result);
+        setSearchParams({ view: result }, { replace: true });
+      } catch {
+        setViewMode('user');
       } finally {
-        setIsLoadingViewMode(false);
+        hasCheckedViewMode.current = true;
       }
     };
     
-    checkTeamMembersAndSetView();
+    // Only check once per mount, unless URL param changes
+    if (!hasCheckedViewMode.current) {
+      checkTeamMembersAndSetView();
+    }
   }, [user?.email, urlViewMode, setSearchParams]);
   
   // Update view mode when URL params change (manual selection)

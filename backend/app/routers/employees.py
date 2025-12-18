@@ -5,6 +5,7 @@ from ..database_dynamodb import get_employees_table, get_admins_table, parse_dyn
 from ..security import get_current_active_user
 from ..services.image_upload import ImageUploadService
 from ..feature_flags import FeatureFlags
+from botocore.exceptions import ClientError
 import time
 from datetime import datetime
 import csv
@@ -532,17 +533,28 @@ async def check_team_members(current_user: dict = Depends(get_current_active_use
             }
         
         # Check for direct reports (employees who report to current user)
-        # Note: reporting_to is not indexed, so we need to scan
-        # But we can limit the scan to reduce cost
-        reports_scan = await table.scan(
-            FilterExpression="reporting_to = :manager_id",
-            ExpressionAttributeValues={
-                ":manager_id": current_employee_id
-            }
-        )
+        # Use ReportingToIndex GSI for fast query instead of scan
+        try:
+            reports_response = await table.query(
+                IndexName="ReportingToIndex",
+                KeyConditionExpression="reporting_to = :manager_id",
+                ExpressionAttributeValues={
+                    ":manager_id": current_employee_id
+                }
+            )
+            raw_items = reports_response.get("Items", [])
+        except ClientError as e:
+            # Fallback to scan if index doesn't exist yet (for backward compatibility)
+            logger.warning(f"ReportingToIndex not available, falling back to scan: {e}")
+            reports_scan = await table.scan(
+                FilterExpression="reporting_to = :manager_id",
+                ExpressionAttributeValues={
+                    ":manager_id": current_employee_id
+                }
+            )
+            raw_items = reports_scan.get("Items", [])
         
         # Parse and filter out inactive team members (default to active if status missing)
-        raw_items = reports_scan.get("Items", [])
         team_members = []
         for item in raw_items:
             emp = parse_dynamodb_item(item)

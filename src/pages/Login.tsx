@@ -10,6 +10,7 @@ import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { Loader2 } from "lucide-react";
 import { Employee } from "@/hooks/use-employees";
 import { API_BASE_URL } from "@/config/api";
+import { triggerPerformancePreload } from "@/hooks/use-performance-preload";
 
 export default function Login() {
   const [loginClicked, setLoginClicked] = useState(false);
@@ -238,6 +239,40 @@ export default function Login() {
 
     // Wait for API pre-fetching to complete before proceeding
     await preFetchAPIs();
+
+    // Kick off performance data preload in the background so the Performance module is warm
+    try {
+      const cachedEmployees = apiCache.get(CACHE_KEYS.EMPLOYEES) as Employee[] | undefined;
+      const userEmail: string | undefined =
+        (profile && (profile.mail || profile.userPrincipalName))?.toLowerCase();
+
+      if (finalToken && userEmail && cachedEmployees && cachedEmployees.length > 0) {
+        const perfHeaders: HeadersInit = {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${finalToken}`,
+        };
+
+        const getEmployeeGoalsForPreload = async (employeeId: string) => {
+          try {
+            const res = await fetch(`${API_BASE_URL}/goals/employee/${employeeId}`, {
+              headers: perfHeaders,
+            });
+            if (!res.ok) {
+              return [];
+            }
+            const data = await res.json();
+            return Array.isArray(data) ? data : [];
+          } catch {
+            return [];
+          }
+        };
+
+        // Fire-and-forget; actual preload is also guarded against duplicates
+        void triggerPerformancePreload(userEmail, cachedEmployees, getEmployeeGoalsForPreload);
+      }
+    } catch (e) {
+      console.warn("⚠️ Performance preload from login failed:", e);
+    }
 
     // Trigger success transition and navigation/video
     setLoginClicked(true);
