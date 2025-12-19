@@ -172,6 +172,8 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
   const [clarificationRequests, setClarificationRequests] = useState<ClarificationRequest[]>([]);
   const [evidenceLinks, setEvidenceLinks] = useState<string[]>([]);
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [uploadedFileUrls, setUploadedFileUrls] = useState<string[]>([]); // Store uploaded file URLs
+  const [uploadingFiles, setUploadingFiles] = useState(false);
   
   // Notify parent about read-only status
   useEffect(() => {
@@ -660,6 +662,24 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
               setEvidenceFiles([]);
             }
             
+            // Restore uploaded file URLs from metadata or attachments
+            if (meta.uploadedFileUrls && Array.isArray(meta.uploadedFileUrls)) {
+              setUploadedFileUrls(meta.uploadedFileUrls);
+            } else if (review.attachments && Array.isArray(review.attachments)) {
+              // Extract file URLs from attachments (filter out Google Drive links)
+              const fileUrls = review.attachments.filter((url: string) => 
+                url && !url.includes('drive.google.com') && !url.includes('docs.google.com')
+              );
+              setUploadedFileUrls(fileUrls);
+              // Extract Google Drive links that aren't already in evidenceLinks
+              const driveLinks = review.attachments.filter((url: string) => 
+                url && (url.includes('drive.google.com') || url.includes('docs.google.com'))
+              );
+              if (driveLinks.length > 0 && !meta.evidenceLinks) {
+                setEvidenceLinks(driveLinks);
+              }
+            }
+            
             if (meta.goalAssessments && Array.isArray(meta.goalAssessments)) {
             const mergeGoals = (source: GoalAssessment[]) => {
               return source.map(goal => {
@@ -956,6 +976,7 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
         signature,
         evidenceLinks,
         evidenceFiles: evidenceFiles.map(f => ({ name: f.name, size: f.size, type: f.type })),
+        uploadedFileUrls, // Store uploaded file URLs
         status: isResubmissionAfterClarification ? 'clarification_responded' : 'self_submitted',
         // Mark clarification requests as responded
         clarificationRequests: clarificationRequests.map(req => ({
@@ -1039,17 +1060,98 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
     await handleSubmit();
   };
 
-  const handleAddFinalEvidenceLink = () => {
+  const handleAddFinalEvidenceLink = async () => {
     const link = prompt("Enter Google Drive link:");
     if (link) {
-      setEvidenceLinks([...evidenceLinks, link]);
+      // Validate Google Drive link format
+      const driveLinkPattern = /^https?:\/\/(drive\.google\.com|docs\.google\.com)/;
+      if (!driveLinkPattern.test(link.trim())) {
+        toast({
+          title: "Invalid Link",
+          description: "Please enter a valid Google Drive link",
+          variant: "destructive"
+        });
+        return;
+      }
+      setEvidenceLinks([...evidenceLinks, link.trim()]);
     }
   };
 
-  const handleFinalFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFinalFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files) {
-      setEvidenceFiles([...evidenceFiles, ...Array.from(files)]);
+    if (!files || files.length === 0) return;
+    
+    if (!employeeInfo?.id || !reviewCycle) {
+      toast({
+        title: "Error",
+        description: "Missing employee or cycle information",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    try {
+      setUploadingFiles(true);
+      const fileArray = Array.from(files);
+      const uploadedUrls: string[] = [];
+      
+      // Upload each file
+      for (const file of fileArray) {
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('employee_id', employeeInfo.id);
+          if (activeReviewId) {
+            formData.append('review_id', activeReviewId);
+          }
+          
+          // Extract cycle year from review cycle
+          const cycleYearMatch = reviewCycle.name?.match(/\d{4}/);
+          const cycleYear = cycleYearMatch ? cycleYearMatch[0] : new Date().getFullYear().toString();
+          formData.append('cycle_year', cycleYear);
+          
+          const response = await authenticatedFetch(`${API_BASE_URL}/reviews/upload-attachment`, {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: 'Failed to upload file' }));
+            throw new Error(errorData?.detail || `Failed to upload ${file.name}`);
+          }
+          
+          const data = await response.json();
+          uploadedUrls.push(data.url);
+        } catch (error) {
+          console.error(`Error uploading file ${file.name}:`, error);
+          toast({
+            title: "Upload Failed",
+            description: `Failed to upload ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            variant: "destructive"
+          });
+        }
+      }
+      
+      // Update state with uploaded URLs
+      if (uploadedUrls.length > 0) {
+        setUploadedFileUrls([...uploadedFileUrls, ...uploadedUrls]);
+        toast({
+          title: "Success",
+          description: `Successfully uploaded ${uploadedUrls.length} file(s)`
+        });
+      }
+      
+      // Clear file input
+      e.target.value = '';
+    } catch (error) {
+      console.error('Error in file upload:', error);
+      toast({
+        title: "Error",
+        description: "Failed to upload files",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingFiles(false);
     }
   };
 
@@ -1255,6 +1357,9 @@ export function EmployeeSelfAssessment(props: EmployeeSelfAssessmentProps = {}) 
           setEvidenceLinks={setEvidenceLinks}
           evidenceFiles={evidenceFiles}
           setEvidenceFiles={setEvidenceFiles}
+          uploadedFileUrls={uploadedFileUrls}
+          setUploadedFileUrls={setUploadedFileUrls}
+          uploadingFiles={uploadingFiles}
           handleAddFinalEvidenceLink={handleAddFinalEvidenceLink}
           handleFinalFileUpload={handleFinalFileUpload}
           onBack={() => setActiveSection('home')}
@@ -1305,6 +1410,9 @@ interface SelfAssessmentFormProps {
   setEvidenceLinks: (links: string[]) => void;
   evidenceFiles: File[];
   setEvidenceFiles: (files: File[]) => void;
+  uploadedFileUrls: string[];
+  setUploadedFileUrls: (urls: string[]) => void;
+  uploadingFiles: boolean;
   handleAddFinalEvidenceLink: () => void;
   handleFinalFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onBack: () => void;
@@ -1338,6 +1446,9 @@ function SelfAssessmentForm({
   setEvidenceLinks,
   evidenceFiles = [],
   setEvidenceFiles,
+  uploadedFileUrls = [],
+  setUploadedFileUrls,
+  uploadingFiles = false,
   handleAddFinalEvidenceLink,
   handleFinalFileUpload,
   onBack,
@@ -2139,18 +2250,18 @@ function SelfAssessmentForm({
                         multiple
                         onChange={handleFinalFileUpload}
                         className="hidden"
-                        disabled={readOnly}
+                        disabled={readOnly || uploadingFiles}
                       />
                       <Button
                         variant="outline"
                         size="sm"
                         asChild
                         className="hover:bg-primary/10"
-                        disabled={readOnly}
+                        disabled={readOnly || uploadingFiles}
                       >
                         <span>
                           <Upload className="h-4 w-4 mr-2" />
-                          Upload Files
+                          {uploadingFiles ? 'Uploading...' : 'Upload Files'}
                         </span>
                       </Button>
                     </label>
@@ -2184,13 +2295,44 @@ function SelfAssessmentForm({
                       {evidenceFiles.map((file, idx) => (
                         <div key={idx} className="flex items-center gap-2 p-2 bg-background/50 rounded border border-border/50">
                           <FileText className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm flex-1 truncate">{file.name}</span>
+                          <span className="text-sm flex-1 truncate">{file.name} {uploadingFiles && '(uploading...)'}</span>
                           {!readOnly && (
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => {
                                 setEvidenceFiles(evidenceFiles.filter((_, i) => i !== idx));
+                              }}
+                              className="h-6 w-6 p-0"
+                              disabled={uploadingFiles}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {uploadedFileUrls && uploadedFileUrls.length > 0 && (
+                    <div className="space-y-2">
+                      {uploadedFileUrls.map((url, idx) => (
+                        <div key={idx} className="flex items-center gap-2 p-2 bg-background/50 rounded border border-border/50">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <a 
+                            href={url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary hover:underline flex-1 truncate"
+                          >
+                            {url.split('/').pop() || 'Uploaded File'}
+                          </a>
+                          {!readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setUploadedFileUrls(uploadedFileUrls.filter((_, i) => i !== idx));
                               }}
                               className="h-6 w-6 p-0"
                             >

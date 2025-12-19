@@ -93,3 +93,22 @@ class DashboardStats(BaseModel):
     completedReviews: int = Field(..., description="Number of completed reviews")
     totalEmployees: int = Field(..., description="Total number of employees")
 
+
+class CompletionTrendPoint(BaseModel):
+    week: str = Field(..., description="Week identifier (e.g., 'Week 1', 'Week 2')")
+    completed: int = Field(..., description="Number of completed reviews in this period")
+    pending: int = Field(..., description="Number of pending reviews in this period")
+
+
+class RatingDistributionPoint(BaseModel):
+    rating: int = Field(..., description="Rating value (1-5)")
+    count: int = Field(..., description="Number of reviews with this rating")
+    percentage: float = Field(..., description="Percentage of total reviews with this rating")
+
+
+class TeamPerformancePoint(BaseModel):
+    team: str = Field(..., description="Team name (manager/director name)")
+    completionRate: float = Field(..., description="Completion rate percentage (0-100)")
+    averageRating: float = Field(..., description="Average rating (1-5)")
+    employees: int = Field(..., description="Number of employees in the team")
+

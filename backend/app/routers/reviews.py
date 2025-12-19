@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, Tuple, List
 import time
 import csv
 import io
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile, Form
 from fastapi.responses import Response
 from boto3.dynamodb.conditions import Key, Attr, And
 from botocore.exceptions import ClientError
@@ -19,6 +19,9 @@ from ..models.review import (
     ReviewInDB,
     ReviewStats,
     DashboardStats,
+    CompletionTrendPoint,
+    RatingDistributionPoint,
+    TeamPerformancePoint,
 )
 from ..database_dynamodb import (
     get_reviews_table,
@@ -32,6 +35,7 @@ from ..database_dynamodb import (
     generate_id,
 )
 from ..security import get_current_active_user
+from ..services.s3_service import s3_service
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,12 @@ _cycles_cache = {
 
 # Cache for reviews queries without employeeId/reviewerId (TTL: 2 minutes)
 _reviews_query_cache = {}
+
+# Cache for completion trend (TTL: 2 minutes)
+_completion_trend_cache = {}
+
+# Cache for rating distribution (TTL: 2 minutes)
+_rating_distribution_cache = {}
 
 CYCLE_PK_PREFIX = "CYCLE#"
 REVIEW_SK_PREFIX = "REVIEW#"
@@ -818,7 +828,7 @@ async def get_dashboard_stats(
             return count
         
         # Helper function to process reviews table
-        # Optimized to use ReviewTypeIndex for manager reviews
+        # Optimized to use ReviewTypeIndex for manager reviews with ProjectionExpression
         async def process_reviews_table():
             """Process reviews table to get completed reviews and ratings. Uses ReviewTypeIndex for efficiency."""
             reviews_table = await get_reviews_table()
@@ -828,6 +838,7 @@ async def get_dashboard_stats(
             ratings_count = 0
             
             # Use ReviewTypeIndex to query manager reviews directly (more efficient than scanning)
+            # Use ProjectionExpression to only fetch needed fields (reduces data transfer)
             try:
                 # Query manager reviews using ReviewTypeIndex
                 last_evaluated_key = None
@@ -835,7 +846,11 @@ async def get_dashboard_stats(
                     query_kwargs = {
                         "IndexName": "ReviewTypeIndex",
                         "KeyConditionExpression": Key("reviewType").eq("manager"),
-                        "FilterExpression": Attr("submittedAt").exists()  # Only submitted reviews
+                        "FilterExpression": Attr("submittedAt").exists(),  # Only submitted reviews
+                        "ProjectionExpression": "submittedAt, #metadata, ratings",  # Only fetch needed fields
+                        "ExpressionAttributeNames": {
+                            "#metadata": "metadata"
+                        }
                     }
                     if last_evaluated_key:
                         query_kwargs["ExclusiveStartKey"] = last_evaluated_key
@@ -993,6 +1008,707 @@ async def get_dashboard_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error getting dashboard statistics",
+        ) from exc
+
+
+@router.get("/dashboard/completion-trend", response_model=List[CompletionTrendPoint])
+async def get_completion_trend(
+    cycleYear: Optional[str] = Query(None, description="Optional: filter by cycle year. If not provided, uses current active cycle."),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Get completion trend data showing review completion progress over time.
+    Returns weekly data points with completed and pending counts.
+    Optimized with caching and efficient indexing.
+    """
+    del current_user
+    
+    # Validate cycleYear format if provided
+    if cycleYear and not cycleYear.isdigit() or (cycleYear and len(cycleYear) != 4):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid cycleYear format. Must be a 4-digit year (e.g., 2025)"
+        )
+    
+    # Check cache first
+    cache_key = f"completion_trend_{cycleYear or 'current'}"
+    current_time = time.time()
+    if cache_key in _completion_trend_cache:
+        cached_data, cached_timestamp = _completion_trend_cache[cache_key]
+        if current_time - cached_timestamp < 120:  # 2 minute TTL
+            logger.info(f"Returning cached completion trend for {cache_key}")
+            return cached_data
+    
+    try:
+        reviews_table = await get_reviews_table()
+        drafts_table = await get_review_drafts_table()
+        cycles_table = await get_cycles_table()
+        
+        # Determine cycle year
+        target_cycle_year = cycleYear
+        if not target_cycle_year:
+            # Get current active cycle
+            last_evaluated_key = None
+            active_cycles = []
+            while True:
+                scan_kwargs = {}
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                response = await cycles_table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    if parsed.get("status") in ["open", "active"]:
+                        active_cycles.append(parsed)
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+            
+            if active_cycles:
+                # Sort by year descending and take the most recent
+                active_cycles.sort(key=lambda x: x.get("year", ""), reverse=True)
+                target_cycle_year = active_cycles[0].get("year")
+                cycle_start_date = active_cycles[0].get("startDate")
+            else:
+                # Fallback: use current year
+                target_cycle_year = datetime.now().strftime("%Y")
+                cycle_start_date = None
+        else:
+            # Get cycle details for start date
+            try:
+                response = await cycles_table.get_item(Key={"year": target_cycle_year})
+                if "Item" in response:
+                    cycle_data = parse_dynamodb_item(response["Item"])
+                    cycle_start_date = cycle_data.get("startDate")
+                else:
+                    cycle_start_date = None
+            except:
+                cycle_start_date = None
+        
+        # Parse cycle start date or use current date as fallback
+        if cycle_start_date:
+            try:
+                cycle_start = datetime.fromisoformat(cycle_start_date.replace('Z', '+00:00'))
+            except:
+                cycle_start = datetime.now(timezone.utc)
+        else:
+            cycle_start = datetime.now(timezone.utc)
+        
+        # Calculate 4 weeks from cycle start
+        weeks = []
+        for week_num in range(1, 5):
+            week_start = cycle_start + timedelta(weeks=week_num - 1)
+            week_end = cycle_start + timedelta(weeks=week_num)
+            weeks.append({
+                "week": f"Week {week_num}",
+                "start": week_start,
+                "end": week_end,
+                "completed": 0,
+                "pending": 0
+            })
+        
+        # Get all manager reviews (completed) for the cycle
+        # Use ProjectionExpression to only fetch submittedAt (reduces data transfer significantly)
+        try:
+            last_evaluated_key = None
+            while True:
+                query_kwargs = {
+                    "IndexName": "ReviewTypeIndex",
+                    "KeyConditionExpression": Key("reviewType").eq("manager"),
+                    "FilterExpression": Attr("cycleYear").eq(target_cycle_year) & Attr("submittedAt").exists(),
+                    "ProjectionExpression": "submittedAt, cycleYear"  # Only fetch needed fields
+                }
+                if last_evaluated_key:
+                    query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                
+                response = await reviews_table.query(**query_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    submitted_at = parsed.get("submittedAt")
+                    if submitted_at:
+                        try:
+                            submit_date = datetime.fromisoformat(submitted_at.replace('Z', '+00:00'))
+                            # Find which week this belongs to
+                            for week in weeks:
+                                if week["start"] <= submit_date < week["end"]:
+                                    week["completed"] += 1
+                                    break
+                        except:
+                            pass
+                
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+        except ClientError:
+            # Fallback to scan if index doesn't exist
+            last_evaluated_key = None
+            while True:
+                scan_kwargs = {
+                    "FilterExpression": Attr("cycleYear").eq(target_cycle_year) & Attr("reviewType").eq("manager") & Attr("submittedAt").exists()
+                }
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                
+                response = await reviews_table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    submitted_at = parsed.get("submittedAt")
+                    if submitted_at:
+                        try:
+                            submit_date = datetime.fromisoformat(submitted_at.replace('Z', '+00:00'))
+                            for week in weeks:
+                                if week["start"] <= submit_date < week["end"]:
+                                    week["completed"] += 1
+                                    break
+                        except:
+                            pass
+                
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+        
+        # Get total employees count for the cycle to calculate pending
+        # Use COUNT projection for efficiency (no need to fetch full items)
+        employees_table = await get_employees_table()
+        total_employees = 0
+        last_evaluated_key = None
+        while True:
+            scan_kwargs = {
+                "FilterExpression": Attr("status").ne("inactive"),
+                "Select": "COUNT"  # Only return count, not full items
+            }
+            if last_evaluated_key:
+                scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+            response = await employees_table.scan(**scan_kwargs)
+            total_employees += response.get("Count", 0)
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                break
+        
+        # Calculate pending for each week (total employees - completed up to that week)
+        cumulative_completed = 0
+        for week in weeks:
+            cumulative_completed += week["completed"]
+            week["pending"] = max(0, total_employees - cumulative_completed)
+        
+        # Return in expected format
+        result = [
+            CompletionTrendPoint(
+                week=w["week"],
+                completed=w["completed"],
+                pending=w["pending"]
+            )
+            for w in weeks
+        ]
+        
+        # Cache the result
+        _completion_trend_cache[cache_key] = (result, current_time)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error getting completion trend")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get completion trend data",
+        ) from exc
+
+
+@router.get("/dashboard/rating-distribution", response_model=List[RatingDistributionPoint])
+async def get_rating_distribution(
+    cycleYear: Optional[str] = Query(None, description="Optional: filter by cycle year. If not provided, uses all cycles."),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Get rating distribution data showing distribution of performance ratings (1-5).
+    Returns count and percentage for each rating level.
+    Optimized with caching and efficient indexing.
+    """
+    del current_user
+    
+    # Validate cycleYear format if provided
+    if cycleYear and (not cycleYear.isdigit() or len(cycleYear) != 4):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid cycleYear format. Must be a 4-digit year (e.g., 2025)"
+        )
+    
+    # Check cache first
+    cache_key = f"rating_distribution_{cycleYear or 'all'}"
+    current_time = time.time()
+    if cache_key in _rating_distribution_cache:
+        cached_data, cached_timestamp = _rating_distribution_cache[cache_key]
+        if current_time - cached_timestamp < 120:  # 2 minute TTL
+            logger.info(f"Returning cached rating distribution for {cache_key}")
+            return cached_data
+    
+    try:
+        reviews_table = await get_reviews_table()
+        
+        # Initialize rating counts
+        rating_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        total_reviews = 0
+        
+        # Query manager reviews with ratings
+        # Use ProjectionExpression to only fetch rating fields (reduces data transfer significantly)
+        try:
+            last_evaluated_key = None
+            while True:
+                # Build filter expression
+                filter_expr = Attr("submittedAt").exists()
+                if cycleYear:
+                    filter_expr = filter_expr & Attr("cycleYear").eq(cycleYear)
+                
+                query_kwargs = {
+                    "IndexName": "ReviewTypeIndex",
+                    "KeyConditionExpression": Key("reviewType").eq("manager"),
+                    "FilterExpression": filter_expr,
+                    "ProjectionExpression": "#metadata, ratings, cycleYear",  # Only fetch needed fields
+                    "ExpressionAttributeNames": {
+                        "#metadata": "metadata"
+                    }
+                }
+                
+                if last_evaluated_key:
+                    query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                
+                response = await reviews_table.query(**query_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    
+                    # Extract rating from metadata.finalRating.overallRating or ratings.overall
+                    metadata = parsed.get("metadata", {})
+                    final_rating = metadata.get("finalRating", {})
+                    overall_rating = final_rating.get("overallRating")
+                    
+                    if overall_rating is None:
+                        ratings_obj = parsed.get("ratings", {})
+                        overall_rating = ratings_obj.get("overall")
+                    
+                    if overall_rating is not None:
+                        try:
+                            rating_value = float(overall_rating)
+                            if 1 <= rating_value <= 5:
+                                # Round to nearest integer
+                                rating_int = int(round(rating_value))
+                                rating_counts[rating_int] += 1
+                                total_reviews += 1
+                        except (ValueError, TypeError):
+                            pass
+                
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+        except ClientError:
+            # Fallback to scan if index doesn't exist
+            last_evaluated_key = None
+            while True:
+                # Build filter expression using & operator
+                filter_expr = Attr("reviewType").eq("manager") & Attr("submittedAt").exists()
+                if cycleYear:
+                    filter_expr = filter_expr & Attr("cycleYear").eq(cycleYear)
+                
+                scan_kwargs = {
+                    "FilterExpression": filter_expr,
+                    "ProjectionExpression": "#metadata, ratings, cycleYear",  # Only fetch needed fields
+                    "ExpressionAttributeNames": {
+                        "#metadata": "metadata"
+                    }
+                }
+                
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                
+                response = await reviews_table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    
+                    metadata = parsed.get("metadata", {})
+                    final_rating = metadata.get("finalRating", {})
+                    overall_rating = final_rating.get("overallRating")
+                    
+                    if overall_rating is None:
+                        ratings_obj = parsed.get("ratings", {})
+                        overall_rating = ratings_obj.get("overall")
+                    
+                    if overall_rating is not None:
+                        try:
+                            rating_value = float(overall_rating)
+                            if 1 <= rating_value <= 5:
+                                rating_int = int(round(rating_value))
+                                rating_counts[rating_int] += 1
+                                total_reviews += 1
+                        except (ValueError, TypeError):
+                            pass
+                
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+        
+        # Calculate percentages and return in expected format (5 to 1 order)
+        result = []
+        for rating in [5, 4, 3, 2, 1]:
+            count = rating_counts[rating]
+            percentage = (count / total_reviews * 100) if total_reviews > 0 else 0.0
+            result.append(RatingDistributionPoint(
+                rating=rating,
+                count=count,
+                percentage=round(percentage, 1)
+            ))
+        
+        # Cache the result
+        _rating_distribution_cache[cache_key] = (result, current_time)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error getting rating distribution")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get rating distribution data",
+        ) from exc
+
+
+@router.get("/dashboard/team-performance", response_model=List[TeamPerformancePoint])
+async def get_team_performance(
+    cycleYear: Optional[str] = Query(None, description="Optional: filter by cycle year. If not provided, uses current active cycle."),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Get team performance data showing completion rates and average ratings by team/director.
+    Groups employees by their director (traversing up the reporting chain) and calculates metrics.
+    """
+    del current_user
+    
+    try:
+        employees_table = await get_employees_table()
+        reviews_table = await get_reviews_table()
+        cycles_table = await get_cycles_table()
+        
+        # Determine cycle year
+        target_cycle_year = cycleYear
+        if not target_cycle_year:
+            # Get current active cycle
+            last_evaluated_key = None
+            active_cycles = []
+            while True:
+                scan_kwargs = {}
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                response = await cycles_table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    if parsed.get("status") in ["open", "active"]:
+                        active_cycles.append(parsed)
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+            
+            if active_cycles:
+                active_cycles.sort(key=lambda x: x.get("year", ""), reverse=True)
+                target_cycle_year = active_cycles[0].get("year")
+            else:
+                target_cycle_year = datetime.now().strftime("%Y")
+        
+        # Fetch all active employees
+        employees = []
+        employee_map = {}  # {employee_id: employee}
+        last_evaluated_key = None
+        while True:
+            scan_kwargs = {
+                "FilterExpression": Attr("status").ne("inactive")
+            }
+            if last_evaluated_key:
+                scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+            response = await employees_table.scan(**scan_kwargs)
+            for item in response.get("Items", []):
+                parsed = parse_dynamodb_item(item)
+                employee_id = parsed.get("id")
+                if employee_id:
+                    employees.append(parsed)
+                    employee_map[employee_id] = parsed
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                break
+        
+        # Find all directors (employees with "Director" in their position)
+        directors = []
+        for emp in employees:
+            position = (emp.get("position") or "").lower()
+            if "director" in position:
+                directors.append(emp)
+        
+        # Helper function to find the director an employee reports to (directly or indirectly)
+        def find_director(employee_id: str, visited: set = None) -> Optional[str]:
+            if visited is None:
+                visited = set()
+            if employee_id in visited:
+                return None  # Prevent circular references
+            visited.add(employee_id)
+            
+            employee = employee_map.get(employee_id)
+            if not employee or not employee.get("reporting_to"):
+                return None
+            
+            manager_id = employee.get("reporting_to")
+            manager = employee_map.get(manager_id)
+            if not manager:
+                return None
+            
+            # Check if manager is a director
+            manager_position = (manager.get("position") or "").lower()
+            if "director" in manager_position:
+                return manager_id
+            
+            # Recursively check up the chain
+            return find_director(manager_id, visited)
+        
+        # Group employees by their director
+        teams_by_director = {}  # {director_id: {director: emp, employees: [emp_ids]}}
+        
+        for director in directors:
+            director_id = director.get("id")
+            if director_id:
+                teams_by_director[director_id] = {
+                    "director": director,
+                    "employees": []
+                }
+        
+        # Assign employees to their directors
+        for emp in employees:
+            # Skip directors themselves
+            position = (emp.get("position") or "").lower()
+            if "director" in position:
+                continue
+            
+            # Find which director this employee reports to
+            director_id = find_director(emp.get("id"))
+            if director_id and director_id in teams_by_director:
+                teams_by_director[director_id]["employees"].append(emp.get("id"))
+        
+        # Fetch all manager reviews for the cycle to calculate metrics
+        manager_reviews_by_employee = {}  # {employee_id: {rating, submitted}}
+        try:
+            last_evaluated_key = None
+            while True:
+                query_kwargs = {
+                    "IndexName": "ReviewTypeIndex",
+                    "KeyConditionExpression": Key("reviewType").eq("manager"),
+                    "FilterExpression": And(
+                        Attr("cycleYear").eq(target_cycle_year),
+                        Attr("submittedAt").exists()
+                    )
+                }
+                if last_evaluated_key:
+                    query_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                
+                response = await reviews_table.query(**query_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    employee_id = parsed.get("employeeId")
+                    
+                    if employee_id:
+                        # Extract rating
+                        metadata = parsed.get("metadata", {})
+                        final_rating = metadata.get("finalRating", {})
+                        overall_rating = final_rating.get("overallRating")
+                        
+                        if overall_rating is None:
+                            ratings_obj = parsed.get("ratings", {})
+                            overall_rating = ratings_obj.get("overall")
+                        
+                        if overall_rating is not None:
+                            try:
+                                rating_value = float(overall_rating)
+                                if 1 <= rating_value <= 5:
+                                    manager_reviews_by_employee[employee_id] = {
+                                        "rating": rating_value,
+                                        "submitted": True
+                                    }
+                            except (ValueError, TypeError):
+                                pass
+                        else:
+                            # Review exists but no rating
+                            manager_reviews_by_employee[employee_id] = {
+                                "rating": None,
+                                "submitted": True
+                            }
+                
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+        except ClientError:
+            # Fallback to scan if index doesn't exist
+            last_evaluated_key = None
+            while True:
+                scan_kwargs = {
+                    "FilterExpression": Attr("cycleYear").eq(target_cycle_year) & Attr("reviewType").eq("manager") & Attr("submittedAt").exists()
+                }
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                
+                response = await reviews_table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    employee_id = parsed.get("employeeId")
+                    
+                    if employee_id:
+                        metadata = parsed.get("metadata", {})
+                        final_rating = metadata.get("finalRating", {})
+                        overall_rating = final_rating.get("overallRating")
+                        
+                        if overall_rating is None:
+                            ratings_obj = parsed.get("ratings", {})
+                            overall_rating = ratings_obj.get("overall")
+                        
+                        if overall_rating is not None:
+                            try:
+                                rating_value = float(overall_rating)
+                                if 1 <= rating_value <= 5:
+                                    manager_reviews_by_employee[employee_id] = {
+                                        "rating": rating_value,
+                                        "submitted": True
+                                    }
+                            except (ValueError, TypeError):
+                                pass
+                        else:
+                            manager_reviews_by_employee[employee_id] = {
+                                "rating": None,
+                                "submitted": True
+                            }
+                
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+        
+        # Calculate metrics for each team
+        team_performance = []
+        for director_id, team_data in teams_by_director.items():
+            director = team_data["director"]
+            employee_ids = team_data["employees"]
+            
+            if len(employee_ids) == 0:
+                continue  # Skip teams with no members
+            
+            # Calculate completion rate and average rating
+            completed_count = 0
+            ratings_sum = 0.0
+            ratings_count = 0
+            
+            for emp_id in employee_ids:
+                review_data = manager_reviews_by_employee.get(emp_id)
+                if review_data and review_data.get("submitted"):
+                    completed_count += 1
+                    rating = review_data.get("rating")
+                    if rating is not None:
+                        ratings_sum += rating
+                        ratings_count += 1
+            
+            completion_rate = (completed_count / len(employee_ids) * 100) if len(employee_ids) > 0 else 0.0
+            average_rating = (ratings_sum / ratings_count) if ratings_count > 0 else 0.0
+            
+            director_name = director.get("name") or "Unknown Director"
+            
+            team_performance.append({
+                "team": director_name,
+                "completionRate": round(completion_rate, 1),
+                "averageRating": round(average_rating, 1),
+                "employees": len(employee_ids)
+            })
+        
+        # Sort by completion rate descending
+        team_performance.sort(key=lambda x: x["completionRate"], reverse=True)
+        
+        # Return in expected format
+        return [
+            TeamPerformancePoint(
+                team=t["team"],
+                completionRate=t["completionRate"],
+                averageRating=t["averageRating"],
+                employees=t["employees"]
+            )
+            for t in team_performance
+        ]
+        
+    except Exception as exc:
+        logger.exception("Error getting team performance")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get team performance data",
+        ) from exc
+
+
+@router.post("/upload-attachment")
+async def upload_review_attachment(
+    file: UploadFile = File(...),
+    employee_id: str = Form(...),
+    review_id: Optional[str] = Form(None),
+    cycle_year: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Upload a file attachment for a review.
+    Returns the S3 URL of the uploaded file.
+    """
+    try:
+        # Validate inputs
+        if not employee_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="employee_id is required"
+            )
+        
+        # If cycle_year not provided, try to get from current active cycle
+        if not cycle_year:
+            cycles_table = await get_cycles_table()
+            last_evaluated_key = None
+            active_cycles = []
+            while True:
+                scan_kwargs = {}
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                response = await cycles_table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    if parsed.get("status") in ["open", "active"]:
+                        active_cycles.append(parsed)
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+            
+            if active_cycles:
+                active_cycles.sort(key=lambda x: x.get("year", ""), reverse=True)
+                cycle_year = active_cycles[0].get("year")
+            else:
+                cycle_year = datetime.now().strftime("%Y")
+        
+        # Upload file to S3
+        attachment_url = await s3_service.upload_attachment(
+            file=file,
+            employee_id=employee_id,
+            review_id=review_id,
+            cycle_year=cycle_year
+        )
+        
+        logger.info(f"Uploaded attachment for employee {employee_id}, review {review_id}, URL: {attachment_url}")
+        
+        return {
+            "url": attachment_url,
+            "filename": file.filename,
+            "size": file.size,
+            "content_type": file.content_type
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error uploading review attachment")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload attachment",
         ) from exc
 
 

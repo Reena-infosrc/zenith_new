@@ -16,8 +16,11 @@ class S3Service:
         self.bucket_name = os.getenv("S3_BUCKET_NAME", "zenith-hr-pulse-photos")
         self.region = os.getenv("S3_BUCKET_REGION", "us-east-1")
         self.photos_prefix = os.getenv("S3_PHOTOS_PREFIX", "profile-photos/")
+        self.attachments_prefix = os.getenv("S3_ATTACHMENTS_PREFIX", "review-attachments/")
         self.allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+        self.allowed_attachment_extensions = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".zip", ".rar"}
         self.max_file_size = 5 * 1024 * 1024  # 5MB
+        self.max_attachment_size = 10 * 1024 * 1024  # 10MB for attachments
         # Control whether to use presigned URLs or public URLs
         self.use_presigned_urls = os.getenv("S3_USE_PRESIGNED_URLS", "false").lower() == "true"
     
@@ -199,6 +202,66 @@ class S3Service:
         except Exception as e:
             print(f"Error getting employee photos: {e}")
             return []
+    
+    async def upload_attachment(self, file: UploadFile, employee_id: str = None, review_id: str = None, cycle_year: str = None) -> str:
+        """Upload a review attachment (document/file) to S3 and return its URL"""
+        try:
+            # Validate file extension
+            file_ext = os.path.splitext(file.filename)[1].lower()
+            if file_ext not in self.allowed_attachment_extensions:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File type not allowed. Allowed types: {', '.join(self.allowed_attachment_extensions)}"
+                )
+            
+            # Validate file size
+            file_content = await file.read()
+            if len(file_content) > self.max_attachment_size:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File size too large. Maximum size is {self.max_attachment_size / (1024 * 1024)}MB"
+                )
+            
+            # Generate unique filename
+            unique_filename = f"{uuid.uuid4()}{file_ext}"
+            
+            # Create S3 key structure: review-attachments/cycle_year/employee_id/review_id/filename
+            if cycle_year and employee_id and review_id:
+                s3_key = f"{self.attachments_prefix}{cycle_year}/{employee_id}/{review_id}/{unique_filename}"
+            elif cycle_year and employee_id:
+                s3_key = f"{self.attachments_prefix}{cycle_year}/{employee_id}/{unique_filename}"
+            elif employee_id:
+                s3_key = f"{self.attachments_prefix}{employee_id}/{unique_filename}"
+            else:
+                s3_key = f"{self.attachments_prefix}{unique_filename}"
+            
+            # Upload to S3
+            session = aioboto3.Session()
+            async with session.client('s3', region_name=self.region) as s3:
+                await s3.put_object(
+                    Bucket=self.bucket_name,
+                    Key=s3_key,
+                    Body=file_content,
+                    ContentType=file.content_type or 'application/octet-stream',
+                    CacheControl='public, max-age=31536000'
+                )
+            
+            # Return public URL
+            attachment_url = f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
+            return attachment_url
+            
+        except HTTPException as he:
+            raise he
+        except ClientError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to upload attachment to S3: {str(e)}"
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to upload attachment: {str(e)}"
+            )
     
     async def get_employee_photo_url(self, employee_id: str, location: str = None, department: str = None) -> Optional[str]:
         """Get the primary photo URL for an employee (first photo found)"""

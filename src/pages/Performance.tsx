@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useLocation } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { AdminPerformanceView } from "@/components/performance/AdminPerformanceView";
@@ -22,10 +22,12 @@ const pendingViewModeChecks = new Map<string, Promise<ViewMode>>();
 
 export default function Performance() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoadingViewMode, setIsLoadingViewMode] = useState(false);
   const hasCheckedViewMode = useRef(false);
+  const previousPathname = useRef<string | null>(null);
   
   // Get view mode from URL params
   const urlViewMode = searchParams.get('view') as ViewMode | null;
@@ -143,16 +145,88 @@ export default function Performance() {
       }
     };
     
-    // Only check once per mount, unless URL param changes
+    // Check when URL param changes or when component mounts
     if (!hasCheckedViewMode.current) {
       checkTeamMembersAndSetView();
     }
   }, [user?.email, urlViewMode, setSearchParams]);
   
+  // Reset hasCheckedViewMode when navigating to /performance without view param
+  // This handles the case when clicking Performance link from sidebar while on /performance?view=admin
+  useEffect(() => {
+    const currentSearch = location.search;
+    const previousSearch = previousPathname.current?.split('?')[1] || '';
+    const hadViewParam = previousSearch.includes('view=');
+    const hasViewParam = searchParams.has('view');
+    
+    // If we navigated from a URL with view param to one without, reset the flag
+    if (hadViewParam && !hasViewParam && location.pathname === '/performance') {
+      console.log('🔄 View param removed, resetting view mode check');
+      hasCheckedViewMode.current = false;
+      
+      // Trigger the existing check function
+      if (user?.email) {
+        const cachedViewMode = getCachedViewMode(user.email);
+        if (cachedViewMode && ['admin', 'manager', 'user'].includes(cachedViewMode)) {
+          console.log('📦 Using cached view mode after param removal:', cachedViewMode);
+          setViewMode(cachedViewMode);
+          setSearchParams({ view: cachedViewMode }, { replace: true });
+          hasCheckedViewMode.current = true;
+          return;
+        }
+        
+        const cached = viewModeCache.get(user.email);
+        const now = Date.now();
+        if (cached && (now - cached.timestamp < VIEW_MODE_CACHE_TTL)) {
+          console.log('📦 Using session cached view mode after param removal:', cached.viewMode);
+          setViewMode(cached.viewMode);
+          setSearchParams({ view: cached.viewMode }, { replace: true });
+          hasCheckedViewMode.current = true;
+          return;
+        }
+        
+        // Make API call if needed
+        const checkPromise = (async (): Promise<ViewMode> => {
+          try {
+            setIsLoadingViewMode(true);
+            const response = await authenticatedFetch(`${API_BASE_URL}/employees/check-team-members`);
+            if (!response.ok) {
+              return 'user';
+            }
+            const data = await response.json();
+            const suggestedView = data.view_mode as ViewMode;
+            if (suggestedView && ['admin', 'manager', 'user'].includes(suggestedView)) {
+              viewModeCache.set(user.email, { viewMode: suggestedView, timestamp: Date.now() });
+              return suggestedView;
+            }
+            return 'user';
+          } catch (error) {
+            console.error('Error checking team members:', error);
+            return 'user';
+          } finally {
+            setIsLoadingViewMode(false);
+          }
+        })();
+        
+        checkPromise.then(result => {
+          setViewMode(result);
+          setSearchParams({ view: result }, { replace: true });
+          hasCheckedViewMode.current = true;
+        });
+      } else {
+        setViewMode('user');
+        hasCheckedViewMode.current = true;
+      }
+    }
+    
+    previousPathname.current = location.pathname + location.search;
+  }, [location.pathname, location.search, searchParams, user?.email, setSearchParams]);
+  
   // Update view mode when URL params change (manual selection)
   useEffect(() => {
     if (urlViewMode && ['admin', 'manager', 'user'].includes(urlViewMode)) {
       setViewMode(urlViewMode);
+      hasCheckedViewMode.current = true; // Mark as checked when explicitly set via URL
     }
   }, [urlViewMode]);
   

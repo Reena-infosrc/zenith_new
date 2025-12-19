@@ -4,7 +4,6 @@ import {
   TrendingUp,
   Users,
   CheckCircle2,
-  Clock,
   Download,
   Calendar,
   Target,
@@ -76,22 +75,14 @@ export function PerformanceDashboard() {
     completedReviews: 0
   });
 
-  const [ratingDistribution, setRatingDistribution] = useState<RatingDistribution[]>([
-    { rating: 5, count: 25, percentage: 25 },
-    { rating: 4, count: 45, percentage: 45 },
-    { rating: 3, count: 30, percentage: 30 },
-    { rating: 2, count: 5, percentage: 5 },
-    { rating: 1, count: 0, percentage: 0 }
-  ]);
+  const [ratingDistribution, setRatingDistribution] = useState<RatingDistribution[]>([]);
+  const [loadingRatingDistribution, setLoadingRatingDistribution] = useState(false);
 
   const [teamPerformance, setTeamPerformance] = useState<TeamPerformance[]>([]);
+  const [loadingTeamPerformance, setLoadingTeamPerformance] = useState(false);
 
-  const [completionTrend, setCompletionTrend] = useState([
-    { week: 'Week 1', completed: 20, pending: 130 },
-    { week: 'Week 2', completed: 45, pending: 105 },
-    { week: 'Week 3', completed: 75, pending: 75 },
-    { week: 'Week 4', completed: 105, pending: 45 }
-  ]);
+  const [completionTrend, setCompletionTrend] = useState<Array<{week: string, completed: number, pending: number}>>([]);
+  const [loadingCompletionTrend, setLoadingCompletionTrend] = useState(false);
 
   // Review cycles for dashboard filter
   const [dashboardCycles, setDashboardCycles] = useState<DashboardCycle[]>([]);
@@ -144,12 +135,89 @@ export function PerformanceDashboard() {
     }
   }, [toast]);
 
+  // Fetch completion trend data
+  const fetchCompletionTrend = useCallback(async () => {
+    try {
+      setLoadingCompletionTrend(true);
+      const cycleYear = selectedCycle && selectedCycle !== 'current' && selectedCycle !== 'none' && selectedCycle !== 'loading' 
+        ? selectedCycle 
+        : dashboardCycles[0]?.year;
+      
+      const url = cycleYear 
+        ? `${API_BASE_URL}/reviews/dashboard/completion-trend?cycleYear=${encodeURIComponent(cycleYear)}`
+        : `${API_BASE_URL}/reviews/dashboard/completion-trend`;
+      
+      const response = await authenticatedFetch(url, { method: 'GET' });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch completion trend');
+      }
+      
+      const data = await response.json();
+      setCompletionTrend(data || []);
+    } catch (error) {
+      console.error('Error fetching completion trend:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load completion trend data",
+        variant: "destructive"
+      });
+      // Set empty array on error
+      setCompletionTrend([]);
+    } finally {
+      setLoadingCompletionTrend(false);
+    }
+  }, [selectedCycle, dashboardCycles, toast]);
+
+  // Fetch rating distribution data
+  const fetchRatingDistribution = useCallback(async () => {
+    try {
+      setLoadingRatingDistribution(true);
+      const cycleYear = selectedCycle && selectedCycle !== 'current' && selectedCycle !== 'none' && selectedCycle !== 'loading' 
+        ? selectedCycle 
+        : dashboardCycles[0]?.year;
+      
+      const url = cycleYear 
+        ? `${API_BASE_URL}/reviews/dashboard/rating-distribution?cycleYear=${encodeURIComponent(cycleYear)}`
+        : `${API_BASE_URL}/reviews/dashboard/rating-distribution`;
+      
+      const response = await authenticatedFetch(url, { method: 'GET' });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch rating distribution');
+      }
+      
+      const data = await response.json();
+      setRatingDistribution(data || []);
+    } catch (error) {
+      console.error('Error fetching rating distribution:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load rating distribution data",
+        variant: "destructive"
+      });
+      // Set empty array on error
+      setRatingDistribution([]);
+    } finally {
+      setLoadingRatingDistribution(false);
+    }
+  }, [selectedCycle, dashboardCycles, toast]);
+
   // Fetch employees and dashboard stats on mount - only once
   useEffect(() => {
     fetchEmployees();
     fetchDashboardStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty deps - only run once on mount
+
+  // Fetch chart data when cycles are loaded or cycle selection changes
+  useEffect(() => {
+    if (!loadingCycles && dashboardCycles.length > 0) {
+      fetchCompletionTrend();
+      fetchRatingDistribution();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingCycles, dashboardCycles.length, selectedCycle, fetchCompletionTrend, fetchRatingDistribution]);
 
   // Fetch review cycles and keep only currently active ones for the dropdown
   useEffect(() => {
@@ -204,92 +272,47 @@ export function PerformanceDashboard() {
     // We only depend on toast here; selectedCycle is managed inside
   }, [toast]);
 
-  // Calculate team performance by Director
-  useEffect(() => {
-    if (!employees || employees.length === 0) return;
-
-    // Find all directors (employees with "Director" in their position)
-    const directors = employees.filter(emp => {
-      const position = emp.position?.toLowerCase() || '';
-      return position.includes('director');
-    });
-
-    // Create a map for quick employee lookup
-    const employeeMap = new Map(employees.map(emp => [emp.id, emp]));
-
-    // Function to find the director an employee reports to (directly or indirectly)
-    const findDirector = (employeeId: string, visited: Set<string> = new Set()): string | null => {
-      if (visited.has(employeeId)) return null; // Prevent circular references
-      visited.add(employeeId);
-
-      const employee = employeeMap.get(employeeId);
-      if (!employee || !employee.reporting_to) return null;
-
-      const manager = employeeMap.get(employee.reporting_to);
-      if (!manager) return null;
-
-      // Check if manager is a director
-      const managerPosition = manager.position?.toLowerCase() || '';
-      if (managerPosition.includes('director')) {
-        return manager.id;
+  // Fetch team performance data
+  const fetchTeamPerformance = useCallback(async () => {
+    try {
+      setLoadingTeamPerformance(true);
+      const cycleYear = selectedCycle && selectedCycle !== 'current' && selectedCycle !== 'none' && selectedCycle !== 'loading' 
+        ? selectedCycle 
+        : dashboardCycles[0]?.year;
+      
+      const url = cycleYear 
+        ? `${API_BASE_URL}/reviews/dashboard/team-performance?cycleYear=${encodeURIComponent(cycleYear)}`
+        : `${API_BASE_URL}/reviews/dashboard/team-performance`;
+      
+      const response = await authenticatedFetch(url, { method: 'GET' });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch team performance');
       }
-
-      // Recursively check up the chain
-      return findDirector(manager.id, visited);
-    };
-
-    // Group employees by their director
-    const teamsByDirector = new Map<string, { director: typeof directors[0]; employees: typeof employees }>();
-
-    directors.forEach(director => {
-      teamsByDirector.set(director.id, {
-        director,
-        employees: []
+      
+      const data = await response.json();
+      setTeamPerformance(data || []);
+    } catch (error) {
+      console.error('Error fetching team performance:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load team performance data",
+        variant: "destructive"
       });
-    });
+      // Set empty array on error
+      setTeamPerformance([]);
+    } finally {
+      setLoadingTeamPerformance(false);
+    }
+  }, [selectedCycle, dashboardCycles, toast]);
 
-    // Assign employees to their directors
-    employees.forEach(emp => {
-      // Check if employee is a director themselves
-      const position = emp.position?.toLowerCase() || '';
-      if (position.includes('director')) {
-        // Don't add directors to other directors' teams
-        return;
-      }
-
-      // Find which director this employee reports to
-      const directorId = findDirector(emp.id);
-      if (directorId && teamsByDirector.has(directorId)) {
-        teamsByDirector.get(directorId)!.employees.push(emp);
-      }
-    });
-
-    // Calculate performance metrics for each director's team
-    const teamPerformanceData: TeamPerformance[] = Array.from(teamsByDirector.entries())
-      .map(([directorId, teamData]) => {
-        const teamMembers = teamData.employees;
-        const teamSize = teamMembers.length;
-
-        // Mock performance calculations - replace with actual data from performance reviews
-        // For now, using random values based on team size
-        const baseCompletionRate = Math.max(60, 100 - (teamSize * 0.5));
-        const baseRating = 3.5 + (Math.random() * 0.7); // Random rating between 3.5-4.2
-
-        return {
-          team: teamData.director.name,
-          completionRate: Math.round(baseCompletionRate),
-          averageRating: parseFloat(baseRating.toFixed(1)),
-          employees: teamSize
-        };
-      })
-      .filter(team => team.employees > 0) // Only show teams with members
-      .sort((a, b) => b.completionRate - a.completionRate); // Sort by completion rate
-
-    setTeamPerformance(teamPerformanceData.length > 0 ? teamPerformanceData : [
-      // Fallback if no directors found
-      { team: 'General Team', completionRate: 72, averageRating: 3.8, employees: employees.length }
-    ]);
-  }, [employees]);
+  // Fetch team performance when cycles are loaded or cycle selection changes
+  useEffect(() => {
+    if (!loadingCycles && dashboardCycles.length > 0) {
+      fetchTeamPerformance();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingCycles, dashboardCycles.length, selectedCycle, fetchTeamPerformance]);
 
   const handleExport = async () => {
     try {
@@ -414,7 +437,7 @@ export function PerformanceDashboard() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -452,20 +475,6 @@ export function PerformanceDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Pending Reviews</p>
-                <p className="text-2xl font-bold">
-                  {loading ? '...' : stats.pendingReviews}
-                </p>
-              </div>
-              <Clock className="h-8 w-8 text-orange-500/50" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
                 <p className="text-sm text-muted-foreground">Completed</p>
                 <p className="text-2xl font-bold">
                   {loading ? '...' : stats.completedReviews}
@@ -492,17 +501,27 @@ export function PerformanceDashboard() {
             <CardDescription>Review completion progress over time</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={completionTrend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="week" stroke="hsl(var(--muted-foreground))" />
-                <YAxis stroke="hsl(var(--muted-foreground))" />
-                <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))' }} />
-                <Legend />
-                <Bar dataKey="completed" fill="hsl(var(--primary))" name="Completed" />
-                <Bar dataKey="pending" fill="hsl(var(--muted))" name="Pending" />
-              </BarChart>
-            </ResponsiveContainer>
+            {loadingCompletionTrend ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <p className="text-muted-foreground">Loading completion trend...</p>
+              </div>
+            ) : completionTrend.length === 0 ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <p className="text-muted-foreground">No completion trend data available</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={completionTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="week" stroke="hsl(var(--muted-foreground))" />
+                  <YAxis stroke="hsl(var(--muted-foreground))" />
+                  <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))' }} />
+                  <Legend />
+                  <Bar dataKey="completed" fill="hsl(var(--primary))" name="Completed" />
+                  <Bar dataKey="pending" fill="hsl(var(--muted))" name="Pending" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
@@ -516,25 +535,35 @@ export function PerformanceDashboard() {
             <CardDescription>Distribution of performance ratings</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={ratingDistribution}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ rating, percentage }) => `${rating}★ (${percentage}%)`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="count"
-                >
-                  {ratingDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))' }} />
-              </PieChart>
-            </ResponsiveContainer>
+            {loadingRatingDistribution ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <p className="text-muted-foreground">Loading rating distribution...</p>
+              </div>
+            ) : ratingDistribution.length === 0 ? (
+              <div className="flex items-center justify-center h-[300px]">
+                <p className="text-muted-foreground">No rating distribution data available</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={ratingDistribution}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ rating, percentage }) => `${rating}★ (${percentage}%)`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="count"
+                  >
+                    {ratingDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -549,24 +578,34 @@ export function PerformanceDashboard() {
           <CardDescription>Completion rates and average ratings by team</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {teamPerformance.map((team) => (
-              <div key={team.team} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold">{team.team}</span>
-                    <Badge variant="outline">{team.employees} employees</Badge>
-                    <div className="flex items-center gap-1">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <span className="text-sm font-medium">{team.averageRating.toFixed(1)}</span>
+          {loadingTeamPerformance ? (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-muted-foreground">Loading team performance...</p>
+            </div>
+          ) : teamPerformance.length === 0 ? (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-muted-foreground">No team performance data available</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {teamPerformance.map((team) => (
+                <div key={team.team} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold">{team.team}</span>
+                      <Badge variant="outline">{team.employees} employees</Badge>
+                      <div className="flex items-center gap-1">
+                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                        <span className="text-sm font-medium">{team.averageRating.toFixed(1)}</span>
+                      </div>
                     </div>
+                    <span className="text-sm font-medium">{team.completionRate}%</span>
                   </div>
-                  <span className="text-sm font-medium">{team.completionRate}%</span>
+                  <Progress value={team.completionRate} className="h-2" />
                 </div>
-                <Progress value={team.completionRate} className="h-2" />
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
