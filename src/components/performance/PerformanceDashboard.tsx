@@ -87,7 +87,7 @@ export function PerformanceDashboard() {
   // Review cycles for dashboard filter
   const [dashboardCycles, setDashboardCycles] = useState<DashboardCycle[]>([]);
   const [loadingCycles, setLoadingCycles] = useState(false);
-  const [selectedCycle, setSelectedCycle] = useState('current');
+  const [selectedCycle, setSelectedCycle] = useState<string>(''); // Will be set to latest cycle year when cycles load
   const [exporting, setExporting] = useState(false);
 
   const COLORS = ['#4facfe', '#00f2fe', '#42b983', '#ffd93d', '#ff6b6b'];
@@ -139,7 +139,8 @@ export function PerformanceDashboard() {
   const fetchCompletionTrend = useCallback(async () => {
     try {
       setLoadingCompletionTrend(true);
-      const cycleYear = selectedCycle && selectedCycle !== 'current' && selectedCycle !== 'none' && selectedCycle !== 'loading' 
+      // Use selectedCycle if it's a valid year, otherwise use the latest cycle
+      const cycleYear = selectedCycle && selectedCycle !== 'none' && selectedCycle !== 'loading' && selectedCycle !== 'current'
         ? selectedCycle 
         : dashboardCycles[0]?.year;
       
@@ -173,7 +174,8 @@ export function PerformanceDashboard() {
   const fetchRatingDistribution = useCallback(async () => {
     try {
       setLoadingRatingDistribution(true);
-      const cycleYear = selectedCycle && selectedCycle !== 'current' && selectedCycle !== 'none' && selectedCycle !== 'loading' 
+      // Use selectedCycle if it's a valid year, otherwise use the latest cycle
+      const cycleYear = selectedCycle && selectedCycle !== 'none' && selectedCycle !== 'loading' && selectedCycle !== 'current'
         ? selectedCycle 
         : dashboardCycles[0]?.year;
       
@@ -250,11 +252,12 @@ export function PerformanceDashboard() {
 
         setDashboardCycles(activeCycles);
 
-        // Ensure the selected value is valid
+        // Preselect the latest cycle by default (first one in sorted array)
         if (activeCycles.length === 0) {
           setSelectedCycle('none');
-        } else if (selectedCycle === 'none' || !selectedCycle) {
-          setSelectedCycle('current');
+        } else if (selectedCycle === 'none' || !selectedCycle || selectedCycle === 'current') {
+          // Select the latest cycle (first in sorted array)
+          setSelectedCycle(activeCycles[0].year);
         }
       } catch (error) {
         console.error('Error fetching review cycles for dashboard:', error);
@@ -276,7 +279,8 @@ export function PerformanceDashboard() {
   const fetchTeamPerformance = useCallback(async () => {
     try {
       setLoadingTeamPerformance(true);
-      const cycleYear = selectedCycle && selectedCycle !== 'current' && selectedCycle !== 'none' && selectedCycle !== 'loading' 
+      // Use selectedCycle if it's a valid year, otherwise use the latest cycle
+      const cycleYear = selectedCycle && selectedCycle !== 'none' && selectedCycle !== 'loading' && selectedCycle !== 'current'
         ? selectedCycle 
         : dashboardCycles[0]?.year;
       
@@ -326,14 +330,16 @@ export function PerformanceDashboard() {
       }
 
       // Determine which cycle year to export
+      // Use selectedCycle if it's a valid year, otherwise use the latest cycle
       let cycleYear: string | null = null;
-      if (selectedCycle === 'current') {
-        const currentCycle = dashboardCycles[0];
-        if (currentCycle) {
-          cycleYear = currentCycle.year;
-        }
-      } else if (selectedCycle && selectedCycle !== 'none' && selectedCycle !== 'loading') {
+      if (selectedCycle && selectedCycle !== 'none' && selectedCycle !== 'loading' && selectedCycle !== 'current') {
         cycleYear = selectedCycle;
+      } else {
+        // Default to latest cycle
+        const latestCycle = dashboardCycles[0];
+        if (latestCycle) {
+          cycleYear = latestCycle.year;
+        }
       }
 
       if (!cycleYear) {
@@ -415,7 +421,6 @@ export function PerformanceDashboard() {
                 </SelectItem>
               ) : (
                 <>
-                  <SelectItem value="current">Current Cycle</SelectItem>
                   {dashboardCycles.map((cycle) => (
                     <SelectItem key={cycle.id} value={cycle.year}>
                       {cycle.name}
