@@ -301,7 +301,7 @@ def main():
     print("="*60)
     
     # Step 1: Extract emails from CSV file
-    csv_file_path = "/Users/jagadeesh/Documents/zenith-hr-pulse/public/Active emails(Sheet1).csv"
+    csv_file_path = "/Users/jagadeesh/Documents/zenith-hr-pulse/public/Active emails(Sheet2).csv"
     original_indian_emails = extract_emails_from_csv(csv_file_path)
     save_json(original_indian_emails, "Original Indian Employees.json")
     

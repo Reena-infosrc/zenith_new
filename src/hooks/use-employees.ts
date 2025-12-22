@@ -488,8 +488,19 @@ export function useEmployees() {
         }
       });
 
+      // Get authentication token
+      const token = localStorage.getItem('auth_token');
+      
+      // Build headers - don't set Content-Type for FormData, browser will set it with boundary
+      const headers: HeadersInit = {};
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${API_BASE_URL}/employees/`, {  // Use main endpoint
         method: 'POST',
+        headers: headers,
         body: formData, // Use FormData instead of JSON
       });
       
