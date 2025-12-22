@@ -635,9 +635,9 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     id="employeeId"
                     name="employeeId"
                     value={profileData.employeeId || ''} 
-                    onChange={handleChange}
-                    disabled={!isEditing}
-                    className={!isEditing ? "bg-muted" : ""}
+                    disabled={true}
+                    readOnly
+                    className="bg-muted cursor-not-allowed"
                   />
                 </div>
 
@@ -649,9 +649,9 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     name="email"
                     type="email"
                     value={profileData.email || ''} 
-                    onChange={handleChange}
-                    disabled={!isEditing || !canEditBasicInfo}
-                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
+                    disabled={true}
+                    readOnly
+                    className="bg-muted cursor-not-allowed"
                   />
                 </div>
 
@@ -662,9 +662,9 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     id="phone"
                     name="phone"
                     value={profileData.phone || profileData.mobile || ''} 
-                    onChange={handleChange}
-                    disabled={!isEditing || !canEditBasicInfo}
-                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
+                    disabled={true}
+                    readOnly
+                    className="bg-muted cursor-not-allowed"
                   />
                 </div>
 
