@@ -150,6 +150,124 @@ export function useGoals() {
     return requestPromise;
   }, [toast]);
 
+  // Get batch employee goals (optimized for loading multiple employees at once)
+  const getBatchEmployeeGoals = useCallback(async (employeeIds: string[]): Promise<Map<string, Goal[]>> => {
+    if (!employeeIds || employeeIds.length === 0) {
+      return new Map();
+    }
+
+    // Filter out employees we already have cached
+    const uncachedIds: string[] = [];
+    const cachedResults = new Map<string, Goal[]>();
+    
+    for (const employeeId of employeeIds) {
+      const cached = goalsCache.current.get(employeeId);
+      if (cached) {
+        const now = Date.now();
+        const isExpired = (now - cached.timestamp) > CACHE_TTL;
+        if (!isExpired) {
+          cachedResults.set(employeeId, cached.data);
+          continue;
+        }
+      }
+      uncachedIds.push(employeeId);
+    }
+
+    // If all are cached, return immediately
+    if (uncachedIds.length === 0) {
+      return cachedResults;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Call batch endpoint
+      const employeeIdsParam = uncachedIds.join(',');
+      const response = await authenticatedFetch(`${API_BASE_URL}/goals/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}`);
+      
+      if (!response.ok) {
+        // If batch endpoint fails (404 or other error), fallback to individual calls
+        console.warn('Batch endpoint failed, falling back to individual calls');
+        const fallbackResults = new Map(cachedResults);
+        
+        // Fetch goals individually in parallel
+        const individualPromises = uncachedIds.map(async (employeeId) => {
+          try {
+            const goals = await getEmployeeGoals(employeeId, false);
+            return { employeeId, goals };
+          } catch (err) {
+            console.error(`Error fetching goals for ${employeeId}:`, err);
+            return { employeeId, goals: [] };
+          }
+        });
+        
+        const individualResults = await Promise.all(individualPromises);
+        individualResults.forEach(({ employeeId, goals }) => {
+          fallbackResults.set(employeeId, goals);
+        });
+        
+        return fallbackResults;
+      }
+      
+      const data = await response.json();
+      const batchResults = data || {};
+      
+      // Cache all results and combine with cached results
+      const resultMap = new Map(cachedResults);
+      
+      for (const employeeId of uncachedIds) {
+        const goals = batchResults[employeeId] || [];
+        
+        // Cache the result
+        goalsCache.current.set(employeeId, {
+          data: goals,
+          timestamp: Date.now()
+        });
+        
+        resultMap.set(employeeId, goals);
+      }
+      
+      return resultMap;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch batch goals';
+      console.error('Batch goals fetch error:', err);
+      
+      // Fallback to individual calls if batch completely fails
+      console.warn('Falling back to individual goal fetches');
+      const fallbackResults = new Map(cachedResults);
+      
+      try {
+        const individualPromises = uncachedIds.map(async (employeeId) => {
+          try {
+            const goals = await getEmployeeGoals(employeeId, false);
+            return { employeeId, goals };
+          } catch (err) {
+            console.error(`Error fetching goals for ${employeeId}:`, err);
+            return { employeeId, goals: [] };
+          }
+        });
+        
+        const individualResults = await Promise.all(individualPromises);
+        individualResults.forEach(({ employeeId, goals }) => {
+          fallbackResults.set(employeeId, goals);
+        });
+      } catch (fallbackErr) {
+        console.error('Fallback also failed:', fallbackErr);
+        setError(errorMessage);
+        toast({
+          title: "Error",
+          description: "Failed to load some goals. Please try refreshing.",
+          variant: "destructive"
+        });
+      }
+      
+      return fallbackResults;
+    } finally {
+      setLoading(false);
+    }
+  }, [toast, getEmployeeGoals]);
+
   // Get single goal
   const getGoal = useCallback(async (goalId: string): Promise<Goal | null> => {
     try {
@@ -480,6 +598,7 @@ export function useGoals() {
     loading,
     error,
     getEmployeeGoals,
+    getBatchEmployeeGoals,
     getGoal,
     createGoal,
     updateGoal,

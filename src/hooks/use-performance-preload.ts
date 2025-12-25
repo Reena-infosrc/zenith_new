@@ -136,20 +136,38 @@ export function usePerformancePreload() {
               const teamEmployeeIds = directReports.map(r => r.id);
               const employeeIdsParam = teamEmployeeIds.join(',');
               
-              // Preload ALL team member goals in parallel
-              const teamGoalsPromises = directReports.map(async (report) => {
+              // Preload ALL team member goals using batch endpoint (much faster!)
+              const teamGoalsPromise = (async () => {
                 try {
-                  const apiGoals = await getEmployeeGoals(report.id);
-                  return { employeeId: report.id, goals: apiGoals };
+                  const employeeIdsParam = teamEmployeeIds.join(',');
+                  const response = await authenticatedFetch(`${API_BASE_URL}/goals/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}`);
+                  if (!response.ok) {
+                    throw new Error(`Failed to fetch batch goals: ${response.statusText}`);
+                  }
+                  const batchData = await response.json();
+                  // Convert to array format expected by the rest of the code
+                  return teamEmployeeIds.map(employeeId => ({
+                    employeeId,
+                    goals: batchData[employeeId] || []
+                  }));
                 } catch (err) {
-                  console.error(`Error preloading goals for ${report.id}:`, err);
-                  return { employeeId: report.id, goals: [] };
+                  console.error('Error preloading batch goals:', err);
+                  // Fallback to individual requests if batch fails
+                  return Promise.all(directReports.map(async (report) => {
+                    try {
+                      const apiGoals = await getEmployeeGoals(report.id);
+                      return { employeeId: report.id, goals: apiGoals };
+                    } catch (err) {
+                      console.error(`Error preloading goals for ${report.id}:`, err);
+                      return { employeeId: report.id, goals: [] };
+                    }
+                  }));
                 }
-              });
+              })();
               
               // Preload batch reviews for all team members in parallel
               const [teamGoalsResults, managerSubmittedRes, managerDraftRes, selfSubmittedRes, selfDraftRes] = await Promise.allSettled([
-                Promise.all(teamGoalsPromises),
+                teamGoalsPromise,
                 authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=false&includeInactive=true`)
                   .then(res => res.ok ? res.json() : []),
                 authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=true&includeInactive=true`)

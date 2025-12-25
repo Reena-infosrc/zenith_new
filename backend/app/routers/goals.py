@@ -279,48 +279,83 @@ async def create_goal(
             detail=f"Failed to create goal: {str(e)}"
         )
 
-@router.get("/{goal_id}", response_model=GoalInDB)
-async def get_goal(
-    goal_id: str,
+@router.get("/batch", response_model=Dict[str, List[GoalInDB]])
+async def get_batch_employee_goals(
+    employeeIds: str = Query(..., description="Comma-separated list of employee IDs"),
     current_user: dict = Depends(get_current_active_user)
 ):
     """
-    Get a specific goal by ID
-    User can view their own goals, Manager can view goals of their team members
+    Get goals for multiple employees in a single request (batch endpoint).
+    Optimized for loading team member goals efficiently.
+    Returns a dictionary mapping employeeId -> list of goals.
     """
     try:
-        table = await get_goals_table()
-        response = await table.get_item(Key={"id": goal_id})
+        start_time = time.time()
         
-        if "Item" not in response:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Goal not found"
-            )
+        # Parse employee IDs
+        employee_id_list = [eid.strip() for eid in employeeIds.split(',') if eid.strip()]
+        if not employee_id_list:
+            return {}
         
-        goal = parse_dynamodb_item(response["Item"])
+        # Get user's employee ID for permission checks
         user_employee_id = await get_employee_id_from_user(current_user)
         
-        # Check if user owns the goal or is the manager
-        if goal.get("employeeId") == user_employee_id:
-            return GoalInDB(**goal)
+        # Get table
+        table = await get_goals_table()
         
-        # Check if user is manager of the employee
-        if user_employee_id and await is_manager_of_employee(user_employee_id, goal.get("employeeId")):
-            return GoalInDB(**goal)
+        # Fetch goals for all employees in parallel using asyncio.gather
+        async def fetch_employee_goals(employee_id: str):
+            """Fetch goals for a single employee using GSI query."""
+            try:
+                response = await table.query(
+                    IndexName="EmployeeIndex",
+                    KeyConditionExpression="employeeId = :employeeId",
+                    ExpressionAttributeValues={":employeeId": employee_id}
+                )
+                
+                goals = []
+                for item in response.get("Items", []):
+                    try:
+                        parsed_item = parse_goal_item_fast(item)
+                        goals.append(GoalInDB(**parsed_item))
+                    except Exception as parse_error:
+                        logger.warning(f"Error parsing goal for {employee_id}: {str(parse_error)}")
+                        continue
+                
+                return employee_id, goals
+            except Exception as e:
+                logger.error(f"Error fetching goals for {employee_id}: {str(e)}")
+                return employee_id, []
         
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to view this goal"
-        )
+        # Fetch all goals in parallel
+        results = await asyncio.gather(*[fetch_employee_goals(eid) for eid in employee_id_list])
+        
+        # Build result dictionary
+        result_dict = {}
+        for employee_id, goals in results:
+            # Permission check: user can view their own goals or their team members' goals
+            if employee_id != user_employee_id:
+                # Check if user is manager of this employee
+                if not user_employee_id or not await is_manager_of_employee(user_employee_id, employee_id):
+                    # Skip goals for employees the user doesn't have permission to view
+                    logger.warning(f"User {user_employee_id} doesn't have permission to view goals for {employee_id}")
+                    result_dict[employee_id] = []
+                    continue
+            
+            result_dict[employee_id] = goals
+        
+        total_time = time.time() - start_time
+        logger.info(f"get_batch_employee_goals: {total_time:.3f}s total for {len(employee_id_list)} employees")
+        
+        return result_dict
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching goal: {str(e)}")
+        logger.error(f"Error fetching batch employee goals: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch goal: {str(e)}"
+            detail=f"Failed to fetch batch goals: {str(e)}"
         )
 
 @router.get("/employee/{employee_id}", response_model=List[GoalInDB])
@@ -391,6 +426,50 @@ async def get_employee_goals(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch goals: {str(e)}"
+        )
+
+@router.get("/{goal_id}", response_model=GoalInDB)
+async def get_goal(
+    goal_id: str,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    Get a specific goal by ID
+    User can view their own goals, Manager can view goals of their team members
+    """
+    try:
+        table = await get_goals_table()
+        response = await table.get_item(Key={"id": goal_id})
+        
+        if "Item" not in response:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Goal not found"
+            )
+        
+        goal = parse_dynamodb_item(response["Item"])
+        user_employee_id = await get_employee_id_from_user(current_user)
+        
+        # Check if user owns the goal or is the manager
+        if goal.get("employeeId") == user_employee_id:
+            return GoalInDB(**goal)
+        
+        # Check if user is manager of the employee
+        if user_employee_id and await is_manager_of_employee(user_employee_id, goal.get("employeeId")):
+            return GoalInDB(**goal)
+        
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to view this goal"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching goal: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch goal: {str(e)}"
         )
 
 @router.put("/{goal_id}", response_model=GoalInDB)

@@ -76,62 +76,73 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
             </TableRow>
           </TableHeader>
           <TableBody>
-            {employees.map((employee) => (
-              <TableRow 
-                key={employee.id}
-                className={(employee.status || 'active') === 'inactive' ? 'opacity-50 grayscale' : ''}
-              >
-                <TableCell className="font-medium">
-                  {employee.employeeId || 'N/A'}
-                </TableCell>
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={employee.photoUrl} alt={employee.name} />
-                      <AvatarFallback>{employee.name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <span>{employee.name}</span>
-                  </div>
-                </TableCell>
-                <TableCell>{employee.position}</TableCell>
-                <TableCell>{employee.department}</TableCell>
-                <TableCell>
-                  {editingEmployee === employee.id ? (
-                    <EmployeeSelect
-                      employees={employees.filter(emp => emp.id !== employee.id)}
-                      value={employee.reporting_to}
-                      onValueChange={(value) => handleReportingToChange(employee.id, value)}
-                      placeholder="Select manager..."
-                      className="w-full"
-                    />
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">
-                        {employee.reporting_to ? getEmployeeName(employee.reporting_to) : "No manager"}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditingEmployee(employee.id)}
-                        className="h-6 w-6 p-0"
-                      >
-                        <Edit2 className="h-3 w-3" />
-                      </Button>
+            {employees.map((employee) => {
+              const isInactive = (employee.status || 'active') === 'inactive';
+              return (
+                <TableRow 
+                  key={employee.id}
+                  className={isInactive ? 'opacity-50 grayscale cursor-not-allowed' : ''}
+                >
+                  <TableCell className="font-medium">
+                    {employee.employeeId || 'N/A'}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-8 w-8">
+                        <AvatarImage src={employee.photoUrl} alt={employee.name} />
+                        <AvatarFallback>{employee.name.charAt(0)}</AvatarFallback>
+                      </Avatar>
+                      <span>{employee.name}</span>
+                      {isInactive && (
+                        <span className="text-xs text-muted-foreground italic">(Inactive)</span>
+                      )}
                     </div>
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => setSelectedEmployee(employee)}
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    View Profile
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                  <TableCell>{employee.position}</TableCell>
+                  <TableCell>{employee.department}</TableCell>
+                  <TableCell>
+                    {editingEmployee === employee.id && !isInactive ? (
+                      <EmployeeSelect
+                        employees={employees.filter(emp => emp.id !== employee.id)}
+                        value={employee.reporting_to}
+                        onValueChange={(value) => handleReportingToChange(employee.id, value)}
+                        placeholder="Select manager..."
+                        className="w-full"
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">
+                          {employee.reporting_to ? getEmployeeName(employee.reporting_to) : "No manager"}
+                        </span>
+                        {!isInactive && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingEmployee(employee.id)}
+                            className="h-6 w-6 p-0"
+                            disabled={isInactive}
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => !isInactive && setSelectedEmployee(employee)}
+                      disabled={isInactive}
+                      className={isInactive ? 'cursor-not-allowed' : ''}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Profile
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>

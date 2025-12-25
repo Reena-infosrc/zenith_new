@@ -55,6 +55,7 @@ import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { toast } from "@/hooks/use-toast";
 import { useEmployees } from "@/hooks/use-employees";
+import { useDashboardStats } from "@/hooks/use-dashboard-stats";
 
 // Types
 interface ReviewCycle {
@@ -141,6 +142,7 @@ export function AdminReviewCycles() {
   const [loading, setLoading] = useState(false);
   const { preserveScroll } = usePreserveScroll();
   const { employees, isLoading: employeesLoading } = useEmployees();
+  const { stats: dashboardStats } = useDashboardStats();
 
   const [formData, setFormData] = useState<CycleFormData>({
     name: '',
@@ -818,12 +820,18 @@ export function AdminReviewCycles() {
                           {new Date(cycle.startDate).toLocaleDateString()} - {new Date(cycle.endDate).toLocaleDateString()}
                         </span>
                       </div>
-                      {cycle.employeeCount && (
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4" />
-                          <span>{cycle.employeeCount} employees</span>
-                        </div>
-                      )}
+                      {(() => {
+                        // For active cycles, use dashboard stats totalEmployees; otherwise use cycle.employeeCount
+                        const displayCount = cycle.status === 'active' && dashboardStats?.totalEmployees 
+                          ? dashboardStats.totalEmployees 
+                          : cycle.employeeCount;
+                        return displayCount ? (
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            <span>{displayCount} employees</span>
+                          </div>
+                        ) : null;
+                      })()}
                       {cycle.completionRate !== undefined && (
                         <div className="flex items-center gap-2">
                           <CheckCircle2 className="h-4 w-4" />
@@ -893,12 +901,18 @@ export function AdminReviewCycles() {
                           {new Date(cycle.startDate).toLocaleDateString()} - {new Date(cycle.endDate).toLocaleDateString()}
                         </span>
                       </div>
-                      {cycle.employeeCount && (
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4" />
-                          <span>{cycle.employeeCount} employees</span>
-                        </div>
-                      )}
+                      {(() => {
+                        // For active cycles, use dashboard stats totalEmployees; otherwise use cycle.employeeCount
+                        const displayCount = cycle.status === 'active' && dashboardStats?.totalEmployees 
+                          ? dashboardStats.totalEmployees 
+                          : cycle.employeeCount;
+                        return displayCount ? (
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            <span>{displayCount} employees</span>
+                          </div>
+                        ) : null;
+                      })()}
                       {cycle.completionRate !== undefined && (
                         <div className="flex items-center gap-2">
                           <CheckCircle2 className="h-4 w-4" />
@@ -968,12 +982,18 @@ export function AdminReviewCycles() {
                           {new Date(cycle.startDate).toLocaleDateString()} - {new Date(cycle.endDate).toLocaleDateString()}
                         </span>
                       </div>
-                      {cycle.employeeCount && (
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4" />
-                          <span>{cycle.employeeCount} employees</span>
-                        </div>
-                      )}
+                      {(() => {
+                        // For active cycles, use dashboard stats totalEmployees; otherwise use cycle.employeeCount
+                        const displayCount = cycle.status === 'active' && dashboardStats?.totalEmployees 
+                          ? dashboardStats.totalEmployees 
+                          : cycle.employeeCount;
+                        return displayCount ? (
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            <span>{displayCount} employees</span>
+                          </div>
+                        ) : null;
+                      })()}
                       {cycle.completionRate !== undefined && (
                         <div className="flex items-center gap-2">
                           <CheckCircle2 className="h-4 w-4" />
@@ -1043,12 +1063,18 @@ export function AdminReviewCycles() {
                           {new Date(cycle.startDate).toLocaleDateString()} - {new Date(cycle.endDate).toLocaleDateString()}
                         </span>
                       </div>
-                      {cycle.employeeCount && (
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4" />
-                          <span>{cycle.employeeCount} employees</span>
-                        </div>
-                      )}
+                      {(() => {
+                        // For active cycles, use dashboard stats totalEmployees; otherwise use cycle.employeeCount
+                        const displayCount = cycle.status === 'active' && dashboardStats?.totalEmployees 
+                          ? dashboardStats.totalEmployees 
+                          : cycle.employeeCount;
+                        return displayCount ? (
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            <span>{displayCount} employees</span>
+                          </div>
+                        ) : null;
+                      })()}
                       {cycle.completionRate !== undefined && (
                         <div className="flex items-center gap-2">
                           <CheckCircle2 className="h-4 w-4" />

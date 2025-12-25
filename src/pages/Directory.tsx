@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useEmployees, Employee as ApiEmployee } from '@/hooks/use-employees';
+import { useDashboardStats } from '@/hooks/use-dashboard-stats';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -75,6 +76,8 @@ export default function Directory() {
     clearCache,
     bulkUpdateEmployeeNames
   } = useEmployees();
+  
+  const { stats: dashboardStats } = useDashboardStats();
   
   // Show loading state when navigating or when data is loading
   const showLoading = isLoading || isNavigating;
@@ -181,6 +184,7 @@ export default function Directory() {
   }, []); // Empty dependency array means this runs only once on mount
   
   // Filter employees based on active filters
+  // NOTE: Include inactive employees but they will be shown in disabled state
   const filteredEmployees = employees.filter(employee => {
     // Department filters
     if (activeFilters.some(filter => filter.startsWith("Department:")) && 
@@ -218,8 +222,8 @@ export default function Directory() {
     return true;
   });
   
-  // Calculate active employees count (exclude inactive) - default to "active" if status not set
-  const activeEmployeesCount = employees.filter(emp => (emp.status || 'active') !== 'inactive').length;
+  // Calculate active employees count - use dashboard stats API if available, otherwise calculate from employees list
+  const activeEmployeesCount = dashboardStats?.totalEmployees ?? employees.filter(emp => (emp.status || 'active') !== 'inactive').length;
   
   // Sort filtered employees
   const sortedAndFilteredEmployees = [...filteredEmployees].sort((a, b) => {
@@ -552,7 +556,7 @@ export default function Directory() {
                       {/* List View Header with Download Button */}
                       <div className="flex justify-between items-center">
                         <div className="text-sm text-muted-foreground">
-                          Showing {activeEmployeesCount} of {sortedAndFilteredEmployees.length} active employees
+                          Showing {sortedAndFilteredEmployees.length} employees ({activeEmployeesCount} active)
                         </div>
                         {isAdmin && (
                           <Button 

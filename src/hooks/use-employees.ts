@@ -270,7 +270,7 @@ export function useEmployees() {
             employmentCategory: emp.employment_category || "",
             employeeStatus: emp.employee_status || "",
             isLeader: emp.is_leader || "",
-            status: emp.status !== undefined ? emp.status : 'active',
+            status: emp.status !== undefined && emp.status !== null && emp.status !== '' ? emp.status : 'active',
             resignationDate: emp.resignation_date || "",
             reasonForResignation: emp.reason_for_resignation || ""
           };

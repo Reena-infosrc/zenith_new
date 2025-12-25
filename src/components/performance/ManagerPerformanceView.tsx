@@ -264,7 +264,7 @@ const normalizeCategory = (category: string): string => {
 export function ManagerPerformanceView() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { getEmployeeGoals, getGoal, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
+  const { getEmployeeGoals, getBatchEmployeeGoals, getGoal, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
   const { employees } = useEmployees();
   const { getCachedData } = usePerformancePreload();
   
@@ -683,33 +683,34 @@ export function ManagerPerformanceView() {
         if (reports.length > 0) {
           setLoadingMessage(`Loading goals for ${reports.length} team member${reports.length !== 1 ? 's' : ''}...`);
           
-          const teamGoalsPromises = reports.map(async (report) => {
-            try {
-              const apiGoals = await getEmployeeGoals(report.id);
-              const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
-              
-              apiGoals.forEach(goal => {
-                allGoalsCache.current.set(goal.id, goal);
-              });
-              
-              return { employeeId: report.id, goals: convertedGoals };
-            } catch (error) {
-              console.error(`Error fetching goals for ${report.id}:`, error);
-              return { employeeId: report.id, goals: [] };
+          // Use batch endpoint for faster loading
+          const teamEmployeeIds = reports.map(r => r.id);
+          const batchGoalsMap = await getBatchEmployeeGoals(teamEmployeeIds);
+          
+          // Convert to the format expected by the component
+          const teamGoalsMap = new Map<string, Goal[]>();
+          
+          batchGoalsMap.forEach((apiGoals, employeeId) => {
+            const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
+            teamGoalsMap.set(employeeId, convertedGoals);
+            
+            // Cache all goals
+            apiGoals.forEach(goal => {
+              allGoalsCache.current.set(goal.id, goal);
+            });
+          });
+          
+          // Ensure all employees have an entry (even if empty)
+          reports.forEach(report => {
+            if (!teamGoalsMap.has(report.id)) {
+              teamGoalsMap.set(report.id, []);
             }
           });
 
-          const teamResults = await Promise.all(teamGoalsPromises);
+          setEmployeeGoals(teamGoalsMap);
 
-          setEmployeeGoals(prev => {
-            const newMap = new Map(prev);
-            teamResults.forEach(({ employeeId, goals }) => {
-              newMap.set(employeeId, goals);
-            });
-            return newMap;
-          });
-
-          teamResults.forEach(({ employeeId, goals }) => {
+          // Refresh goal panel state for all team members
+          teamGoalsMap.forEach((goals, employeeId) => {
             refreshGoalPanelStateForEmployee(employeeId, goals);
           });
         }
@@ -731,7 +732,7 @@ export function ManagerPerformanceView() {
     };
 
     loadAllData();
-  }, [user?.email, employees.length, getEmployeeGoals, getGoal, refreshGoalPanelStateForEmployee, toast]);
+  }, [user?.email, employees.length, getEmployeeGoals, getBatchEmployeeGoals, getGoal, refreshGoalPanelStateForEmployee, toast]);
 
   // Fetch goals for a team member (with caching check)
   const fetchTeamMemberGoals = async (employeeId: string, forceRefresh: boolean = false) => {

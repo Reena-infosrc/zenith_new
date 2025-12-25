@@ -54,11 +54,13 @@ export function EmployeeCard(props: EmployeeCardProps) {
     return colors[colorIndex];
   };
 
+  const isInactive = (props.status || 'active') === 'inactive';
+
   return (
     <>
       <div className={cn(
         "group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden",
-        (props.status || 'active') === 'inactive' && "opacity-50 grayscale",
+        isInactive && "opacity-50 grayscale cursor-not-allowed",
         props.className
       )}>
         <div className="aspect-square overflow-hidden">
@@ -66,7 +68,10 @@ export function EmployeeCard(props: EmployeeCardProps) {
             <img 
               src={props.photoUrl} 
               alt={props.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              className={cn(
+                "w-full h-full object-cover transition-transform duration-300",
+                !isInactive && "group-hover:scale-105"
+              )}
               onError={(e) => {
                 // If image fails to load, replace with initials avatar
                 const target = e.target as HTMLImageElement;
@@ -93,30 +98,36 @@ export function EmployeeCard(props: EmployeeCardProps) {
           {props.employeeId && (
             <p className="text-xs text-muted-foreground mt-1">ID: {props.employeeId}</p>
           )}
+          {isInactive && (
+            <p className="text-xs text-muted-foreground mt-1 italic">(Inactive)</p>
+          )}
         </div>
         
-        {/* Hover Content */}
-        <div className="absolute inset-0 bg-gradient-hr-primary text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-center items-center p-4 text-center">
-          <h3 className="font-bold">{props.name}</h3>
-          <p className="text-sm opacity-90">{props.position}</p>
-          <p className="text-sm opacity-90">{props.department}</p>
-          {props.employeeId && (
-            <p className="text-xs opacity-75">ID: {props.employeeId}</p>
-          )}
-          <button 
-            className="mt-3 px-4 py-1 bg-white/20 hover:bg-white/30 rounded-full text-xs"
-            onClick={() => setShowProfile(true)}
-          >
-            View Profile
-          </button>
-        </div>
+        {/* Hover Content - Only show for active employees */}
+        {!isInactive && (
+          <div className="absolute inset-0 bg-gradient-hr-primary text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-center items-center p-4 text-center">
+            <h3 className="font-bold">{props.name}</h3>
+            <p className="text-sm opacity-90">{props.position}</p>
+            <p className="text-sm opacity-90">{props.department}</p>
+            {props.employeeId && (
+              <p className="text-xs opacity-75">ID: {props.employeeId}</p>
+            )}
+            <button 
+              className="mt-3 px-4 py-1 bg-white/20 hover:bg-white/30 rounded-full text-xs"
+              onClick={() => setShowProfile(true)}
+            >
+              View Profile
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Employee Profile Dialog */}
-      <EmployeeProfile 
-        isOpen={showProfile}
-        onClose={() => setShowProfile(false)}
-        employee={{
+      {/* Employee Profile Dialog - Only show for active employees */}
+      {!isInactive && (
+        <EmployeeProfile 
+          isOpen={showProfile}
+          onClose={() => setShowProfile(false)}
+          employee={{
           id: props.id,
           employeeId: props.employeeId,
           name: props.name,
@@ -143,7 +154,8 @@ export function EmployeeCard(props: EmployeeCardProps) {
           resignationDate: props.resignationDate,
           reasonForResignation: props.reasonForResignation
         }}
-      />
+        />
+      )}
     </>
   );
 }
