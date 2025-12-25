@@ -166,6 +166,80 @@ export function AdminReviewCycles() {
     }
   }, []);
 
+  // Separate function to sync active cycles (runs in background, non-blocking)
+  const syncActiveCycles = useCallback(async (apiCycles: any[], activeEmployees: any[], allEmployees: any[]) => {
+    const activeCycles = apiCycles.filter(cycle => cycle.status === 'open');
+    
+    for (const cycle of activeCycles) {
+      try {
+        const existingAssignments = cycle.metadata?.assignments || [];
+        const activeEmployeeIds = new Set(activeEmployees.map(emp => emp.id));
+        const existingEmployeeIds = new Set(existingAssignments.map((a: any) => a.employeeId));
+        
+        // Filter out inactive employees from assignments
+        const activeAssignments = existingAssignments.filter((assignment: any) => 
+          activeEmployeeIds.has(assignment.employeeId)
+        );
+        
+        // Update employee info in existing assignments
+        const updatedActiveAssignments = activeAssignments.map((assignment: any) => {
+          const employee = activeEmployees.find(emp => emp.id === assignment.employeeId);
+          const manager = allEmployees.find(m => m.id === employee?.reporting_to);
+          return {
+            ...assignment,
+            employeeName: employee?.name || assignment.employeeName || 'Unknown',
+            managerId: manager?.id || assignment.managerId || '',
+            managerName: manager?.name || assignment.managerName || 'Unassigned'
+          };
+        });
+        
+        // Find missing active employees
+        const missingEmployees = activeEmployees.filter(emp => !existingEmployeeIds.has(emp.id));
+        const newAssignments: EmployeeAssignment[] = missingEmployees.map(emp => {
+          const manager = allEmployees.find(m => m.id === emp.reporting_to);
+          return {
+            employeeId: emp.id,
+            employeeName: emp.name || 'Unknown',
+            managerId: manager?.id || '',
+            managerName: manager?.name || 'Unassigned',
+            status: 'not_started' as const
+          };
+        });
+        
+        const finalAssignments = [...updatedActiveAssignments, ...newAssignments];
+        
+        // Only update if there are changes
+        const hasChanges = 
+          existingAssignments.length !== finalAssignments.length ||
+          missingEmployees.length > 0 ||
+          activeAssignments.length !== existingAssignments.length;
+        
+        if (hasChanges) {
+          const updatePayload = {
+            metadata: {
+              ...cycle.metadata,
+              selfReviewEnabled: cycle.metadata?.selfReviewEnabled ?? true,
+              managerReviewEnabled: cycle.metadata?.managerReviewEnabled ?? true,
+              competencyWeightages: cycle.metadata?.competencyWeightages || {},
+              assignments: finalAssignments
+            }
+          };
+          
+          await authenticatedFetch(`${API_BASE_URL}/reviews/cycles/${cycle.cycleId || cycle.year}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatePayload)
+          });
+          
+          console.log(`Synced cycle ${cycle.cycleId} - Active employees: ${finalAssignments.length}`);
+        }
+      } catch (error) {
+        console.error(`Error syncing cycle ${cycle.cycleId}:`, error);
+        // Continue with other cycles even if one fails
+      }
+    }
+  }, []);
+
   // Fetch cycles
   const fetchCycles = useCallback(async () => {
     try {
@@ -184,22 +258,66 @@ export function AdminReviewCycles() {
       const apiCycles = await response.json();
       console.log('Fetched cycles from API:', apiCycles);
       
-      // Map API response to local ReviewCycle format
-      const mappedCycles: ReviewCycle[] = apiCycles.map((cycle: any) => ({
-        id: cycle.cycleId || cycle.year,
-        name: cycle.name || `${cycle.year} Annual Performance Review`,
-        startDate: cycle.startDate || '',
-        endDate: cycle.endDate || '',
-        status: cycle.status === 'open' ? 'active' : cycle.status || 'draft', // Map 'open' to 'active'
-        createdAt: cycle.createdAt || new Date().toISOString().split('T')[0],
+      // Get active employees (filter out inactive) - only if employees are loaded
+      const activeEmployees = employees.length > 0 ? employees.filter(emp => {
+        const empStatus = (emp as any).status ?? 'active';
+        return empStatus !== 'inactive';
+      }) : [];
+      
+      // Map API response to local ReviewCycle format (FAST - no API calls during fetch)
+      const mappedCycles: ReviewCycle[] = apiCycles.map((cycle: any) => {
+        const cycleStatus = cycle.status === 'open' ? 'active' : cycle.status || 'draft';
+        const existingAssignments = cycle.metadata?.assignments || [];
+        
+        // For active cycles, calculate correct count from active employees only
+        let employeeCount = existingAssignments.length;
+        
+        if (cycleStatus === 'active' && activeEmployees.length > 0) {
+          // Create a set of active employee IDs for quick lookup
+          const activeEmployeeIds = new Set(activeEmployees.map(emp => emp.id));
+          
+          // Count only active employees in assignments (for display)
+          const activeAssignmentsCount = existingAssignments.filter((assignment: any) => 
+            activeEmployeeIds.has(assignment.employeeId)
+          ).length;
+          
+          // Find active employees that are not in assignments
+          const existingEmployeeIds = new Set(existingAssignments.map((a: any) => a.employeeId));
+          const missingActiveEmployees = activeEmployees.filter(emp => !existingEmployeeIds.has(emp.id));
+          
+          // Employee count = active employees in assignments + missing active employees
+          employeeCount = activeAssignmentsCount + missingActiveEmployees.length;
+        } else {
+          // For non-active cycles, use assignment count
+          employeeCount = existingAssignments.length;
+        }
+        
+        return {
+          id: cycle.cycleId || cycle.year,
+          name: cycle.name || `${cycle.year} Annual Performance Review`,
+          startDate: cycle.startDate || '',
+          endDate: cycle.endDate || '',
+          status: cycleStatus,
+          createdAt: cycle.createdAt || new Date().toISOString().split('T')[0],
           createdBy: 'HR Admin',
-        employeeCount: cycle.metadata?.assignments?.length || 0,
-        completionRate: 0, // TODO: Calculate from reviews
-        selfReviewEnabled: cycle.metadata?.selfReviewEnabled ?? true,
-        managerReviewEnabled: cycle.metadata?.managerReviewEnabled ?? true,
-        competencyWeightages: cycle.metadata?.competencyWeightages || {},
-        assignments: cycle.metadata?.assignments || []
-      }));
+          employeeCount: employeeCount,
+          completionRate: 0, // TODO: Calculate from reviews
+          selfReviewEnabled: cycle.metadata?.selfReviewEnabled ?? true,
+          managerReviewEnabled: cycle.metadata?.managerReviewEnabled ?? true,
+          competencyWeightages: cycle.metadata?.competencyWeightages || {},
+          assignments: existingAssignments // Keep original assignments, sync happens separately
+        };
+      });
+      
+      // Sync active cycles in the background (non-blocking) - don't block UI
+      if (activeEmployees.length > 0 && apiCycles.some(c => c.status === 'open')) {
+        // Run sync in background without blocking
+        setTimeout(() => {
+          syncActiveCycles(apiCycles, activeEmployees, employees).catch(err => {
+            console.error('Error syncing active cycles:', err);
+          });
+        }, 100);
+      }
       
       setCycles(mappedCycles);
     } catch (error) {
@@ -212,11 +330,15 @@ export function AdminReviewCycles() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, employees]);
 
   useEffect(() => {
-    fetchCycles();
-  }, [fetchCycles]);
+    // Fetch cycles when component mounts or when employees list changes
+    // This ensures active cycles are synced with newly added employees
+    if (!employeesLoading) {
+      fetchCycles();
+    }
+  }, [fetchCycles, employeesLoading, employees.length]);
 
   const filteredCycles = cycles.filter(cycle => {
     const matchesStatus = filterStatus === 'all' || cycle.status === filterStatus;
@@ -334,9 +456,21 @@ export function AdminReviewCycles() {
   };
 
   const handleUpdateCycle = async () => {
-    if (!editingCycle) return;
+    console.log('handleUpdateCycle called', { editingCycle, formData });
+    
+    if (!editingCycle) {
+      console.error('No cycle being edited');
+      toast({
+        title: "Error",
+        description: "No cycle selected for editing",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     try {
       setLoading(true);
+      console.log('Starting cycle update...');
       
       // Extract year from cycle ID (cycleId is the year)
       const year = editingCycle.id;
@@ -354,13 +488,14 @@ export function AdminReviewCycles() {
         metadata: {
           selfReviewEnabled: formData.selfReviewEnabled,
           managerReviewEnabled: formData.managerReviewEnabled,
-          competencyWeightages: formData.competencyWeightages,
+          competencyWeightages: formData.competencyWeightages || {},
           // Preserve existing assignments if not being updated
           assignments: formData.assignments.length > 0 ? formData.assignments : editingCycle.assignments || []
         }
       };
       
       console.log('Updating review cycle:', year, payload);
+      console.log('API URL:', `${API_BASE_URL}/reviews/cycles/${year}`);
       
       const response = await authenticatedFetch(`${API_BASE_URL}/reviews/cycles/${year}`, {
         method: 'PUT',
@@ -368,14 +503,23 @@ export function AdminReviewCycles() {
         body: JSON.stringify(payload)
       });
       
+      console.log('Update cycle response status:', response.status);
+      
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to update review cycle' }));
+        const errorText = await response.text();
+        console.error('Update cycle error response:', errorText);
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { detail: errorText || 'Failed to update review cycle' };
+        }
         const errorMessage = errorData?.detail || errorData?.message || 'Failed to update review cycle';
         throw new Error(errorMessage);
       }
       
       const updatedCycle = await response.json();
-      console.log('Review cycle updated:', updatedCycle);
+      console.log('Review cycle updated successfully:', updatedCycle);
       
       // Map the API response to the local ReviewCycle format
       const mappedCycle: ReviewCycle = {
@@ -456,8 +600,13 @@ export function AdminReviewCycles() {
         });
       }
       
-      // Create assignments for all employees
-      const allAssignments: EmployeeAssignment[] = employees.map(emp => {
+      // Create assignments for all ACTIVE employees only
+      const activeEmployees = employees.filter(emp => {
+        const empStatus = (emp as any).status ?? 'active';
+        return empStatus !== 'inactive';
+      });
+      
+      const allAssignments: EmployeeAssignment[] = activeEmployees.map(emp => {
         // Find the employee's manager
         const manager = employees.find(m => m.id === emp.reporting_to);
         return {
@@ -1253,7 +1402,12 @@ function CreateEditCycleModal({
             Cancel
           </Button>
           <Button
-            onClick={onSubmit}
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onSubmit();
+            }}
             disabled={
               loading ||
               !formData.name ||

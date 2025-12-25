@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional, Tuple, List
 import time
 import csv
 import io
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile, Form
 from fastapi.responses import Response
@@ -62,11 +63,14 @@ _cycles_cache = {
 # Cache for reviews queries without employeeId/reviewerId (TTL: 2 minutes)
 _reviews_query_cache = {}
 
-# Cache for completion trend (TTL: 2 minutes)
+# Cache for completion trend (TTL: 5 minutes - data doesn't change frequently)
 _completion_trend_cache = {}
 
-# Cache for rating distribution (TTL: 2 minutes)
+# Cache for rating distribution (TTL: 5 minutes - data doesn't change frequently)
 _rating_distribution_cache = {}
+
+# Cache for team performance (TTL: 5 minutes)
+_team_performance_cache = {}
 
 CYCLE_PK_PREFIX = "CYCLE#"
 REVIEW_SK_PREFIX = "REVIEW#"
@@ -829,8 +833,9 @@ async def get_dashboard_stats(
         
         # Helper function to process reviews table
         # Optimized to use ReviewTypeIndex for manager reviews with ProjectionExpression
-        async def process_reviews_table():
-            """Process reviews table to get completed reviews and ratings. Uses ReviewTypeIndex for efficiency."""
+        async def process_reviews_table(active_employee_ids: set):
+            """Process reviews table to get completed reviews and ratings. Uses ReviewTypeIndex for efficiency.
+            Only counts reviews for active employees."""
             reviews_table = await get_reviews_table()
             completed_reviews = 0
             pending_reviews = 0
@@ -847,7 +852,7 @@ async def get_dashboard_stats(
                         "IndexName": "ReviewTypeIndex",
                         "KeyConditionExpression": Key("reviewType").eq("manager"),
                         "FilterExpression": Attr("submittedAt").exists(),  # Only submitted reviews
-                        "ProjectionExpression": "submittedAt, #metadata, ratings",  # Only fetch needed fields
+                        "ProjectionExpression": "employeeId, submittedAt, #metadata, ratings",  # Include employeeId to filter
                         "ExpressionAttributeNames": {
                             "#metadata": "metadata"
                         }
@@ -858,9 +863,11 @@ async def get_dashboard_stats(
                     response = await reviews_table.query(**query_kwargs)
                     for item in response.get("Items", []):
                         parsed = parse_dynamodb_item(item)
+                        employee_id = parsed.get("employeeId")
                         submitted_at = parsed.get("submittedAt")
                         
-                        if submitted_at:
+                        # Only count reviews for active employees
+                        if submitted_at and employee_id in active_employee_ids:
                             completed_reviews += 1
                             metadata = parsed.get("metadata", {})
                             final_rating = metadata.get("finalRating", {})
@@ -894,20 +901,27 @@ async def get_dashboard_stats(
                 logger.warning(f"ReviewTypeIndex not available, falling back to scan: {exc}")
                 last_evaluated_key = None
                 while True:
-                    scan_kwargs = {}
+                    scan_kwargs = {
+                        "ProjectionExpression": "employeeId, reviewType, submittedAt, #metadata, ratings",  # Include employeeId to filter
+                        "ExpressionAttributeNames": {
+                            "#metadata": "metadata"
+                        }
+                    }
                     if last_evaluated_key:
                         scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                     response = await reviews_table.scan(**scan_kwargs)
                     for item in response.get("Items", []):
                         parsed = parse_dynamodb_item(item)
+                        employee_id = parsed.get("employeeId")
                         review_type = parsed.get("reviewType")
                         submitted_at = parsed.get("submittedAt")
                         
                         # Note: Reviews in the reviews table should have submittedAt
                         # If they don't, they might be incorrectly placed (should be in drafts table)
                         # We don't count these as pending reviews
+                        # Only count reviews for active employees
                         
-                        if review_type == "manager" and submitted_at:
+                        if review_type == "manager" and submitted_at and employee_id in active_employee_ids:
                             completed_reviews += 1
                             metadata = parsed.get("metadata", {})
                             final_rating = metadata.get("finalRating", {})
@@ -937,41 +951,66 @@ async def get_dashboard_stats(
         drafts_table = await get_review_drafts_table()
         
         # Execute parallel queries for better performance
-        # Count active employees and draft reviews in parallel
-        async def count_active_employees():
-            return await count_table_items(
-                employees_table,
-                lambda parsed: parsed.get("status", "active") != "inactive"
-            )
-        
-        async def count_draft_reviews():
-            """Count only draft self-reviews (pending self-reviews that need to be submitted)."""
+        # Count active employees and get their IDs, and draft reviews in parallel
+        async def get_active_employees():
+            """Get count and set of active employee IDs."""
+            active_ids = set()
             count = 0
             last_evaluated_key = None
             while True:
-                scan_kwargs = {}
+                scan_kwargs = {
+                    "ProjectionExpression": "id, #status",  # Only fetch id and status
+                    "ExpressionAttributeNames": {
+                        "#status": "status"
+                    }
+                }
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                response = await employees_table.scan(**scan_kwargs)
+                for item in response.get("Items", []):
+                    parsed = parse_dynamodb_item(item)
+                    emp_status = parsed.get("status", "active")
+                    if emp_status != "inactive":
+                        emp_id = parsed.get("id")
+                        if emp_id:
+                            active_ids.add(emp_id)
+                            count += 1
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+            return count, active_ids
+        
+        async def count_draft_reviews(active_employee_ids: set):
+            """Count only draft self-reviews (pending self-reviews that need to be submitted) for active employees."""
+            count = 0
+            last_evaluated_key = None
+            while True:
+                scan_kwargs = {
+                    "ProjectionExpression": "employeeId, reviewType"  # Only fetch needed fields
+                }
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await drafts_table.scan(**scan_kwargs)
                 for item in response.get("Items", []):
                     parsed = parse_dynamodb_item(item)
-                    # Only count self-reviews (pending self-reviews that employees need to complete)
-                    if parsed.get("reviewType") == "self":
+                    # Only count self-reviews for active employees
+                    if parsed.get("reviewType") == "self" and parsed.get("employeeId") in active_employee_ids:
                         count += 1
                 last_evaluated_key = response.get("LastEvaluatedKey")
                 if not last_evaluated_key:
                     break
             return count
         
-        # Run parallel queries
+        # Get active employees first (needed for filtering reviews)
+        total_employees, active_employee_ids = await get_active_employees()
+        
+        # Run remaining queries in parallel
         results = await asyncio.gather(
-            count_active_employees(),
-            count_draft_reviews(),
-            process_reviews_table()
+            count_draft_reviews(active_employee_ids),
+            process_reviews_table(active_employee_ids)
         )
-        total_employees = results[0]
-        draft_count = results[1]
-        completed_reviews, pending_from_reviews, ratings_sum, ratings_count = results[2]
+        draft_count = results[0]
+        completed_reviews, pending_from_reviews, ratings_sum, ratings_count = results[1]
         
         # Total pending = draft self-reviews (employees who haven't submitted their self-review yet)
         # Note: pending_from_reviews is now 0 (we removed counting manager reviews without submittedAt)
@@ -1035,7 +1074,7 @@ async def get_completion_trend(
     current_time = time.time()
     if cache_key in _completion_trend_cache:
         cached_data, cached_timestamp = _completion_trend_cache[cache_key]
-        if current_time - cached_timestamp < 120:  # 2 minute TTL
+        if current_time - cached_timestamp < 300:  # 5 minute TTL
             logger.info(f"Returning cached completion trend for {cache_key}")
             return cached_data
     
@@ -1044,43 +1083,62 @@ async def get_completion_trend(
         drafts_table = await get_review_drafts_table()
         cycles_table = await get_cycles_table()
         
-        # Determine cycle year
+        # OPTIMIZED: Determine cycle year - use cache if available
         target_cycle_year = cycleYear
+        cycle_start_date = None
+        
         if not target_cycle_year:
-            # Get current active cycle
-            last_evaluated_key = None
-            active_cycles = []
-            while True:
-                scan_kwargs = {}
-                if last_evaluated_key:
-                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-                response = await cycles_table.scan(**scan_kwargs)
-                for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
-                    if parsed.get("status") in ["open", "active"]:
-                        active_cycles.append(parsed)
-                last_evaluated_key = response.get("LastEvaluatedKey")
-                if not last_evaluated_key:
-                    break
+            # Check cache for active cycle
+            active_cycle_cache_key = "active_cycle_year"
+            if active_cycle_cache_key in _completion_trend_cache:
+                cached_cycle, cached_ts = _completion_trend_cache[active_cycle_cache_key]
+                if current_time - cached_ts < 600:  # 10 minute TTL for active cycle
+                    target_cycle_year = cached_cycle.get("year")
+                    cycle_start_date = cached_cycle.get("startDate")
             
-            if active_cycles:
-                # Sort by year descending and take the most recent
-                active_cycles.sort(key=lambda x: x.get("year", ""), reverse=True)
-                target_cycle_year = active_cycles[0].get("year")
-                cycle_start_date = active_cycles[0].get("startDate")
-            else:
-                # Fallback: use current year
-                target_cycle_year = datetime.now().strftime("%Y")
-                cycle_start_date = None
+            if not target_cycle_year:
+                # Get current active cycle - OPTIMIZED: Only fetch year and startDate
+                last_evaluated_key = None
+                active_cycles = []
+                while True:
+                    scan_kwargs = {
+                        "FilterExpression": Attr("status").in_(["open", "active"]),
+                        "ProjectionExpression": "#year, startDate, #status",  # Only fetch needed fields
+                        "ExpressionAttributeNames": {
+                            "#year": "year",
+                            "#status": "status"
+                        }
+                    }
+                    if last_evaluated_key:
+                        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                    response = await cycles_table.scan(**scan_kwargs)
+                    for item in response.get("Items", []):
+                        parsed = parse_dynamodb_item(item)
+                        active_cycles.append(parsed)
+                    last_evaluated_key = response.get("LastEvaluatedKey")
+                    if not last_evaluated_key:
+                        break
+                
+                if active_cycles:
+                    # Sort by year descending and take the most recent
+                    active_cycles.sort(key=lambda x: x.get("year", ""), reverse=True)
+                    target_cycle_year = active_cycles[0].get("year")
+                    cycle_start_date = active_cycles[0].get("startDate")
+                    # Cache the active cycle
+                    _completion_trend_cache[active_cycle_cache_key] = (active_cycles[0], current_time)
+                else:
+                    # Fallback: use current year
+                    target_cycle_year = datetime.now().strftime("%Y")
         else:
-            # Get cycle details for start date
+            # Get cycle details for start date - OPTIMIZED: Only fetch startDate
             try:
-                response = await cycles_table.get_item(Key={"year": target_cycle_year})
+                response = await cycles_table.get_item(
+                    Key={"year": target_cycle_year},
+                    ProjectionExpression="startDate"
+                )
                 if "Item" in response:
                     cycle_data = parse_dynamodb_item(response["Item"])
                     cycle_start_date = cycle_data.get("startDate")
-                else:
-                    cycle_start_date = None
             except:
                 cycle_start_date = None
         
@@ -1168,21 +1226,50 @@ async def get_completion_trend(
         
         # Get total employees count for the cycle to calculate pending
         # Use COUNT projection for efficiency (no need to fetch full items)
+        # OPTIMIZED: Cache employee count separately to avoid repeated scans
         employees_table = await get_employees_table()
+        employee_count_cache_key = "active_employee_count"
         total_employees = 0
-        last_evaluated_key = None
-        while True:
-            scan_kwargs = {
-                "FilterExpression": Attr("status").ne("inactive"),
-                "Select": "COUNT"  # Only return count, not full items
-            }
-            if last_evaluated_key:
-                scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-            response = await employees_table.scan(**scan_kwargs)
-            total_employees += response.get("Count", 0)
-            last_evaluated_key = response.get("LastEvaluatedKey")
-            if not last_evaluated_key:
-                break
+        
+        # Check if we have a cached count (with 10 min TTL)
+        if employee_count_cache_key in _completion_trend_cache:
+            cached_count, cached_ts = _completion_trend_cache[employee_count_cache_key]
+            if current_time - cached_ts < 600:  # 10 minute TTL for employee count
+                total_employees = cached_count
+            else:
+                # Recalculate
+                last_evaluated_key = None
+                while True:
+                    scan_kwargs = {
+                        "FilterExpression": Attr("status").ne("inactive"),
+                        "Select": "COUNT"  # Only return count, not full items
+                    }
+                    if last_evaluated_key:
+                        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                    response = await employees_table.scan(**scan_kwargs)
+                    total_employees += response.get("Count", 0)
+                    last_evaluated_key = response.get("LastEvaluatedKey")
+                    if not last_evaluated_key:
+                        break
+                # Cache the count
+                _completion_trend_cache[employee_count_cache_key] = (total_employees, current_time)
+        else:
+            # First time - calculate and cache
+            last_evaluated_key = None
+            while True:
+                scan_kwargs = {
+                    "FilterExpression": Attr("status").ne("inactive"),
+                    "Select": "COUNT"  # Only return count, not full items
+                }
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                response = await employees_table.scan(**scan_kwargs)
+                total_employees += response.get("Count", 0)
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+            # Cache the count
+            _completion_trend_cache[employee_count_cache_key] = (total_employees, current_time)
         
         # Calculate pending for each week (total employees - completed up to that week)
         cumulative_completed = 0
@@ -1239,7 +1326,7 @@ async def get_rating_distribution(
     current_time = time.time()
     if cache_key in _rating_distribution_cache:
         cached_data, cached_timestamp = _rating_distribution_cache[cache_key]
-        if current_time - cached_timestamp < 120:  # 2 minute TTL
+        if current_time - cached_timestamp < 300:  # 5 minute TTL
             logger.info(f"Returning cached rating distribution for {cache_key}")
             return cached_data
     
@@ -1380,46 +1467,78 @@ async def get_team_performance(
     """
     Get team performance data showing completion rates and average ratings by team/director.
     Groups employees by their director (traversing up the reporting chain) and calculates metrics.
+    OPTIMIZED: Uses caching, ProjectionExpression, and efficient data structures.
     """
     del current_user
+    
+    # Check cache first
+    cache_key = f"team_performance_{cycleYear or 'current'}"
+    current_time = time.time()
+    if cache_key in _team_performance_cache:
+        cached_data, cached_timestamp = _team_performance_cache[cache_key]
+        if current_time - cached_timestamp < 300:  # 5 minute TTL
+            logger.info(f"Returning cached team performance for {cache_key}")
+            return cached_data
     
     try:
         employees_table = await get_employees_table()
         reviews_table = await get_reviews_table()
         cycles_table = await get_cycles_table()
         
-        # Determine cycle year
+        # OPTIMIZED: Determine cycle year - use cache if available
         target_cycle_year = cycleYear
         if not target_cycle_year:
-            # Get current active cycle
-            last_evaluated_key = None
-            active_cycles = []
-            while True:
-                scan_kwargs = {}
-                if last_evaluated_key:
-                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-                response = await cycles_table.scan(**scan_kwargs)
-                for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
-                    if parsed.get("status") in ["open", "active"]:
-                        active_cycles.append(parsed)
-                last_evaluated_key = response.get("LastEvaluatedKey")
-                if not last_evaluated_key:
-                    break
+            # Check cache for active cycle
+            active_cycle_cache_key = "active_cycle_year"
+            if active_cycle_cache_key in _team_performance_cache:
+                cached_cycle, cached_ts = _team_performance_cache[active_cycle_cache_key]
+                if current_time - cached_ts < 600:  # 10 minute TTL for active cycle
+                    target_cycle_year = cached_cycle.get("year")
             
-            if active_cycles:
-                active_cycles.sort(key=lambda x: x.get("year", ""), reverse=True)
-                target_cycle_year = active_cycles[0].get("year")
-            else:
-                target_cycle_year = datetime.now().strftime("%Y")
+            if not target_cycle_year:
+                # Get current active cycle - OPTIMIZED: Only fetch year
+                last_evaluated_key = None
+                active_cycles = []
+                while True:
+                    scan_kwargs = {
+                        "FilterExpression": Attr("status").in_(["open", "active"]),
+                        "ProjectionExpression": "#year, #status",  # Only fetch needed fields
+                        "ExpressionAttributeNames": {
+                            "#year": "year",
+                            "#status": "status"
+                        }
+                    }
+                    if last_evaluated_key:
+                        scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                    response = await cycles_table.scan(**scan_kwargs)
+                    for item in response.get("Items", []):
+                        parsed = parse_dynamodb_item(item)
+                        active_cycles.append(parsed)
+                    last_evaluated_key = response.get("LastEvaluatedKey")
+                    if not last_evaluated_key:
+                        break
+                
+                if active_cycles:
+                    active_cycles.sort(key=lambda x: x.get("year", ""), reverse=True)
+                    target_cycle_year = active_cycles[0].get("year")
+                    # Cache the active cycle
+                    _team_performance_cache[active_cycle_cache_key] = (active_cycles[0], current_time)
+                else:
+                    target_cycle_year = datetime.now().strftime("%Y")
         
-        # Fetch all active employees
+        # OPTIMIZED: Fetch only needed fields for employees (id, name, position, reporting_to, status)
         employees = []
         employee_map = {}  # {employee_id: employee}
         last_evaluated_key = None
         while True:
             scan_kwargs = {
-                "FilterExpression": Attr("status").ne("inactive")
+                "FilterExpression": Attr("status").ne("inactive"),
+                "ProjectionExpression": "id, #name, #position, reporting_to, #status",  # Only fetch needed fields
+                "ExpressionAttributeNames": {
+                    "#name": "name",
+                    "#position": "position",
+                    "#status": "status"
+                }
             }
             if last_evaluated_key:
                 scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
@@ -1489,7 +1608,7 @@ async def get_team_performance(
             if director_id and director_id in teams_by_director:
                 teams_by_director[director_id]["employees"].append(emp.get("id"))
         
-        # Fetch all manager reviews for the cycle to calculate metrics
+        # OPTIMIZED: Fetch only needed fields for manager reviews (employeeId, metadata, ratings)
         manager_reviews_by_employee = {}  # {employee_id: {rating, submitted}}
         try:
             last_evaluated_key = None
@@ -1500,7 +1619,11 @@ async def get_team_performance(
                     "FilterExpression": And(
                         Attr("cycleYear").eq(target_cycle_year),
                         Attr("submittedAt").exists()
-                    )
+                    ),
+                    "ProjectionExpression": "employeeId, #metadata, ratings",  # Only fetch needed fields
+                    "ExpressionAttributeNames": {
+                        "#metadata": "metadata"
+                    }
                 }
                 if last_evaluated_key:
                     query_kwargs["ExclusiveStartKey"] = last_evaluated_key
@@ -1545,7 +1668,11 @@ async def get_team_performance(
             last_evaluated_key = None
             while True:
                 scan_kwargs = {
-                    "FilterExpression": Attr("cycleYear").eq(target_cycle_year) & Attr("reviewType").eq("manager") & Attr("submittedAt").exists()
+                    "FilterExpression": Attr("cycleYear").eq(target_cycle_year) & Attr("reviewType").eq("manager") & Attr("submittedAt").exists(),
+                    "ProjectionExpression": "employeeId, #metadata, ratings",  # Only fetch needed fields
+                    "ExpressionAttributeNames": {
+                        "#metadata": "metadata"
+                    }
                 }
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
@@ -1623,7 +1750,7 @@ async def get_team_performance(
         team_performance.sort(key=lambda x: x["completionRate"], reverse=True)
         
         # Return in expected format
-        return [
+        result = [
             TeamPerformancePoint(
                 team=t["team"],
                 completionRate=t["completionRate"],
@@ -1632,6 +1759,11 @@ async def get_team_performance(
             )
             for t in team_performance
         ]
+        
+        # Cache the result
+        _team_performance_cache[cache_key] = (result, current_time)
+        
+        return result
         
     except Exception as exc:
         logger.exception("Error getting team performance")
@@ -1783,11 +1915,12 @@ async def export_dashboard_csv(
             if not last_evaluated_key:
                 break
 
-        # Load manager reviews for the given cycle from both submitted and draft tables
+        # Load manager reviews AND self reviews for the given cycle from both submitted and draft tables
         reviews_table = await get_reviews_table()
         drafts_table = await get_review_drafts_table()
 
-        review_map: Dict[str, ReviewInDB] = {}
+        manager_review_map: Dict[str, ReviewInDB] = {}
+        self_review_map: Dict[str, ReviewInDB] = {}  # Key: employeeId, Value: ReviewInDB
         processed_statuses = {
             "changes_requested",
             "hr_approved",
@@ -1809,8 +1942,10 @@ async def export_dashboard_csv(
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
 
-                # Filter only manager reviews for the requested cycle year
-                filter_expr = Attr("cycleYear").eq(cycleYear) & Attr("reviewType").eq("manager")
+                # Filter reviews for the requested cycle year (both manager and self)
+                filter_expr = Attr("cycleYear").eq(cycleYear) & (
+                    Attr("reviewType").eq("manager") | Attr("reviewType").eq("self")
+                )
                 scan_kwargs["FilterExpression"] = filter_expr
 
                 response = await table.scan(**scan_kwargs)
@@ -1820,53 +1955,101 @@ async def export_dashboard_csv(
                     if not review_id:
                         continue
 
-                    existing = review_map.get(review_id)
-                    if not existing:
-                        review_map[review_id] = review_obj
-                        continue
+                    if review_obj.reviewType == "manager":
+                        existing = manager_review_map.get(review_id)
+                        if not existing:
+                            manager_review_map[review_id] = review_obj
+                            continue
 
-                    existing_status = _get_review_status_value(existing).lower()
-                    new_status = _get_review_status_value(review_obj).lower()
-                    existing_is_processed = existing_status in processed_statuses
-                    new_is_processed = new_status in processed_statuses
+                        existing_status = _get_review_status_value(existing).lower()
+                        new_status = _get_review_status_value(review_obj).lower()
+                        existing_is_processed = existing_status in processed_statuses
+                        new_is_processed = new_status in processed_statuses
 
-                    if new_is_processed and not existing_is_processed:
-                        review_map[review_id] = review_obj
-                    elif existing_is_processed and not new_is_processed:
-                        # keep existing
-                        pass
-                    else:
-                        # Same priority - keep the one with the most recent timestamp
-                        existing_ts = _parse_timestamp(existing.updatedAt or existing.createdAt)
-                        new_ts = _parse_timestamp(review_obj.updatedAt or review_obj.createdAt)
-                        if new_ts > existing_ts:
-                            review_map[review_id] = review_obj
+                        if new_is_processed and not existing_is_processed:
+                            manager_review_map[review_id] = review_obj
+                        elif existing_is_processed and not new_is_processed:
+                            # keep existing
+                            pass
+                        else:
+                            # Same priority - keep the one with the most recent timestamp
+                            existing_ts = _parse_timestamp(existing.updatedAt or existing.createdAt)
+                            new_ts = _parse_timestamp(review_obj.updatedAt or review_obj.createdAt)
+                            if new_ts > existing_ts:
+                                manager_review_map[review_id] = review_obj
+                    elif review_obj.reviewType == "self":
+                        # For self reviews, keep the most recent one per employee
+                        emp_id = review_obj.employeeId
+                        existing_self = self_review_map.get(emp_id)
+                        if not existing_self:
+                            self_review_map[emp_id] = review_obj
+                        else:
+                            # Keep the one with the most recent timestamp
+                            existing_ts = _parse_timestamp(existing_self.updatedAt or existing_self.createdAt)
+                            new_ts = _parse_timestamp(review_obj.updatedAt or review_obj.createdAt)
+                            if new_ts > existing_ts:
+                                self_review_map[emp_id] = review_obj
 
                 last_evaluated_key = response.get("LastEvaluatedKey")
                 if not last_evaluated_key:
                     break
 
-        reviews = list(review_map.values())
+        reviews = list(manager_review_map.values())
 
         # Build CSV in memory
         output = io.StringIO()
         writer = csv.writer(output)
 
-        # CSV header
+        # CSV header - expanded with all review details
         writer.writerow(
             [
                 "cycleYear",
                 "cycleName",
-                "employee_id",  # Business employee ID from Zenith HR employees table
+                "employee_id",
                 "employeeName",
                 "employeeEmail",
                 "employeeDepartment",
                 "employeePosition",
                 "managerId",
+                "managerEmail",
                 "managerSignOffStatus",
-                "managerOverallRating",
-                "submittedAt",
                 "rawStatus",
+                "submittedAt",
+                "lastUpdated",
+                # Self Review Highlights
+                "selfReview_KeyAccomplishments",
+                "selfReview_BeyondRoleContributions",
+                "selfReview_ChallengesAndSolutions",
+                "selfReview_AreasOfImprovement",
+                "selfReview_CertificationsCompleted",
+                # Manager Summary
+                "managerOverallRating",
+                "managerSummary_SummaryFeedback",
+                "managerSummary_DevelopmentNeed",
+                "managerSummary_ActionPlan",
+                "managerSummary_Recommendations",
+                # Goals (up to 5 goals)
+                "goal1_Title",
+                "goal1_Weightage",
+                "goal1_Rating",
+                "goal1_Completion",
+                "goal2_Title",
+                "goal2_Weightage",
+                "goal2_Rating",
+                "goal2_Completion",
+                "goal3_Title",
+                "goal3_Weightage",
+                "goal3_Rating",
+                "goal3_Completion",
+                "goal4_Title",
+                "goal4_Weightage",
+                "goal4_Rating",
+                "goal4_Completion",
+                "goal5_Title",
+                "goal5_Weightage",
+                "goal5_Rating",
+                "goal5_Completion",
+                "allGoals_JSON",  # JSON string of all goals if more than 5
             ]
         )
 
@@ -1897,6 +2080,7 @@ async def export_dashboard_csv(
             )
 
             signoff_status = map_signoff_status(review)
+            raw_status = _get_review_status_value(review)
 
             # Extract overall rating from ratings/metadata
             overall_rating = None
@@ -1907,7 +2091,55 @@ async def export_dashboard_csv(
                 final_rating = metadata.get("finalRating") or {}
                 overall_rating = final_rating.get("overallRating")
 
-            submitted_at = review.submittedAt or review.updatedAt or review.createdAt or ""
+            submitted_at = review.submittedAt or ""
+            last_updated = review.updatedAt or review.createdAt or ""
+
+            # Get manager email
+            manager_email = manager.get("email", "") if manager else ""
+
+            # Get self-review data
+            self_review = self_review_map.get(review.employeeId)
+            self_review_fields = {}
+            if self_review and self_review.metadata:
+                self_review_meta = self_review.metadata.get("selfReviewFields", {})
+                self_review_fields = {
+                    "keyAccomplishments": self_review_meta.get("significantAccomplishments", ""),
+                    "beyondRoleContributions": self_review_meta.get("beyondRoleContributions", ""),
+                    "challengesAndSolutions": self_review_meta.get("challengesAndSolutions", ""),
+                    "areasOfImprovement": self_review_meta.get("areasNeedingImprovement", ""),
+                    "certificationsCompleted": self_review_meta.get("certificationsCompleted", ""),
+                }
+
+            # Get manager summary from metadata
+            manager_metadata = review.metadata or {}
+            final_rating = manager_metadata.get("finalRating", {})
+            manager_summary = {
+                "summaryFeedback": final_rating.get("summaryFeedback", ""),
+                "developmentNeed": final_rating.get("developmentNeed", ""),
+                "actionPlan": final_rating.get("actionPlan", ""),
+                "recommendations": final_rating.get("developmentRecommendations", ""),
+            }
+
+            # Get goal reviews
+            goal_reviews = manager_metadata.get("goalReviews", [])
+            # Extract up to 5 goals
+            goal_data = []
+            for i in range(5):
+                if i < len(goal_reviews):
+                    goal = goal_reviews[i]
+                    goal_data.extend([
+                        goal.get("goalDescription", ""),
+                        goal.get("weightage", ""),
+                        goal.get("managerRating", ""),
+                        goal.get("completion", ""),
+                    ])
+                else:
+                    goal_data.extend(["", "", "", ""])
+            
+            # All goals as JSON (if more than 5)
+            all_goals_json = ""
+            if len(goal_reviews) > 5:
+                all_goals_json = json.dumps(goal_reviews)
 
             writer.writerow(
                 [
@@ -1919,10 +2151,26 @@ async def export_dashboard_csv(
                     emp.get("department", ""),
                     emp.get("position", ""),
                     review.reviewerId,
+                    manager_email,
                     signoff_status,
-                    overall_rating if overall_rating is not None else "",
+                    raw_status,
                     submitted_at,
-                    _get_review_status_value(review),
+                    last_updated,
+                    # Self Review Highlights
+                    self_review_fields.get("keyAccomplishments", ""),
+                    self_review_fields.get("beyondRoleContributions", ""),
+                    self_review_fields.get("challengesAndSolutions", ""),
+                    self_review_fields.get("areasOfImprovement", ""),
+                    self_review_fields.get("certificationsCompleted", ""),
+                    # Manager Summary
+                    overall_rating if overall_rating is not None else "",
+                    manager_summary.get("summaryFeedback", ""),
+                    manager_summary.get("developmentNeed", ""),
+                    manager_summary.get("actionPlan", ""),
+                    manager_summary.get("recommendations", ""),
+                    # Goals (up to 5)
+                    *goal_data,
+                    all_goals_json,
                 ]
             )
 

@@ -552,7 +552,7 @@ export default function Directory() {
                       {/* List View Header with Download Button */}
                       <div className="flex justify-between items-center">
                         <div className="text-sm text-muted-foreground">
-                          Showing {sortedAndFilteredEmployees.length} of {activeEmployeesCount} active employees
+                          Showing {activeEmployeesCount} of {sortedAndFilteredEmployees.length} active employees
                         </div>
                         {isAdmin && (
                           <Button 
