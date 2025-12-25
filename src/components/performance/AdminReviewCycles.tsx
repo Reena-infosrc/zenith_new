@@ -337,11 +337,74 @@ export function AdminReviewCycles() {
     if (!editingCycle) return;
     try {
       setLoading(true);
-      // TODO: API call
-      setCycles(cycles.map(c => c.id === editingCycle.id ? { ...c, ...formData } : c));
+      
+      // Extract year from cycle ID (cycleId is the year)
+      const year = editingCycle.id;
+      
+      // Validate year format (must be 4 digits)
+      if (!/^\d{4}$/.test(year)) {
+        throw new Error('Invalid year format. Year must be 4 digits (e.g., 2024)');
+      }
+      
+      // Build the API payload - only include fields that are being updated
+      const payload: any = {
+        name: formData.name,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        metadata: {
+          selfReviewEnabled: formData.selfReviewEnabled,
+          managerReviewEnabled: formData.managerReviewEnabled,
+          competencyWeightages: formData.competencyWeightages,
+          // Preserve existing assignments if not being updated
+          assignments: formData.assignments.length > 0 ? formData.assignments : editingCycle.assignments || []
+        }
+      };
+      
+      console.log('Updating review cycle:', year, payload);
+      
+      const response = await authenticatedFetch(`${API_BASE_URL}/reviews/cycles/${year}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to update review cycle' }));
+        const errorMessage = errorData?.detail || errorData?.message || 'Failed to update review cycle';
+        throw new Error(errorMessage);
+      }
+      
+      const updatedCycle = await response.json();
+      console.log('Review cycle updated:', updatedCycle);
+      
+      // Map the API response to the local ReviewCycle format
+      const mappedCycle: ReviewCycle = {
+        id: updatedCycle.cycleId || year,
+        name: updatedCycle.name || formData.name,
+        startDate: updatedCycle.startDate || formData.startDate,
+        endDate: updatedCycle.endDate || formData.endDate,
+        status: updatedCycle.status === 'open' ? 'active' : updatedCycle.status || editingCycle.status,
+        createdAt: updatedCycle.createdAt || editingCycle.createdAt,
+        createdBy: editingCycle.createdBy,
+        employeeCount: updatedCycle.metadata?.assignments?.length || editingCycle.employeeCount || 0,
+        completionRate: editingCycle.completionRate || 0,
+        selfReviewEnabled: updatedCycle.metadata?.selfReviewEnabled ?? formData.selfReviewEnabled,
+        managerReviewEnabled: updatedCycle.metadata?.managerReviewEnabled ?? formData.managerReviewEnabled,
+        competencyWeightages: updatedCycle.metadata?.competencyWeightages || formData.competencyWeightages,
+        assignments: updatedCycle.metadata?.assignments || formData.assignments || editingCycle.assignments || []
+      };
+      
+      // Update the cycles list
+      setCycles(cycles.map(c => c.id === editingCycle.id ? mappedCycle : c));
+      
+      // Clear editing state
       setEditingCycle(null);
       setShowCreateModal(false);
       resetForm();
+      
+      // Refresh cycles to get latest data
+      await fetchCycles();
+      
       toast({
         title: "Success",
         description: "Review cycle updated successfully"
@@ -350,7 +413,7 @@ export function AdminReviewCycles() {
       console.error('Error updating cycle:', error);
       toast({
         title: "Error",
-        description: "Failed to update review cycle",
+        description: error instanceof Error ? error.message : "Failed to update review cycle",
         variant: "destructive"
       });
     } finally {
@@ -561,7 +624,23 @@ export function AdminReviewCycles() {
       </Card>
 
       {/* Cycles List */}
-      <Tabs defaultValue="all" className="space-y-4" onValueChange={() => preserveScroll()}>
+      <Tabs 
+        defaultValue="all" 
+        className="space-y-4" 
+        onValueChange={(value) => {
+          preserveScroll();
+          // Update filterStatus when tab changes
+          if (value === 'all') {
+            setFilterStatus('all');
+          } else if (value === 'active') {
+            setFilterStatus('active');
+          } else if (value === 'draft') {
+            setFilterStatus('draft');
+          } else if (value === 'archived') {
+            setFilterStatus('archived');
+          }
+        }}
+      >
         <TabsList className="bg-muted/50 backdrop-blur-sm">
           <TabsTrigger value="all">All Cycles</TabsTrigger>
           <TabsTrigger value="active">Active</TabsTrigger>
@@ -570,6 +649,231 @@ export function AdminReviewCycles() {
         </TabsList>
 
         <TabsContent value="all" className="space-y-4">
+          {filteredCycles.map((cycle) => (
+            <Card
+              key={cycle.id}
+              className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all duration-300 shadow-lg hover:shadow-xl"
+            >
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-semibold">{cycle.name}</h3>
+                      {getStatusBadge(cycle.status)}
+                    </div>
+
+                    <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        <span>
+                          {new Date(cycle.startDate).toLocaleDateString()} - {new Date(cycle.endDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {cycle.employeeCount && (
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          <span>{cycle.employeeCount} employees</span>
+                        </div>
+                      )}
+                      {cycle.completionRate !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span>{cycle.completionRate}% complete</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {cycle.status === 'active' && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Clock className="h-4 w-4 text-primary" />
+                        <span className="text-muted-foreground">
+                          Days remaining: {Math.ceil((new Date(cycle.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {cycle.status === 'draft' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleActivateCycle(cycle.id)}
+                        className="hover:bg-green-500/10 hover:text-green-600"
+                      >
+                        <Play className="h-4 w-4 mr-2" />
+                        Activate
+                      </Button>
+                    )}
+                    {cycle.status !== 'archived' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditModal(cycle)}
+                        className="hover:bg-primary/10"
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="active" className="space-y-4">
+          {filteredCycles.map((cycle) => (
+            <Card
+              key={cycle.id}
+              className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all duration-300 shadow-lg hover:shadow-xl"
+            >
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-semibold">{cycle.name}</h3>
+                      {getStatusBadge(cycle.status)}
+                    </div>
+
+                    <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        <span>
+                          {new Date(cycle.startDate).toLocaleDateString()} - {new Date(cycle.endDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {cycle.employeeCount && (
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          <span>{cycle.employeeCount} employees</span>
+                        </div>
+                      )}
+                      {cycle.completionRate !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span>{cycle.completionRate}% complete</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {cycle.status === 'active' && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Clock className="h-4 w-4 text-primary" />
+                        <span className="text-muted-foreground">
+                          Days remaining: {Math.ceil((new Date(cycle.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {cycle.status === 'draft' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleActivateCycle(cycle.id)}
+                        className="hover:bg-green-500/10 hover:text-green-600"
+                      >
+                        <Play className="h-4 w-4 mr-2" />
+                        Activate
+                      </Button>
+                    )}
+                    {cycle.status !== 'archived' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditModal(cycle)}
+                        className="hover:bg-primary/10"
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="draft" className="space-y-4">
+          {filteredCycles.map((cycle) => (
+            <Card
+              key={cycle.id}
+              className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-xl border-border/50 hover:border-primary/30 transition-all duration-300 shadow-lg hover:shadow-xl"
+            >
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-semibold">{cycle.name}</h3>
+                      {getStatusBadge(cycle.status)}
+                    </div>
+
+                    <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        <span>
+                          {new Date(cycle.startDate).toLocaleDateString()} - {new Date(cycle.endDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {cycle.employeeCount && (
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          <span>{cycle.employeeCount} employees</span>
+                        </div>
+                      )}
+                      {cycle.completionRate !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span>{cycle.completionRate}% complete</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {cycle.status === 'active' && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Clock className="h-4 w-4 text-primary" />
+                        <span className="text-muted-foreground">
+                          Days remaining: {Math.ceil((new Date(cycle.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {cycle.status === 'draft' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleActivateCycle(cycle.id)}
+                        className="hover:bg-green-500/10 hover:text-green-600"
+                      >
+                        <Play className="h-4 w-4 mr-2" />
+                        Activate
+                      </Button>
+                    )}
+                    {cycle.status !== 'archived' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditModal(cycle)}
+                        className="hover:bg-primary/10"
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="archived" className="space-y-4">
           {filteredCycles.map((cycle) => (
             <Card
               key={cycle.id}
