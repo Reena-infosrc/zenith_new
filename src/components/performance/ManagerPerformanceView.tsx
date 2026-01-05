@@ -595,7 +595,7 @@ export function ManagerPerformanceView() {
 
       try {
         setInitialLoading(true);
-        
+
         const employee = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
         if (!employee) {
           setInitialLoading(false);
@@ -691,13 +691,13 @@ export function ManagerPerformanceView() {
           const teamGoalsMap = new Map<string, Goal[]>();
           
           batchGoalsMap.forEach((apiGoals, employeeId) => {
-            const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
+              const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
             teamGoalsMap.set(employeeId, convertedGoals);
-            
+              
             // Cache all goals
-            apiGoals.forEach(goal => {
-              allGoalsCache.current.set(goal.id, goal);
-            });
+              apiGoals.forEach(goal => {
+                allGoalsCache.current.set(goal.id, goal);
+              });
           });
           
           // Ensure all employees have an entry (even if empty)
@@ -1369,8 +1369,8 @@ export function ManagerPerformanceView() {
   const filteredReports = directReports.filter(emp => {
     const matchesSearch =
       emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.position.toLowerCase().includes(searchTerm.toLowerCase());
+           emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+           emp.position.toLowerCase().includes(searchTerm.toLowerCase());
 
     const reviewStatus = employeeReviewStatuses.get(emp.id);
     let matchesFilter = true;
@@ -1893,7 +1893,7 @@ export function ManagerPerformanceView() {
                     Click to filter
                   </p>
                 )}
-              </div>
+      </div>
               <div className={cn(
                 "h-12 w-12 rounded-full flex items-center justify-center transition-all",
                 isCompletedFilterActive
@@ -2033,8 +2033,8 @@ export function ManagerPerformanceView() {
           {/* Team Members Grid - shown when review workspace is not active */}
           {!showReviewWorkspace && (
             <>
-              {/* Pending Approvals Section */}
-              {pendingApprovalGoals.length > 0 && (
+          {/* Pending Approvals Section */}
+          {pendingApprovalGoals.length > 0 && (
             <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 backdrop-blur-sm border-blue-500/20 shadow-lg">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -2239,7 +2239,7 @@ export function ManagerPerformanceView() {
         <TabsContent value="my-goals" className="space-y-4">
           {/* Use the same UserPerformanceView component for consistency */}
           <UserPerformanceView employeeId={currentManagerEmployeeId} />
-        </TabsContent>
+            </TabsContent>
 
         {/* Feedback tab content - commented out/hidden */}
         {/* <TabsContent value="feedback" className="space-y-4">

@@ -165,6 +165,47 @@ def _parse_timestamp(value: Optional[str]) -> float:
         return 0.0
 
 
+async def _get_active_cycle() -> Dict[str, Any]:
+    """Get the active cycle (status = 'open') from the cycles table.
+    Always use this logic - do not create fallback."""
+    cycles_table = await get_cycles_table()
+    
+    # Scan for cycles with status = 'open'
+    # Note: 'year', 'status', and 'name' are reserved keywords in DynamoDB, so we need to alias them in ProjectionExpression
+    # For FilterExpression, we use the actual attribute name with Attr() from boto3
+    last_evaluated_key = None
+    while True:
+        scan_kwargs = {
+            "FilterExpression": Attr("status").eq("open"),
+            "ProjectionExpression": "#year, #status, #name, startDate, endDate, metadata, createdAt, updatedAt",
+            "ExpressionAttributeNames": {
+                "#year": "year",
+                "#status": "status",
+                "#name": "name"
+            }
+        }
+        if last_evaluated_key:
+            scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+        
+        response = await cycles_table.scan(**scan_kwargs)
+        items = response.get("Items", [])
+        
+        if items:
+            # Parse and return the first active cycle found
+            parsed_item = parse_dynamodb_item(items[0])
+            return parsed_item
+        
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+    
+    # No active cycle found
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="No active review cycle found. Please activate a cycle first.",
+    )
+
+
 async def _ensure_cycle(year: str) -> Dict[str, Any]:
     """Check if cycle exists in cycles table"""
     cycles_table = await get_cycles_table()
@@ -566,8 +607,28 @@ async def create_review(
     If submittedAt is provided, review goes to reviews table (submitted).
     Otherwise, review goes to review_drafts table (draft).
     Note: isDraft field is accepted for backward compatibility but not stored.
+    
+    IMPORTANT: Always uses the active cycle (status = 'open') from the database,
+    not the cycleYear from the request body.
     """
-    await _ensure_cycle(review.cycleYear)
+    # Get the active cycle from database (status = 'open')
+    active_cycle = await _get_active_cycle()
+    active_cycle_year = str(active_cycle.get("year", ""))
+    
+    if not active_cycle_year or active_cycle_year == "":
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Active cycle found but missing year field",
+        )
+    
+    # Create a modified review dict with the active cycle's year
+    review_dict = review.dict()
+    original_cycle_year = review_dict.get("cycleYear")
+    review_dict["cycleYear"] = active_cycle_year
+    logger.info(f"Using active cycle year: {active_cycle_year} (ignoring request cycleYear: {original_cycle_year})")
+    
+    # Create a new ReviewCreate object with the corrected cycleYear
+    review = ReviewCreate(**review_dict)
     
     # Determine if this is a draft based on submittedAt (not isDraft field)
     # submittedAt being None means it's a draft
