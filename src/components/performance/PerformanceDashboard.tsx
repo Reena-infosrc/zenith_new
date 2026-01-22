@@ -592,7 +592,9 @@ export function PerformanceDashboard() {
               <p className="text-muted-foreground">No team performance data available</p>
             </div>
           ) : (
-            <div className="space-y-4">
+             <div
+              className="max-h-[420px] overflow-y-auto pr-2 space-y-4"
+              style={{ scrollbarWidth: "thin", scrollbarColor: "##9ca3af transparent", }} >
               {teamPerformance.map((team) => (
                 <div key={team.team} className="space-y-2">
                   <div className="flex items-center justify-between">

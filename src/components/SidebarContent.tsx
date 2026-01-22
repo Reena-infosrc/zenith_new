@@ -146,20 +146,26 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
             </div>
           </div>
           
-          {/* Animated Logo - Switchable via config */}
-          <div className="flex-shrink-0 px-4 py-4 flex items-center justify-center" style={{
-            position: 'sticky',
-            bottom: '80px', /* Height of version section */
-            zIndex: 10
-          }}>
-            <div className="relative w-28 h-28">
-              {getCurrentAnimation() === 'cloud-gear' ? (
-                <CloudGearAnimation settings={ANIMATION_CONFIG.settings} />
-              ) : (
-                <HRCharacterAnimation />
-              )}
-            </div>
+         {/* Animated Logo - Switchable via config */}
+        {/* <div className="flex-shrink-0 px-4 py-4 flex items-center justify-center" style={{
+          position: 'sticky',
+          bottom: '80px', 
+          zIndex: 10
+        }}>
+          <div className="relative w-28 h-28">
+            {getCurrentAnimation() === 'cloud-gear' ? (
+              <CloudGearAnimation settings={ANIMATION_CONFIG.settings} />
+            ) : (
+              <HRCharacterAnimation />
+            )}
           </div>
+        </div> */}
+        
+        <div className="px-4 py-3 flex justify-center">
+          <h1 className="text-xl font-bold text-gradient-primary">
+            Zenith
+          </h1>
+        </div>
           
           <div className="flex-shrink-0 px-4 py-4 mt-auto border-t border-border/50 bg-gradient-to-t from-background/95 to-transparent backdrop-blur-sm" style={{ 
             position: 'sticky',
@@ -210,10 +216,10 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
           </div>
         </div>
         
-        {/* Animated Logo - Switchable via config */}
-        <div className="flex-shrink-0 px-4 py-4 flex items-center justify-center" style={{
+      {/* Animated Logo - Switchable via config */}
+        {/* <div className="flex-shrink-0 px-4 py-4 flex items-center justify-center" style={{
           position: 'sticky',
-          bottom: '80px', /* Height of version section */
+          bottom: '80px', 
           zIndex: 10
         }}>
           <div className="relative w-28 h-28">
@@ -223,6 +229,12 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
               <HRCharacterAnimation />
             )}
           </div>
+        </div> */}
+        
+        <div className="px-4 py-3 flex justify-center">
+          <h1 className="text-xl font-bold text-gradient-primary">
+            Zenith
+          </h1>
         </div>
         
         {/* Version Info at Bottom - Fixed at bottom */}

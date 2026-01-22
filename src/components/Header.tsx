@@ -72,13 +72,12 @@ export function Header({ onMenuToggle }: HeaderProps) {
             <MenuIcon className="w-5 h-5" />
           </Button>
           
-          <div className="flex items-center">
-            <img 
-              src="/logo.png" 
-              alt="Info Services Logo" 
-              className="w-16 h-16 mr-3"
+         <div className="flex flex-col items-center justify-center h-full ml-5 gap-2 mt-3">
+            <img
+              src="/LOGO.svg"
+              alt="Info Services Logo"
+              className="w-auto h-7"
             />
-            <h1 className="text-xl font-bold text-gradient-primary">Zenith</h1>
           </div>
         </div>
         
