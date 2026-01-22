@@ -1526,8 +1526,6 @@ async def get_team_performance(
     current_user: dict = Depends(get_current_active_user),
 ):
     """
-    Get team performance data showing completion rates and average ratings by team/director.
-    Groups employees by their director (traversing up the reporting chain) and calculates metrics.
     OPTIMIZED: Uses caching, ProjectionExpression, and efficient data structures.
     """
     del current_user
@@ -1614,40 +1612,15 @@ async def get_team_performance(
             if not last_evaluated_key:
                 break
         
-        # Find all directors (employees with "Director" in their position)
+        # Find all managers (anyone who has direct reports)
         directors = []
         for emp in employees:
-            position = (emp.get("position") or "").lower()
-            if "director" in position:
+            emp_id = emp.get("id")
+            if emp_id and any(e.get("reporting_to") == emp_id for e in employees):
                 directors.append(emp)
         
-        # Helper function to find the director an employee reports to (directly or indirectly)
-        def find_director(employee_id: str, visited: set = None) -> Optional[str]:
-            if visited is None:
-                visited = set()
-            if employee_id in visited:
-                return None  # Prevent circular references
-            visited.add(employee_id)
-            
-            employee = employee_map.get(employee_id)
-            if not employee or not employee.get("reporting_to"):
-                return None
-            
-            manager_id = employee.get("reporting_to")
-            manager = employee_map.get(manager_id)
-            if not manager:
-                return None
-            
-            # Check if manager is a director
-            manager_position = (manager.get("position") or "").lower()
-            if "director" in manager_position:
-                return manager_id
-            
-            # Recursively check up the chain
-            return find_director(manager_id, visited)
-        
-        # Group employees by their director
-        teams_by_director = {}  # {director_id: {director: emp, employees: [emp_ids]}}
+        # Group employees by their direct manager 
+        teams_by_director = {}  # {manager_id: {manager: emp, employees: [emp_ids]}}
         
         for director in directors:
             director_id = director.get("id")
@@ -1657,17 +1630,15 @@ async def get_team_performance(
                     "employees": []
                 }
         
-        # Assign employees to their directors
+        # Validate cycle
+        if not target_cycle_year:
+            raise HTTPException(status_code=400, detail="No active review cycle found")
+        
+        # Assign employees to their direct managers (include all direct reports)
         for emp in employees:
-            # Skip directors themselves
-            position = (emp.get("position") or "").lower()
-            if "director" in position:
-                continue
-            
-            # Find which director this employee reports to
-            director_id = find_director(emp.get("id"))
-            if director_id and director_id in teams_by_director:
-                teams_by_director[director_id]["employees"].append(emp.get("id"))
+            manager_id = emp.get("reporting_to")
+            if manager_id and manager_id in teams_by_director:
+                teams_by_director[manager_id]["employees"].append(emp.get("id"))
         
         # OPTIMIZED: Fetch only needed fields for manager reviews (employeeId, metadata, ratings)
         manager_reviews_by_employee = {}  # {employee_id: {rating, submitted}}
@@ -1772,6 +1743,13 @@ async def get_team_performance(
                 if not last_evaluated_key:
                     break
         
+        # Helper function to get initials from name
+        def get_initials(name: str) -> str:
+            if not name:
+                return ""
+            parts = name.split()
+            return "".join(p[0].upper() for p in parts if p)
+        
         # Calculate metrics for each team
         team_performance = []
         for director_id, team_data in teams_by_director.items():
@@ -1798,10 +1776,12 @@ async def get_team_performance(
             completion_rate = (completed_count / len(employee_ids) * 100) if len(employee_ids) > 0 else 0.0
             average_rating = (ratings_sum / ratings_count) if ratings_count > 0 else 0.0
             
-            director_name = director.get("name") or "Unknown Director"
+            name = director.get("name") or "Unknown"
+            position = director.get("position") or ""
+            team_name = name
             
             team_performance.append({
-                "team": director_name,
+                "team": team_name,
                 "completionRate": round(completion_rate, 1),
                 "averageRating": round(average_rating, 1),
                 "employees": len(employee_ids)

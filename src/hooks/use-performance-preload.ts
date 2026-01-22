@@ -28,9 +28,72 @@ interface PreloadedPerformanceData {
 }
 
 // Global cache for performance data
-const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
-const performanceCache = new Map<string, PreloadedPerformanceData>();
+const CACHE_DURATION_MS = 30 * 60 * 1000; // 30 minutes
+const STORAGE_KEY = 'zenith_performance_cache_v4';
+
+// Helper to serialize the performance cache for localStorage
+const serializeCache = (cache: Map<string, PreloadedPerformanceData>) => {
+  const obj: Record<string, any> = {};
+  cache.forEach((value, key) => {
+    // Convert Map in teamGoals to a plain object for JSON serialization
+    const serializedValue = { ...value };
+    if (serializedValue.managerData?.teamGoals) {
+      const goalsObj: Record<string, any[]> = {};
+      serializedValue.managerData.teamGoals.forEach((goals, empId) => {
+        goalsObj[empId] = goals;
+      });
+      serializedValue.managerData = {
+        ...serializedValue.managerData,
+        teamGoals: goalsObj as any
+      };
+    }
+    obj[key] = serializedValue;
+  });
+  return JSON.stringify(obj);
+};
+
+// Helper to deserialize the performance cache from localStorage
+const deserializeCache = (json: string): Map<string, PreloadedPerformanceData> => {
+  try {
+    const obj = JSON.parse(json);
+    const cache = new Map<string, PreloadedPerformanceData>();
+    Object.keys(obj).forEach(key => {
+      const value = obj[key];
+      // Convert plain object back to Map for teamGoals
+      if (value.managerData?.teamGoals && !(value.managerData.teamGoals instanceof Map)) {
+        const goalsMap = new Map<string, any[]>();
+        Object.keys(value.managerData.teamGoals).forEach(empId => {
+          goalsMap.set(empId, value.managerData.teamGoals[empId]);
+        });
+        value.managerData.teamGoals = goalsMap;
+      }
+      cache.set(key, value);
+    });
+    return cache;
+  } catch (e) {
+    console.error('Failed to deserialize performance cache:', e);
+    return new Map();
+  }
+};
+
+// Global cache for performance data - Initialized from localStorage if available
+const performanceCache = typeof window !== 'undefined' && localStorage.getItem(STORAGE_KEY)
+  ? deserializeCache(localStorage.getItem(STORAGE_KEY)!)
+  : new Map<string, PreloadedPerformanceData>();
+
 const preloadPromises = new Map<string, Promise<void>>();
+
+// Wrapper to set cache and persist to localStorage
+const setCacheAndPersist = (key: string, data: PreloadedPerformanceData) => {
+  performanceCache.set(key, data);
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY, serializeCache(performanceCache));
+    } catch (e) {
+      console.warn('Performance cache quota exceeded, persistent caching disabled');
+    }
+  }
+};
 
 export function usePerformancePreload() {
   const { user } = useAuth();
@@ -118,7 +181,7 @@ export function usePerformancePreload() {
 
           // Wait for base preloads to complete
           const baseResults = await Promise.allSettled(preloadPromises);
-          
+
           const goals = baseResults[0].status === 'fulfilled' ? baseResults[0].value : [];
           const reviews = baseResults[1].status === 'fulfilled' ? baseResults[1].value : [];
           const cycles = baseResults[2].status === 'fulfilled' ? baseResults[2].value : [];
@@ -131,11 +194,11 @@ export function usePerformancePreload() {
               const empStatus = (emp as any).status ?? 'active';
               return emp.reporting_to === employeeId && empStatus !== 'inactive';
             });
-            
+
             if (directReports.length > 0) {
               const teamEmployeeIds = directReports.map(r => r.id);
               const employeeIdsParam = teamEmployeeIds.join(',');
-              
+
               // Preload ALL team member goals using batch endpoint (much faster!)
               const teamGoalsPromise = (async () => {
                 try {
@@ -164,7 +227,7 @@ export function usePerformancePreload() {
                   }));
                 }
               })();
-              
+
               // Preload batch reviews for all team members in parallel
               const [teamGoalsResults, managerSubmittedRes, managerDraftRes, selfSubmittedRes, selfDraftRes] = await Promise.allSettled([
                 teamGoalsPromise,
@@ -177,7 +240,7 @@ export function usePerformancePreload() {
                 authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=true`)
                   .then(res => res.ok ? res.json() : [])
               ]);
-              
+
               // Build team goals map
               const teamGoalsMap = new Map<string, any[]>();
               if (teamGoalsResults.status === 'fulfilled') {
@@ -185,7 +248,7 @@ export function usePerformancePreload() {
                   teamGoalsMap.set(employeeId, goals);
                 });
               }
-              
+
               managerData = {
                 directReports: directReports.map(r => ({
                   ...r,
@@ -203,7 +266,7 @@ export function usePerformancePreload() {
           }
 
           // Store in cache
-          performanceCache.set(user.email, {
+          setCacheAndPersist(user.email, {
             employeeId,
             goals: Array.isArray(goals) ? goals : [],
             reviews: Array.isArray(reviews) ? reviews : [],
@@ -256,17 +319,36 @@ export function usePerformancePreload() {
     return cached?.viewMode || null;
   }, [getCachedData]);
 
-  // Memoize getCachedManagerData to prevent infinite loops
-  const getCachedManagerData = useCallback((email: string) => {
-    const cached = getCachedData(email);
-    return cached?.managerData || null;
-  }, [getCachedData]);
+  // Function to update cached goals for a specific employee without clearing the whole cache
+  const updateCachedGoals = useCallback((email: string, employeeId: string, updatedGoals: any[]) => {
+    const cached = performanceCache.get(email);
+    if (!cached) return;
+
+    let modified = false;
+    // If it's the user's own goals
+    if (cached.employeeId === employeeId) {
+      cached.goals = updatedGoals;
+      modified = true;
+    }
+
+    // If it's in the manager's team goals
+    if (cached.managerData?.teamGoals) {
+      cached.managerData.teamGoals.set(employeeId, updatedGoals);
+      modified = true;
+    }
+
+    if (modified) {
+      // We don't necessarily want to reset the timestamp, just update the data
+      setCacheAndPersist(email, cached);
+    }
+  }, []);
 
   return {
     getCachedData,
     clearCache,
     getCachedViewMode,
-    getCachedManagerData
+    getCachedManagerData,
+    updateCachedGoals
   };
 }
 
@@ -345,11 +427,11 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
           const empStatus = (emp as any).status ?? 'active';
           return emp.reporting_to === employeeId && empStatus !== 'inactive';
         });
-        
+
         if (directReports.length > 0) {
           const teamEmployeeIds = directReports.map(r => r.id);
           const employeeIdsParam = teamEmployeeIds.join(',');
-          
+
           // Preload ALL team member goals in parallel
           const teamGoalsPromises = directReports.map(async (report) => {
             try {
@@ -360,7 +442,7 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
               return { employeeId: report.id, goals: [] };
             }
           });
-          
+
           // Preload batch reviews for all team members in parallel
           const [teamGoalsResults, managerSubmittedRes, managerDraftRes, selfSubmittedRes, selfDraftRes] = await Promise.allSettled([
             Promise.all(teamGoalsPromises),
@@ -373,7 +455,7 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
             authenticatedFetch(`${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=true`)
               .then(res => res.ok ? res.json() : [])
           ]);
-          
+
           // Build team goals map
           const teamGoalsMap = new Map<string, any[]>();
           if (teamGoalsResults.status === 'fulfilled') {
@@ -381,7 +463,7 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
               teamGoalsMap.set(employeeId, goals);
             });
           }
-          
+
           managerData = {
             directReports: directReports.map(r => ({
               ...r,
@@ -399,7 +481,7 @@ export function triggerPerformancePreload(userEmail: string, employees: any[], g
       }
 
       // Store in cache with full manager data
-      performanceCache.set(userEmail, {
+      setCacheAndPersist(userEmail, {
         employeeId,
         goals: Array.isArray(goalsData) ? goalsData : [],
         reviews: Array.isArray(reviewsData) ? reviewsData : [],

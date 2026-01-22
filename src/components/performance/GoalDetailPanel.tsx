@@ -45,6 +45,7 @@ export interface GoalDetailSnapshot {
   category: string;
   targetDate: string;
   description?: string;
+  weightage?: number;
   managerApproved?: boolean;
   managerReopened?: boolean;
   milestones?: Milestone[];
@@ -193,19 +194,20 @@ export function GoalDetailPanel({
   const isCategoryView = categoryGoals && categoryGoals.length > 0 && !selectedGoalFromCategory;
 
   // When a goal is selected from category, use details; otherwise use summary
-  const activeSummary = selectedGoalFromCategory && details 
+  const activeSummary = selectedGoalFromCategory && details
     ? {
-        id: details.id,
-        title: details.title,
-        completion: details.completion,
-        status: details.status,
-        targetDate: details.targetDate,
-        category: details.category,
-        description: details.description,
-        managerApproved: details.managerApproved,
-        managerReopened: details.managerReopened,
-        milestones: details.milestones
-      }
+      id: details.id,
+      title: details.title,
+      completion: details.completion,
+      status: details.status,
+      targetDate: details.targetDate,
+      category: details.category,
+      description: details.description,
+      weightage: details.weightage,
+      managerApproved: details.managerApproved,
+      managerReopened: details.managerReopened,
+      milestones: details.milestones
+    }
     : summary;
 
   const totalMilestones = details?.milestones?.length ?? activeSummary?.milestones?.length ?? 0;
@@ -216,8 +218,10 @@ export function GoalDetailPanel({
   const goalCategory = details?.category ?? activeSummary?.category ?? "";
   const goalTargetDate = details?.targetDate ?? activeSummary?.targetDate ?? "";
   const goalDescription = details?.description ?? activeSummary?.description ?? "";
+  const goalWeightage = details?.weightage ?? activeSummary?.weightage;
   const goalManagerApproved = details?.managerApproved ?? activeSummary?.managerApproved;
   const goalManagerReopened = details?.managerReopened ?? activeSummary?.managerReopened;
+
 
   // Use selectedGoalFromCategory as goalId if available, otherwise use prop goalId
   const activeGoalId = selectedGoalFromCategory || goalId;
@@ -271,6 +275,7 @@ export function GoalDetailPanel({
         category: summary.category,
         targetDate: summary.targetDate ?? prev.targetDate,
         description: summary.description ?? prev.description,
+        weightage: summary.weightage ?? prev.weightage,
         managerApproved: summary.managerApproved ?? prev.managerApproved,
         managerReopened: summary.managerReopened ?? prev.managerReopened,
         milestones: snapshotMilestones
@@ -294,6 +299,7 @@ export function GoalDetailPanel({
               category: snapshot.category,
               targetDate: snapshot.targetDate ?? existing.targetDate,
               description: snapshot.description ?? existing.description,
+              weightage: snapshot.weightage ?? existing.weightage,
               managerApproved: snapshot.managerApproved ?? existing.managerApproved,
               managerReopened: snapshot.managerReopened ?? existing.managerReopened,
               milestones: snapshot.milestones ?? existing.milestones
@@ -615,22 +621,22 @@ export function GoalDetailPanel({
       <header className="border-b border-border/50 bg-gradient-to-r from-primary/10 via-background/80 to-background/95 px-6 py-5 flex-shrink-0 backdrop-blur">
         <div className="flex items-start gap-4 min-w-0">
           <Avatar className="h-12 w-12 border-2 border-primary/30 ring-4 ring-primary/10 shadow-lg flex-shrink-0">
-              {employee?.avatarUrl ? (
-                <AvatarImage src={employee.avatarUrl} alt={employee.name} />
-              ) : (
+            {employee?.avatarUrl ? (
+              <AvatarImage src={employee.avatarUrl} alt={employee.name} />
+            ) : (
               <AvatarFallback className="text-sm font-semibold bg-primary/10 text-primary">
                 {employee?.name?.split(" ").map((n) => n[0]).join("").slice(0, 2) || "?"}
               </AvatarFallback>
-              )}
-            </Avatar>
+            )}
+          </Avatar>
           <div className="flex-1 min-w-0 space-y-3 overflow-hidden">
             <div className="flex flex-wrap items-center gap-3 min-w-0">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary shadow-sm">
                   <Target className="h-4 w-4" />
                 </div>
-                <h2 
-                  id="goal-panel-title" 
+                <h2
+                  id="goal-panel-title"
                   className="text-xl font-semibold leading-tight text-foreground tracking-tight flex-1 min-w-0 break-words"
                   style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
                 >
@@ -747,7 +753,7 @@ export function GoalDetailPanel({
                               <span className="text-xs font-medium text-primary/70">%</span>
                             </div>
                             <div className="mt-2 h-1.5 bg-primary/20 rounded-full overflow-hidden">
-                              <div 
+                              <div
                                 className="h-full bg-gradient-to-r from-primary to-primary/80 rounded-full transition-all duration-500"
                                 style={{ width: `${goal.completion}%` }}
                               />
@@ -857,7 +863,7 @@ export function GoalDetailPanel({
                                       className={cn(
                                         "w-full flex items-center gap-3 text-xs p-3 rounded-lg border text-left transition-all duration-200",
                                         "focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-1",
-                                        milestone.completed 
+                                        milestone.completed
                                           ? "bg-gradient-to-r from-green-500/10 to-green-500/5 border-green-500/30 hover:border-green-500/50 hover:shadow-sm"
                                           : "bg-gradient-to-r from-muted/40 to-muted/30 border-border/60 hover:from-primary/10 hover:to-primary/5 hover:border-primary/40 hover:shadow-sm",
                                         onMilestoneClick && "cursor-pointer active:scale-[0.98]",
@@ -866,8 +872,8 @@ export function GoalDetailPanel({
                                     >
                                       <div className={cn(
                                         "flex-shrink-0 rounded-full p-1.5",
-                                        milestone.completed 
-                                          ? "bg-green-500/20" 
+                                        milestone.completed
+                                          ? "bg-green-500/20"
                                           : "bg-muted"
                                       )}>
                                         {milestone.completed ? (
@@ -878,8 +884,8 @@ export function GoalDetailPanel({
                                       </div>
                                       <span className={cn(
                                         "flex-1 break-words font-medium",
-                                        milestone.completed 
-                                          ? "line-through text-muted-foreground" 
+                                        milestone.completed
+                                          ? "line-through text-muted-foreground"
                                           : "text-foreground"
                                       )}>
                                         {milestone.title}
@@ -951,8 +957,8 @@ export function GoalDetailPanel({
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <h2 
-                  id="goal-panel-title" 
+                <h2
+                  id="goal-panel-title"
                   className="text-lg font-semibold leading-tight break-words"
                   style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
                 >

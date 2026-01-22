@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
-  Users, 
-  Target, 
+  Users,
+  Target,
   Search,
   Plus,
   TrendingUp,
@@ -227,6 +227,7 @@ const toTeamGoalSnapshot = (goal: Goal): GoalDetailSnapshot => ({
   category: goal.category,
   targetDate: goal.targetDate,
   description: goal.description,
+  weightage: goal.weightage,
   managerApproved: goal.managerApproved,
   managerReopened: goal.managerReopened,
   milestones: goal.milestones ?? []
@@ -240,6 +241,7 @@ const toMyGoalSnapshot = (goal: MyGoal): GoalDetailSnapshot => ({
   category: goal.category,
   targetDate: goal.targetDate,
   description: goal.description,
+  weightage: goal.weightage,
   managerApproved: goal.managerApproved,
   managerReopened: goal.managerReopened,
   milestones: goal.milestones ?? []
@@ -266,8 +268,8 @@ export function ManagerPerformanceView() {
   const { toast } = useToast();
   const { getEmployeeGoals, getBatchEmployeeGoals, getGoal, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
   const { employees } = useEmployees();
-  const { getCachedData } = usePerformancePreload();
-  
+  const { getCachedData, updateCachedGoals } = usePerformancePreload();
+
   const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [myGoals, setMyGoals] = useState<MyGoal[]>([]);
@@ -291,7 +293,7 @@ export function ManagerPerformanceView() {
   const [loadingAllCycles, setLoadingAllCycles] = useState(false);
   // Store all goals from employee goals endpoint - no need for separate getGoal calls
   const allGoalsCache = useRef<Map<string, APIGoal>>(new Map());
-  
+
   // Cached version of getGoal that uses already-loaded employee goals data
   const getCachedGoal = useCallback(async (goalId: string): Promise<APIGoal | null> => {
     // Check our cache first (from employee goals endpoint)
@@ -299,7 +301,7 @@ export function ManagerPerformanceView() {
     if (cached) {
       return cached;
     }
-    
+
     // If not found in cache, it means we don't have it yet
     // This shouldn't happen if we preload everything, but fallback to API if needed
     const detail = await getGoal(goalId);
@@ -308,7 +310,7 @@ export function ManagerPerformanceView() {
     }
     return detail;
   }, [getGoal]);
-  
+
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<ManagerFilter | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
@@ -318,13 +320,13 @@ export function ManagerPerformanceView() {
   const [hasReviewData, setHasReviewData] = useState(false);
   const saveDraftRef = useRef<(() => void) | null>(null);
   const { preserveScroll } = usePreserveScroll();
-  
+
   // Manager approval states
   const [selectedGoalForApproval, setSelectedGoalForApproval] = useState<{ goal: Goal; employee: Employee } | null>(null);
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const [approvalComment, setApprovalComment] = useState("");
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reopen' | null>(null);
-  
+
   // Milestone states for manager's own goals
   const [selectedMilestone, setSelectedMilestone] = useState<{ goalId: string; milestone: Milestone } | null>(null);
   const [showMilestoneDialog, setShowMilestoneDialog] = useState(false);
@@ -338,17 +340,18 @@ export function ManagerPerformanceView() {
     setSearchTerm("");
     setActiveFilter((prev) => (prev === filter ? null : filter));
   };
-  
+
   // Add milestone states
   const [showAddMilestoneDialog, setShowAddMilestoneDialog] = useState(false);
   const [selectedGoalForMilestone, setSelectedGoalForMilestone] = useState<string | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState<string>("");
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState<string>("");
   const [isAddMilestoneLoading, setIsAddMilestoneLoading] = useState(false);
-  
+
   // Submit goal state
   const [submittingGoalId, setSubmittingGoalId] = useState<string | null>(null);
-  
+  const [isEditingGoalLoading, setIsEditingGoalLoading] = useState(false);
+
   // Edit goal states
   const [selectedGoalForEdit, setSelectedGoalForEdit] = useState<Goal | null>(null);
   const [showEditGoalDialog, setShowEditGoalDialog] = useState(false);
@@ -359,7 +362,22 @@ export function ManagerPerformanceView() {
     targetDate: "",
     weightage: 10
   });
-  
+
+  // Memoized calculation for available weightage (performance optimization)
+  const availableWeightageForEdit = useMemo(() => {
+    if (!selectedEmployee || !selectedGoalForEdit) return { otherGoalsWeightage: 0, maxAllowed: 100, options: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] };
+
+    const employeeGoalsList = employeeGoals.get(selectedEmployee.id) || [];
+    const otherGoalsWeightage = employeeGoalsList
+      .filter(g => g.id !== selectedGoalForEdit.id)
+      .reduce((sum, g) => sum + (g.weightage || 0), 0);
+
+    const maxAllowed = 100 - otherGoalsWeightage;
+    const options = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100].filter(opt => opt <= maxAllowed);
+
+    return { otherGoalsWeightage, maxAllowed, options };
+  }, [selectedEmployee, selectedGoalForEdit, employeeGoals]);
+
   // Goals pending approval (fetched from API)
   const [pendingApprovalGoals, setPendingApprovalGoals] = useState<Array<{ goal: Goal; employee: Employee }>>([]);
 
@@ -535,7 +553,7 @@ export function ManagerPerformanceView() {
           console.warn("Could not parse date:", dateValue);
         }
       }
-      
+
       setEditGoalForm({
         title: selectedGoalForEdit.title || "",
         description: selectedGoalForEdit.description || "",
@@ -586,7 +604,7 @@ export function ManagerPerformanceView() {
     if (initialDataLoadedRef.current === user?.email) {
       return;
     }
-    
+
     const loadAllData = async () => {
       if (!user?.email || employees.length === 0) {
         setInitialLoading(false);
@@ -607,49 +625,57 @@ export function ManagerPerformanceView() {
         initialDataLoadedRef.current = user.email; // Mark as loaded
 
         // Check cache first
-        const cachedManagerData = getCachedManagerData(user.email);
-        if (cachedManagerData && cachedManagerData.directReports.length > 0) {
-          console.log('📦 Using cached manager data - NO API CALLS');
-          
+        const cachedDataRoot = getCachedData(user.email);
+        const cachedManagerData = cachedDataRoot?.managerData;
+
+        // Critical: Only use cache if it actually contains goals data. 
+        // If teamGoals is empty, it means the preload likely failed/interrupted previously.
+        if (cachedManagerData &&
+          cachedManagerData.directReports.length > 0 &&
+          cachedManagerData.teamGoals.size > 0) {
+
+          console.log('📦 Using healthy cached manager data');
+
           // Use cached direct reports, but only keep active employees
           const cachedReports = cachedManagerData.directReports as DirectReport[];
           const activeCachedReports = cachedReports.filter((emp) => !emp.status || emp.status !== "inactive");
           setDirectReports(activeCachedReports);
-          
-          // Use cached manager goals from preload (no API call!)
+
+          // Use manager's own goals from the root of cached data
           setLoadingMessage("Loading your goals...");
-          const cachedManagerGoals = cachedManagerData.teamGoals.get(managerId) || [];
+          const cachedManagerGoals = cachedDataRoot.goals || [];
           const convertedManagerGoals = cachedManagerGoals.map(convertGoalToMyGoal);
           setMyGoals(convertedManagerGoals);
+
           const managerTeamGoals = cachedManagerGoals.map(convertGoalToTeamGoal);
           refreshGoalPanelStateForEmployee(managerId, managerTeamGoals);
+
           cachedManagerGoals.forEach(goal => {
             allGoalsCache.current.set(goal.id, goal);
           });
-          
-          // Use cached team goals (no API calls!)
+
+          // Use cached team goals
           setLoadingMessage("Loading team goals...");
           const teamGoalsMap = new Map<string, Goal[]>();
           cachedManagerData.teamGoals.forEach((goals, employeeId) => {
             const convertedGoals = goals.map(convertGoalToTeamGoal);
             teamGoalsMap.set(employeeId, convertedGoals);
-            
+
             // Also cache in allGoalsCache
             goals.forEach(goal => {
               allGoalsCache.current.set(goal.id, goal);
             });
           });
-          
+
           setEmployeeGoals(teamGoalsMap);
-          
+
           // Refresh goal panel state for all team members
           teamGoalsMap.forEach((goals, employeeId) => {
             refreshGoalPanelStateForEmployee(employeeId, goals);
           });
-          
+
           setInitialLoading(false);
           setLoadingMyGoals(false);
-          initialDataLoadedRef.current = user.email; // Mark as loaded even when using cache
           return;
         }
 
@@ -682,24 +708,24 @@ export function ManagerPerformanceView() {
 
         if (reports.length > 0) {
           setLoadingMessage(`Loading goals for ${reports.length} team member${reports.length !== 1 ? 's' : ''}...`);
-          
+
           // Use batch endpoint for faster loading
           const teamEmployeeIds = reports.map(r => r.id);
           const batchGoalsMap = await getBatchEmployeeGoals(teamEmployeeIds);
-          
+
           // Convert to the format expected by the component
           const teamGoalsMap = new Map<string, Goal[]>();
-          
+
           batchGoalsMap.forEach((apiGoals, employeeId) => {
-              const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
+            const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
             teamGoalsMap.set(employeeId, convertedGoals);
-              
+
             // Cache all goals
-              apiGoals.forEach(goal => {
-                allGoalsCache.current.set(goal.id, goal);
-              });
+            apiGoals.forEach(goal => {
+              allGoalsCache.current.set(goal.id, goal);
+            });
           });
-          
+
           // Ensure all employees have an entry (even if empty)
           reports.forEach(report => {
             if (!teamGoalsMap.has(report.id)) {
@@ -741,18 +767,18 @@ export function ManagerPerformanceView() {
       // Goals already loaded, no need to fetch again
       return;
     }
-    
+
     try {
       setLoadingTeamGoals(true);
       setLoadingGoalEmployeeId(employeeId);
       const apiGoals = await getEmployeeGoals(employeeId, forceRefresh);
       const convertedGoals = apiGoals.map(convertGoalToTeamGoal);
-      
+
       // Cache all goals (already have full details from employee goals endpoint)
       apiGoals.forEach(goal => {
         allGoalsCache.current.set(goal.id, goal);
       });
-      
+
       setEmployeeGoals(prev => {
         const newMap = new Map(prev);
         newMap.set(employeeId, convertedGoals);
@@ -777,15 +803,15 @@ export function ManagerPerformanceView() {
   useEffect(() => {
     const fetchPendingApprovalGoals = async () => {
       if (initialLoading || !currentManagerEmployeeId || directReports.length === 0) return;
-      
+
       try {
         const pendingGoals: Array<{ goal: Goal; employee: Employee }> = [];
-        
+
         // Use already loaded goals from employeeGoals map instead of fetching again
         for (const report of directReports) {
           const goals = employeeGoals.get(report.id) || [];
           const goalsPendingApproval = goals.filter(g => g.status === 'pending_manager_approval');
-          
+
           for (const goal of goalsPendingApproval) {
             pendingGoals.push({
               goal: goal,
@@ -793,7 +819,7 @@ export function ManagerPerformanceView() {
             });
           }
         }
-        
+
         setPendingApprovalGoals(pendingGoals);
       } catch (error) {
         console.error("Error fetching pending approval goals:", error);
@@ -811,345 +837,344 @@ export function ManagerPerformanceView() {
       setLoadingReviewsCount(true);
       return;
     }
-    
+
     const completedReviews = Array.from(employeeReviewStatuses.values()).filter(
       (status) => status === 'manager_submitted' || status === 'hr_approved'
     ).length;
-    
+
     setReviewsCount(completedReviews);
     setLoadingReviewsCount(false);
   }, [employeeReviewStatuses, loadingReviews]);
 
   // Fetch reviews for Annual Reviews section - OPTIMIZED with parallel requests (check cache first)
   const fetchReviews = useCallback(async () => {
-      if (!user?.email || employees.length === 0) return;
-      
-      try {
-        setLoadingReviews(true);
-        
-        // Find current user's employee record
-        const currentUser = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
-        if (!currentUser) {
-          setLoadingReviews(false);
-          return;
-        }
-        
-        // For manager view: fetch reviews for direct reports
-        // For user view: fetch reviews for the current user
-        const employeeIds = currentManagerEmployeeId 
-          ? directReports.map(r => r.id) // Manager: get direct reports
-          : [currentUser.id]; // User: get own reviews
-        
-        if (employeeIds.length === 0) {
-          setLoadingReviews(false);
-          return;
-        }
-        
-        const allReviews: any[] = [];
-        const statusMap = new Map<string, EmployeeReviewStatus>();
-        
-        // Check cache first for manager view
-        let managerSubmitted: any[] = [];
-        let managerDraft: any[] = [];
-        let selfSubmitted: any[] = [];
-        let selfDraft: any[] = [];
-        
-        const cachedManagerData = currentManagerEmployeeId && directReports.length > 0 
-          ? getCachedManagerData(user.email) 
-          : null;
-          
-        if (cachedManagerData && cachedManagerData.teamReviews) {
-          console.log('📦 Using cached team reviews data');
-          managerSubmitted = cachedManagerData.teamReviews.managerSubmitted || [];
-          managerDraft = cachedManagerData.teamReviews.managerDraft || [];
-          selfSubmitted = cachedManagerData.teamReviews.selfSubmitted || [];
-          selfDraft = cachedManagerData.teamReviews.selfDraft || [];
-        } else {
-          // OPTIMIZATION: Use batch endpoint to fetch all reviews in a single API call
-          // This reduces from 2N API calls (N employees × 2 review types) to just 2 calls
-          // Include inactive reviews to catch rejected reviews that might be marked inactive
-          const employeeIdsParam = employeeIds.join(',');
-          
-          // Fetch manager reviews and self reviews in parallel using batch endpoint
-          // Fetch both draft and submitted reviews to ensure we get rejected reviews
-          // Note: Batch endpoint doesn't support includeInactive, so we fetch both tables
-          const [managerSubmittedResponse, managerDraftResponse, selfSubmittedResponse, selfDraftResponse] = await Promise.all([
-            authenticatedFetch(
-              `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=false&includeInactive=true`,
-                { method: 'GET' }
-            ).catch((error) => {
-              console.error('Error fetching manager submitted reviews batch:', error);
-              return { ok: false, json: async () => [] };
-            }),
-            authenticatedFetch(
-              `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=true&includeInactive=true`,
-                { method: 'GET' }
-            ).catch((error) => {
-              console.error('Error fetching manager draft reviews batch:', error);
-              return { ok: false, json: async () => [] };
-            }),
-            authenticatedFetch(
-              `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=false`,
-              { method: 'GET' }
-            ).catch((error) => {
-              console.error('Error fetching self submitted reviews batch:', error);
-              return { ok: false, json: async () => [] };
-            }),
-            authenticatedFetch(
-              `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=true`,
-              { method: 'GET' }
-            ).catch((error) => {
-              console.error('Error fetching self draft reviews batch:', error);
-              return { ok: false, json: async () => [] };
-            })
-          ]);
-          
-          // Parse responses and combine draft and submitted reviews
-          managerSubmitted = managerSubmittedResponse.ok 
-            ? await managerSubmittedResponse.json() 
-            : [];
-          managerDraft = managerDraftResponse.ok 
-            ? await managerDraftResponse.json() 
-            : [];
-          selfSubmitted = selfSubmittedResponse.ok 
-            ? await selfSubmittedResponse.json() 
-            : [];
-          selfDraft = selfDraftResponse.ok 
-            ? await selfDraftResponse.json() 
-            : [];
-        }
-        
-        const getReviewStatus = (review: any) => review?.status || review?.metadata?.status || '';
+    if (!user?.email || employees.length === 0) return;
 
-        // Combine manager reviews and deduplicate (prioritize processed statuses)
-        const allManagerReviews = [...managerSubmitted, ...managerDraft];
-        
-        // Debug logging removed for security
-        
-        // Group by employeeId first, then deduplicate by reviewId within each employee
-        const managerReviewsByEmployee = new Map<string, Map<string, any>>();
-        const getPriority = (review: any) => {
-          const isActive = review?.isActive !== false;
-          return {
-            isActive,
-            isDraft: !!review?.isDraft,
-            timestamp: new Date(review?.updatedAt || review?.submittedAt || review?.createdAt || 0).getTime()
-          };
+    try {
+      setLoadingReviews(true);
+
+      // Find current user's employee record
+      const currentUser = employees.find(emp => emp.email?.toLowerCase() === user.email.toLowerCase());
+      if (!currentUser) {
+        setLoadingReviews(false);
+        return;
+      }
+
+      // For manager view: fetch reviews for direct reports
+      // For user view: fetch reviews for the current user
+      const employeeIds = currentManagerEmployeeId
+        ? directReports.map(r => r.id) // Manager: get direct reports
+        : [currentUser.id]; // User: get own reviews
+
+      if (employeeIds.length === 0) {
+        setLoadingReviews(false);
+        return;
+      }
+
+      const allReviews: any[] = [];
+      const statusMap = new Map<string, EmployeeReviewStatus>();
+
+      // Check cache first for manager view
+      let managerSubmitted: any[] = [];
+      let managerDraft: any[] = [];
+      let selfSubmitted: any[] = [];
+      let selfDraft: any[] = [];
+
+      const cachedManagerData = currentManagerEmployeeId && directReports.length > 0
+        ? getCachedManagerData(user.email)
+        : null;
+
+      if (cachedManagerData && cachedManagerData.teamReviews) {
+        console.log('📦 Using cached team reviews data');
+        managerSubmitted = cachedManagerData.teamReviews.managerSubmitted || [];
+        managerDraft = cachedManagerData.teamReviews.managerDraft || [];
+        selfSubmitted = cachedManagerData.teamReviews.selfSubmitted || [];
+        selfDraft = cachedManagerData.teamReviews.selfDraft || [];
+      } else {
+        // OPTIMIZATION: Use batch endpoint to fetch all reviews in a single API call
+        // This reduces from 2N API calls (N employees × 2 review types) to just 2 calls
+        const employeeIdsParam = employeeIds.join(',');
+
+        // Fetch manager reviews and self reviews in parallel using batch endpoint
+        // Fetch both draft and submitted reviews to ensure we get rejected reviews
+        // Note: Batch endpoint doesn't support includeInactive, so we fetch both tables
+        const [managerSubmittedResponse, managerDraftResponse, selfSubmittedResponse, selfDraftResponse] = await Promise.all([
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=false&includeInactive=true`,
+            { method: 'GET' }
+          ).catch((error) => {
+            console.error('Error fetching manager submitted reviews batch:', error);
+            return { ok: false, json: async () => [] };
+          }),
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=manager&isDraft=true&includeInactive=true`,
+            { method: 'GET' }
+          ).catch((error) => {
+            console.error('Error fetching manager draft reviews batch:', error);
+            return { ok: false, json: async () => [] };
+          }),
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=false`,
+            { method: 'GET' }
+          ).catch((error) => {
+            console.error('Error fetching self submitted reviews batch:', error);
+            return { ok: false, json: async () => [] };
+          }),
+          authenticatedFetch(
+            `${API_BASE_URL}/reviews/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}&reviewType=self&isDraft=true`,
+            { method: 'GET' }
+          ).catch((error) => {
+            console.error('Error fetching self draft reviews batch:', error);
+            return { ok: false, json: async () => [] };
+          })
+        ]);
+
+        // Parse responses and combine draft and submitted reviews
+        managerSubmitted = managerSubmittedResponse.ok
+          ? await managerSubmittedResponse.json()
+          : [];
+        managerDraft = managerDraftResponse.ok
+          ? await managerDraftResponse.json()
+          : [];
+        selfSubmitted = selfSubmittedResponse.ok
+          ? await selfSubmittedResponse.json()
+          : [];
+        selfDraft = selfDraftResponse.ok
+          ? await selfDraftResponse.json()
+          : [];
+      }
+
+      const getReviewStatus = (review: any) => review?.status || review?.metadata?.status || '';
+
+      // Combine manager reviews and deduplicate (prioritize processed statuses)
+      const allManagerReviews = [...managerSubmitted, ...managerDraft];
+
+      // Debug logging removed for security
+
+      // Group by employeeId first, then deduplicate by reviewId within each employee
+      const managerReviewsByEmployee = new Map<string, Map<string, any>>();
+      const getPriority = (review: any) => {
+        const isActive = review?.isActive !== false;
+        return {
+          isActive,
+          isDraft: !!review?.isDraft,
+          timestamp: new Date(review?.updatedAt || review?.submittedAt || review?.createdAt || 0).getTime()
         };
-        for (const review of allManagerReviews) {
-          const reviewId = review.reviewId || review.id;
-          const empId = review.employeeId;
-          if (!reviewId || !empId) continue;
-          
-          if (!managerReviewsByEmployee.has(empId)) {
-            managerReviewsByEmployee.set(empId, new Map());
-          }
-          
-          const employeeReviews = managerReviewsByEmployee.get(empId)!;
-          const existing = employeeReviews.get(reviewId);
-          
-          if (!existing) {
-            employeeReviews.set(reviewId, review);
-          } else {
-            const existingPriority = getPriority(existing);
-            const candidatePriority = getPriority(review);
+      };
+      for (const review of allManagerReviews) {
+        const reviewId = review.reviewId || review.id;
+        const empId = review.employeeId;
+        if (!reviewId || !empId) continue;
 
-            if (candidatePriority.isActive !== existingPriority.isActive) {
-              if (candidatePriority.isActive) {
-                employeeReviews.set(reviewId, review);
-              }
-              continue;
-            }
+        if (!managerReviewsByEmployee.has(empId)) {
+          managerReviewsByEmployee.set(empId, new Map());
+        }
 
-            if (candidatePriority.isDraft !== existingPriority.isDraft) {
-              if (!candidatePriority.isDraft) {
-                employeeReviews.set(reviewId, review);
-              }
-              continue;
-            }
+        const employeeReviews = managerReviewsByEmployee.get(empId)!;
+        const existing = employeeReviews.get(reviewId);
 
-            if (candidatePriority.timestamp >= existingPriority.timestamp) {
+        if (!existing) {
+          employeeReviews.set(reviewId, review);
+        } else {
+          const existingPriority = getPriority(existing);
+          const candidatePriority = getPriority(review);
+
+          if (candidatePriority.isActive !== existingPriority.isActive) {
+            if (candidatePriority.isActive) {
               employeeReviews.set(reviewId, review);
             }
+            continue;
+          }
+
+          if (candidatePriority.isDraft !== existingPriority.isDraft) {
+            if (!candidatePriority.isDraft) {
+              employeeReviews.set(reviewId, review);
+            }
+            continue;
+          }
+
+          if (candidatePriority.timestamp >= existingPriority.timestamp) {
+            employeeReviews.set(reviewId, review);
           }
         }
-        
-        // Flatten back to array
-        const managerReviews: any[] = [];
-        for (const employeeReviewsMap of managerReviewsByEmployee.values()) {
-          for (const review of employeeReviewsMap.values()) {
-            managerReviews.push(review);
-          }
-        }
-        
-        // Debug logging removed for security
-        
-        // Combine self reviews
-        const selfReviews = [...selfSubmitted, ...selfDraft];
-        
-        // Group reviews by employee ID for efficient processing
-        const reviewsByEmployee = new Map<string, { manager: any[], self: any[] }>();
-        
-        // Initialize map for all employees
-        employeeIds.forEach(empId => {
-          reviewsByEmployee.set(empId, { manager: [], self: [] });
-        });
-        
-        // Group manager reviews by employee
-        managerReviews.forEach((review: any) => {
-          const empId = review.employeeId;
-          if (reviewsByEmployee.has(empId)) {
-            reviewsByEmployee.get(empId)!.manager.push(review);
-          }
-          allReviews.push(review);
-        });
-        
-        // Group self reviews by employee
-        selfReviews.forEach((review: any) => {
-          const empId = review.employeeId;
-          if (reviewsByEmployee.has(empId)) {
-            reviewsByEmployee.get(empId)!.self.push(review);
-          }
-          allReviews.push(review);
-        });
-        
-        const getReviewTimestamp = (review: any) =>
-          new Date(review.updatedAt || review.submittedAt || review.createdAt || 0).getTime();
-
-        // Process reviews for each employee to determine status
-        for (const empId of employeeIds) {
-          const { manager, self } = reviewsByEmployee.get(empId) || { manager: [], self: [] };
-          
-          // Process manager reviews
-          if (manager.length > 0) {
-            let latestSubmitTs = -Infinity;
-            let latestProcessedTs = -Infinity;
-            let latestDraftTs = -Infinity;
-            let latestHrApprovalTs = -Infinity;
-            let latestProcessedStatus: 'needs_clarification' | 'clarification_requested' | null = null;
-            let latestSubmittedReview: any = null;
-
-            manager.forEach((review: any) => {
-              const status = getReviewStatus(review);
-              const timestamp = getReviewTimestamp(review);
-              const isActive = review.isActive !== false;
-              const isDraft = !!review.isDraft;
-              const isSubmitted = !isDraft && (status === 'manager_submitted' || review.submittedAt) && isActive;
-              const isProcessedStatus =
-                status === 'needs_clarification' ||
-                status === 'changes_requested' ||
-                status === 'hr_rejected' ||
-                status === 'clarification_requested';
-              const isHrApprovedStatus =
-                status === 'hr_approved' ||
-                status === 'approved' ||
-                status === 'finalized';
-
-              if (isSubmitted && timestamp > latestSubmitTs) {
-                latestSubmitTs = timestamp;
-                latestSubmittedReview = review;
-              }
-
-              if (isDraft && isActive && timestamp > latestDraftTs) {
-                latestDraftTs = timestamp;
-              }
-
-              if (isProcessedStatus && timestamp > latestProcessedTs) {
-                latestProcessedTs = timestamp;
-                latestProcessedStatus = status === 'clarification_requested' ? 'clarification_requested' : 'needs_clarification';
-              }
-
-              if (isHrApprovedStatus && timestamp > latestHrApprovalTs) {
-                latestHrApprovalTs = timestamp;
-              }
-            });
-
-            console.log('[ManagerPerformanceView] Status timeline', {
-              empId,
-              latestSubmitTs,
-              latestProcessedTs,
-              latestDraftTs,
-              latestProcessedStatus
-            });
-
-            if (latestHrApprovalTs !== -Infinity) {
-              statusMap.set(empId, 'hr_approved');
-            } else if (latestProcessedTs !== -Infinity && (latestSubmitTs === -Infinity || latestProcessedTs >= latestSubmitTs)) {
-              statusMap.set(empId, latestProcessedStatus || 'needs_clarification');
-            } else if (latestSubmitTs !== -Infinity && latestSubmittedReview?.isActive !== false) {
-              statusMap.set(empId, 'manager_submitted');
-            } else if (latestDraftTs !== -Infinity) {
-              statusMap.set(empId, 'manager_reviewing');
-            }
-          }
-          
-          // Process self reviews
-          if (self.length > 0) {
-            // Check if employee has responded to clarification
-            const respondedSelfReview = self.find((r: any) => {
-            const metadataStatus = getReviewStatus(r);
-              return metadataStatus === 'clarification_responded' || 
-                     (r.metadata?.employeeClarificationRespondedAt && r.submittedAt);
-            });
-            
-            if (respondedSelfReview) {
-              // Employee has responded to clarification - show notification
-              statusMap.set(empId, 'clarification_responded');
-            } else if (!statusMap.has(empId)) {
-              // Check if employee has submitted self-review (only if no manager status set)
-              const submittedSelfReview = self.find((r: any) => r.submittedAt && !r.isDraft);
-              if (submittedSelfReview) {
-                // Check if there was a clarification request that hasn't been responded to
-                const selfReviewStatus = getReviewStatus(submittedSelfReview) as EmployeeReviewStatus;
-                const hasPendingClarification = isClarificationStatus(selfReviewStatus) ||
-                  (submittedSelfReview.metadata?.clarificationRequests && 
-                   submittedSelfReview.metadata.clarificationRequests.some((req: any) => req.status === 'pending'));
-                
-                if (hasPendingClarification) {
-                  statusMap.set(empId, 'clarification_requested');
-                } else {
-                  statusMap.set(empId, 'self_submitted');
-                }
-              }
-            }
-          }
-        }
-        
-        // Sort by cycle year and created date (most recent first)
-        allReviews.sort((a, b) => {
-          const yearA = String(a.cycleYear || '');
-          const yearB = String(b.cycleYear || '');
-          if (yearA !== yearB) {
-            return yearB.localeCompare(yearA);
-          }
-          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-        });
-        
-        setReviews(allReviews);
-        setEmployeeReviewStatuses(statusMap);
-
-        setDirectReports((prev) => {
-          let hasChanges = false;
-          const next = prev.map((report) => {
-            const status = statusMap.get(report.id);
-            if (!status || report.reviewStatus === status) {
-              return report;
-            }
-            hasChanges = true;
-            return { ...report, reviewStatus: status };
-          });
-          return hasChanges ? next : prev;
-        });
-      } catch (error) {
-        console.error("Error fetching reviews:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load reviews",
-          variant: "destructive"
-        });
-      } finally {
-        setLoadingReviews(false);
       }
+
+      // Flatten back to array
+      const managerReviews: any[] = [];
+      for (const employeeReviewsMap of managerReviewsByEmployee.values()) {
+        for (const review of employeeReviewsMap.values()) {
+          managerReviews.push(review);
+        }
+      }
+
+      // Debug logging removed for security
+
+      // Combine self reviews
+      const selfReviews = [...selfSubmitted, ...selfDraft];
+
+      // Group reviews by employee ID for efficient processing
+      const reviewsByEmployee = new Map<string, { manager: any[], self: any[] }>();
+
+      // Initialize map for all employees
+      employeeIds.forEach(empId => {
+        reviewsByEmployee.set(empId, { manager: [], self: [] });
+      });
+
+      // Group manager reviews by employee
+      managerReviews.forEach((review: any) => {
+        const empId = review.employeeId;
+        if (reviewsByEmployee.has(empId)) {
+          reviewsByEmployee.get(empId)!.manager.push(review);
+        }
+        allReviews.push(review);
+      });
+
+      // Group self reviews by employee
+      selfReviews.forEach((review: any) => {
+        const empId = review.employeeId;
+        if (reviewsByEmployee.has(empId)) {
+          reviewsByEmployee.get(empId)!.self.push(review);
+        }
+        allReviews.push(review);
+      });
+
+      const getReviewTimestamp = (review: any) =>
+        new Date(review.updatedAt || review.submittedAt || review.createdAt || 0).getTime();
+
+      // Process reviews for each employee to determine status
+      for (const empId of employeeIds) {
+        const { manager, self } = reviewsByEmployee.get(empId) || { manager: [], self: [] };
+
+        // Process manager reviews
+        if (manager.length > 0) {
+          let latestSubmitTs = -Infinity;
+          let latestProcessedTs = -Infinity;
+          let latestDraftTs = -Infinity;
+          let latestHrApprovalTs = -Infinity;
+          let latestProcessedStatus: 'needs_clarification' | 'clarification_requested' | null = null;
+          let latestSubmittedReview: any = null;
+
+          manager.forEach((review: any) => {
+            const status = getReviewStatus(review);
+            const timestamp = getReviewTimestamp(review);
+            const isActive = review.isActive !== false;
+            const isDraft = !!review.isDraft;
+            const isSubmitted = !isDraft && (status === 'manager_submitted' || review.submittedAt) && isActive;
+            const isProcessedStatus =
+              status === 'needs_clarification' ||
+              status === 'changes_requested' ||
+              status === 'hr_rejected' ||
+              status === 'clarification_requested';
+            const isHrApprovedStatus =
+              status === 'hr_approved' ||
+              status === 'approved' ||
+              status === 'finalized';
+
+            if (isSubmitted && timestamp > latestSubmitTs) {
+              latestSubmitTs = timestamp;
+              latestSubmittedReview = review;
+            }
+
+            if (isDraft && isActive && timestamp > latestDraftTs) {
+              latestDraftTs = timestamp;
+            }
+
+            if (isProcessedStatus && timestamp > latestProcessedTs) {
+              latestProcessedTs = timestamp;
+              latestProcessedStatus = status === 'clarification_requested' ? 'clarification_requested' : 'needs_clarification';
+            }
+
+            if (isHrApprovedStatus && timestamp > latestHrApprovalTs) {
+              latestHrApprovalTs = timestamp;
+            }
+          });
+
+          console.log('[ManagerPerformanceView] Status timeline', {
+            empId,
+            latestSubmitTs,
+            latestProcessedTs,
+            latestDraftTs,
+            latestProcessedStatus
+          });
+
+          if (latestHrApprovalTs !== -Infinity) {
+            statusMap.set(empId, 'hr_approved');
+          } else if (latestProcessedTs !== -Infinity && (latestSubmitTs === -Infinity || latestProcessedTs >= latestSubmitTs)) {
+            statusMap.set(empId, latestProcessedStatus || 'needs_clarification');
+          } else if (latestSubmitTs !== -Infinity && latestSubmittedReview?.isActive !== false) {
+            statusMap.set(empId, 'manager_submitted');
+          } else if (latestDraftTs !== -Infinity) {
+            statusMap.set(empId, 'manager_reviewing');
+          }
+        }
+
+        // Process self reviews
+        if (self.length > 0) {
+          // Check if employee has responded to clarification
+          const respondedSelfReview = self.find((r: any) => {
+            const metadataStatus = getReviewStatus(r);
+            return metadataStatus === 'clarification_responded' ||
+              (r.metadata?.employeeClarificationRespondedAt && r.submittedAt);
+          });
+
+          if (respondedSelfReview) {
+            // Employee has responded to clarification - show notification
+            statusMap.set(empId, 'clarification_responded');
+          } else if (!statusMap.has(empId)) {
+            // Check if employee has submitted self-review (only if no manager status set)
+            const submittedSelfReview = self.find((r: any) => r.submittedAt && !r.isDraft);
+            if (submittedSelfReview) {
+              // Check if there was a clarification request that hasn't been responded to
+              const selfReviewStatus = getReviewStatus(submittedSelfReview) as EmployeeReviewStatus;
+              const hasPendingClarification = isClarificationStatus(selfReviewStatus) ||
+                (submittedSelfReview.metadata?.clarificationRequests &&
+                  submittedSelfReview.metadata.clarificationRequests.some((req: any) => req.status === 'pending'));
+
+              if (hasPendingClarification) {
+                statusMap.set(empId, 'clarification_requested');
+              } else {
+                statusMap.set(empId, 'self_submitted');
+              }
+            }
+          }
+        }
+      }
+
+      // Sort by cycle year and created date (most recent first)
+      allReviews.sort((a, b) => {
+        const yearA = String(a.cycleYear || '');
+        const yearB = String(b.cycleYear || '');
+        if (yearA !== yearB) {
+          return yearB.localeCompare(yearA);
+        }
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+
+      setReviews(allReviews);
+      setEmployeeReviewStatuses(statusMap);
+
+      setDirectReports((prev) => {
+        let hasChanges = false;
+        const next = prev.map((report) => {
+          const status = statusMap.get(report.id);
+          if (!status || report.reviewStatus === status) {
+            return report;
+          }
+          hasChanges = true;
+          return { ...report, reviewStatus: status };
+        });
+        return hasChanges ? next : prev;
+      });
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load reviews",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingReviews(false);
+    }
   }, [user, employees, currentManagerEmployeeId, directReports, toast]);
 
   // Memoize employee IDs to prevent unnecessary re-fetches
@@ -1166,33 +1191,33 @@ export function ManagerPerformanceView() {
     if (reviewsLoadedRef.current) {
       return;
     }
-    
+
     // Check if we have cached reviews data
-    const cachedManagerData = currentManagerEmployeeId && directReports.length > 0 
-      ? getCachedManagerData(user?.email || '') 
+    const cachedManagerData = currentManagerEmployeeId && directReports.length > 0
+      ? getCachedManagerData(user?.email || '')
       : null;
-    
+
     if (cachedManagerData && cachedManagerData.teamReviews) {
-      console.log('📦 Using cached reviews - skipping fetchReviews API call');
+      console.log(' Using cached reviews - skipping fetchReviews API call');
       // Process cached reviews data
       const managerSubmitted = cachedManagerData.teamReviews.managerSubmitted || [];
       const managerDraft = cachedManagerData.teamReviews.managerDraft || [];
       const selfSubmitted = cachedManagerData.teamReviews.selfSubmitted || [];
       const selfDraft = cachedManagerData.teamReviews.selfDraft || [];
-      
+
       // Process and set reviews from cache (same logic as fetchReviews but without API call)
       const allReviews: any[] = [];
       const statusMap = new Map<string, EmployeeReviewStatus>();
-      
+
       const allManagerReviews = [...managerSubmitted, ...managerDraft];
       const selfReviews = [...selfSubmitted, ...selfDraft];
-      
+
       // Group reviews by employee ID
       const reviewsByEmployee = new Map<string, { manager: any[], self: any[] }>();
       employeeIdsForReviews.forEach(empId => {
         reviewsByEmployee.set(empId, { manager: [], self: [] });
       });
-      
+
       allManagerReviews.forEach((review: any) => {
         const empId = review.employeeId;
         if (reviewsByEmployee.has(empId)) {
@@ -1200,7 +1225,7 @@ export function ManagerPerformanceView() {
         }
         allReviews.push(review);
       });
-      
+
       selfReviews.forEach((review: any) => {
         const empId = review.employeeId;
         if (reviewsByEmployee.has(empId)) {
@@ -1208,22 +1233,22 @@ export function ManagerPerformanceView() {
         }
         allReviews.push(review);
       });
-      
+
       // Process statuses (simplified - same logic as fetchReviews)
       const getReviewStatus = (review: any) => review?.status || review?.metadata?.status || '';
       const getReviewTimestamp = (review: any) =>
         new Date(review.updatedAt || review.submittedAt || review.createdAt || 0).getTime();
-      
+
       for (const empId of employeeIdsForReviews) {
         const { manager, self } = reviewsByEmployee.get(empId) || { manager: [], self: [] };
-        
+
         if (manager.length > 0) {
           let latestHrApprovalTs = -Infinity;
           let latestProcessedTs = -Infinity;
           let latestSubmitTs = -Infinity;
           let latestDraftTs = -Infinity;
           let latestProcessedStatus: 'needs_clarification' | 'clarification_requested' | null = null;
-          
+
           manager.forEach((review: any) => {
             const status = getReviewStatus(review);
             const timestamp = getReviewTimestamp(review);
@@ -1232,7 +1257,7 @@ export function ManagerPerformanceView() {
             const isSubmitted = !isDraft && (status === 'manager_submitted' || review.submittedAt) && isActive;
             const isProcessedStatus = status === 'needs_clarification' || status === 'changes_requested' || status === 'hr_rejected' || status === 'clarification_requested';
             const isHrApprovedStatus = status === 'hr_approved' || status === 'approved' || status === 'finalized';
-            
+
             if (isSubmitted && timestamp > latestSubmitTs) latestSubmitTs = timestamp;
             if (isDraft && isActive && timestamp > latestDraftTs) latestDraftTs = timestamp;
             if (isProcessedStatus && timestamp > latestProcessedTs) {
@@ -1241,7 +1266,7 @@ export function ManagerPerformanceView() {
             }
             if (isHrApprovedStatus && timestamp > latestHrApprovalTs) latestHrApprovalTs = timestamp;
           });
-          
+
           if (latestHrApprovalTs !== -Infinity) {
             statusMap.set(empId, 'hr_approved');
           } else if (latestProcessedTs !== -Infinity && (latestSubmitTs === -Infinity || latestProcessedTs >= latestSubmitTs)) {
@@ -1252,7 +1277,7 @@ export function ManagerPerformanceView() {
             statusMap.set(empId, 'manager_reviewing');
           }
         }
-        
+
         if (self.length > 0 && !statusMap.has(empId)) {
           const submittedSelfReview = self.find((r: any) => r.submittedAt && !r.isDraft);
           if (submittedSelfReview) {
@@ -1262,14 +1287,14 @@ export function ManagerPerformanceView() {
           }
         }
       }
-      
+
       allReviews.sort((a, b) => {
         const yearA = String(a.cycleYear || '');
         const yearB = String(b.cycleYear || '');
         if (yearA !== yearB) return yearB.localeCompare(yearA);
         return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
       });
-      
+
       setReviews(allReviews);
       setEmployeeReviewStatuses(statusMap);
       setDirectReports((prev) => {
@@ -1282,11 +1307,11 @@ export function ManagerPerformanceView() {
         });
         return hasChanges ? next : prev;
       });
-      
+
       reviewsLoadedRef.current = true;
       return;
     }
-    
+
     // Only fetch if not cached and initial loading is complete
     if (!initialLoading && user?.email && employees.length > 0 && employeeIdsForReviews.length > 0) {
       reviewsLoadedRef.current = true;
@@ -1303,21 +1328,21 @@ export function ManagerPerformanceView() {
     if (cyclesLoadedRef.current) {
       return;
     }
-    
+
     const fetchCycles = async () => {
       if (!user?.email) return;
-      
+
       try {
         setLoadingActiveCycle(true);
         setLoadingAllCycles(true);
-        
+
         // Check cache first
         const cached = getCachedData(user.email);
         if (cached && cached.cycles.length > 0) {
           console.log('📦 Using cached cycles data - NO API CALL');
           const filteredCycles = cached.cycles.filter((cycle: any) => cycle.status !== 'draft');
           if (filteredCycles.length > 0) {
-            const sortedCycles = filteredCycles.sort((a: any, b: any) => 
+            const sortedCycles = filteredCycles.sort((a: any, b: any) =>
               b.year.localeCompare(a.year)
             );
             setAllCycles(sortedCycles);
@@ -1331,23 +1356,23 @@ export function ManagerPerformanceView() {
           cyclesLoadedRef.current = true;
           return;
         }
-        
+
         // Fetch from API if not cached (only once)
         cyclesLoadedRef.current = true;
         const response = await authenticatedFetch(
           `${API_BASE_URL}/reviews/cycles`,
           { method: 'GET' }
         );
-        
+
         if (response.ok) {
           const cycles = await response.json();
           // Filter out draft cycles - draft cycles should not be visible to anyone in performance module
           const filteredCycles = cycles.filter((cycle: any) => cycle.status !== 'draft');
-          
+
           // Sort by year descending (most recent first)
           const sortedCycles = filteredCycles.sort((a: any, b: any) => b.year.localeCompare(a.year));
           setAllCycles(sortedCycles);
-          
+
           // Find the active cycle (status === 'open' in backend, 'active' in frontend)
           const active = sortedCycles.find((cycle: any) => cycle.status === 'open' || cycle.status === 'active');
           setActiveCycle(active || null);
@@ -1369,8 +1394,8 @@ export function ManagerPerformanceView() {
   const filteredReports = directReports.filter(emp => {
     const matchesSearch =
       emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           emp.position.toLowerCase().includes(searchTerm.toLowerCase());
+      emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.position.toLowerCase().includes(searchTerm.toLowerCase());
 
     const reviewStatus = employeeReviewStatuses.get(emp.id);
     let matchesFilter = true;
@@ -1430,14 +1455,14 @@ export function ManagerPerformanceView() {
     if (myGoals.some(g => g.id === goalId)) {
       return currentManagerEmployeeId;
     }
-    
+
     // Check team member goals
     for (const [employeeId, goals] of employeeGoals.entries()) {
       if (goals.some(g => g.id === goalId)) {
         return employeeId;
       }
     }
-    
+
     return null;
   };
 
@@ -1483,7 +1508,7 @@ export function ManagerPerformanceView() {
     }
 
     const { goalId, milestone } = selectedMilestone;
-    
+
     try {
       setIsMilestoneLoading(true);
       const updatedMilestone = await updateMilestone(goalId, milestone.id, {
@@ -1504,6 +1529,8 @@ export function ManagerPerformanceView() {
             setMyGoals(convertedGoals);
             const managerTeamGoals = apiGoals.map(convertGoalToTeamGoal);
             refreshGoalPanelStateForEmployee(currentManagerEmployeeId, managerTeamGoals);
+
+
           } else {
             // Team member's goal - refresh their goals in the cache
             await fetchTeamMemberGoals(employeeId, true);
@@ -1539,7 +1566,7 @@ export function ManagerPerformanceView() {
     // When reopening, comment field starts empty, so no need to check if it's different from original
 
     const { goalId, milestone } = selectedMilestone;
-    
+
     try {
       setIsMilestoneLoading(true);
       const updatedMilestone = await updateMilestone(goalId, milestone.id, {
@@ -1559,6 +1586,8 @@ export function ManagerPerformanceView() {
             setMyGoals(convertedGoals);
             const managerTeamGoals = apiGoals.map(convertGoalToTeamGoal);
             refreshGoalPanelStateForEmployee(currentManagerEmployeeId, managerTeamGoals);
+
+
           } else {
             // Team member's goal - refresh their goals in the cache
             await fetchTeamMemberGoals(employeeId, true);
@@ -1622,7 +1651,7 @@ export function ManagerPerformanceView() {
     const selectedDate = new Date(newMilestoneDueDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     if (selectedDate < today) {
       toast({
         title: "Invalid Date",
@@ -1650,6 +1679,8 @@ export function ManagerPerformanceView() {
             setMyGoals(convertedGoals);
             const managerTeamGoals = apiGoals.map(convertGoalToTeamGoal);
             refreshGoalPanelStateForEmployee(currentManagerEmployeeId, managerTeamGoals);
+
+
           } else {
             // Team member's goal - refresh their goals in the cache
             await fetchTeamMemberGoals(employeeId, true);
@@ -1771,197 +1802,197 @@ export function ManagerPerformanceView() {
         <TabsContent value="my-team" className="space-y-4">
           {/* Summary Cards - only shown in My Team section */}
           {!showReviewWorkspace && (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">My Team</p>
-                <p className="text-3xl font-bold mt-2">{directReports.length}</p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <Users className="h-6 w-6 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">My Team</p>
+                      <p className="text-3xl font-bold mt-2">{directReports.length}</p>
+                    </div>
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Users className="h-6 w-6 text-primary" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
-        <Card
-          className={cn(
-            "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
-            isGoalsFilterActive
-              ? "border-green-500/60 ring-2 ring-green-500/30 cursor-pointer"
-              : "border-border/50 hover:border-green-500/40 hover:ring-2 hover:ring-green-500/20 cursor-pointer"
-          )}
-          onClick={() => toggleFilter('has_goals')}
-        >
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Individual goal set</p>
-                <p className="text-3xl font-bold mt-2">
-                  {teamMembersWithGoalsCount}
-                </p>
-                {!isGoalsFilterActive && (
-                  <p className="text-xs text-green-600/70 dark:text-green-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Click to filter
-                  </p>
+              <Card
+                className={cn(
+                  "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
+                  isGoalsFilterActive
+                    ? "border-green-500/60 ring-2 ring-green-500/30 cursor-pointer"
+                    : "border-border/50 hover:border-green-500/40 hover:ring-2 hover:ring-green-500/20 cursor-pointer"
                 )}
-              </div>
-              <div className={cn(
-                "h-12 w-12 rounded-full flex items-center justify-center transition-all",
-                isGoalsFilterActive
-                  ? "bg-green-500/20 text-green-600 scale-110 shadow-green-500/20"
-                  : "bg-green-500/10 text-green-500"
-              )}>
-                <CheckCircle2 className="h-6 w-6 text-green-500" />
-              </div>
-            </div>
-            {isGoalsFilterActive && (
-              <Badge variant="outline" className="mt-3 text-xs bg-green-500/20 text-green-700 border-green-500/40">
-                Active
-              </Badge>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card
-          className={cn(
-            "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
-            isPendingFilterActive
-              ? "border-blue-500/60 ring-2 ring-blue-500/30 cursor-pointer"
-              : "border-border/50 hover:border-blue-500/40 hover:ring-2 hover:ring-blue-500/20 cursor-pointer"
-          )}
-          onClick={() => toggleFilter('review_pending')}
-        >
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Performance Review Pending</p>
-                <p className="text-3xl font-bold mt-2">
-                  {loadingReviews ? (
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  ) : (
-                    pendingReviewsCount
+                onClick={() => toggleFilter('has_goals')}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Individual goal set</p>
+                      <p className="text-3xl font-bold mt-2">
+                        {teamMembersWithGoalsCount}
+                      </p>
+                      {!isGoalsFilterActive && (
+                        <p className="text-xs text-green-600/70 dark:text-green-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          Click to filter
+                        </p>
+                      )}
+                    </div>
+                    <div className={cn(
+                      "h-12 w-12 rounded-full flex items-center justify-center transition-all",
+                      isGoalsFilterActive
+                        ? "bg-green-500/20 text-green-600 scale-110 shadow-green-500/20"
+                        : "bg-green-500/10 text-green-500"
+                    )}>
+                      <CheckCircle2 className="h-6 w-6 text-green-500" />
+                    </div>
+                  </div>
+                  {isGoalsFilterActive && (
+                    <Badge variant="outline" className="mt-3 text-xs bg-green-500/20 text-green-700 border-green-500/40">
+                      Active
+                    </Badge>
                   )}
-                </p>
-                {!isPendingFilterActive && !loadingReviews && (
-                  <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Click to filter
-                  </p>
-                )}
-              </div>
-              <div className={cn(
-                "h-12 w-12 rounded-full flex items-center justify-center transition-all",
-                isPendingFilterActive
-                  ? "bg-blue-500/20 text-blue-600 scale-110 shadow-blue-500/20"
-                  : "bg-blue-500/10 text-blue-500"
-              )}>
-                <Clock className="h-6 w-6" />
-              </div>
-            </div>
-            {isPendingFilterActive && (
-              <Badge variant="outline" className="mt-3 text-xs bg-blue-500/20 text-blue-700 border-blue-500/40">
-                Active
-              </Badge>
-            )}
-          </CardContent>
-        </Card>
+                </CardContent>
+              </Card>
 
-        <Card
-          className={cn(
-            "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
-            isCompletedFilterActive
-              ? "border-primary/50 ring-2 ring-primary/30 cursor-pointer"
-              : "border-border/50 hover:border-primary/40 hover:ring-2 hover:ring-primary/20 cursor-pointer"
-          )}
-          onClick={() => toggleFilter('review_completed')}
-        >
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Performance Review Completed</p>
-                <p className="text-3xl font-bold mt-2">
-                  {loadingReviewsCount ? (
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  ) : (
-                    reviewsCount
-                  )}
-                </p>
-                {!isCompletedFilterActive && !loadingReviewsCount && (
-                  <p className="text-xs text-muted-foreground/80 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Click to filter
-                  </p>
+              <Card
+                className={cn(
+                  "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
+                  isPendingFilterActive
+                    ? "border-blue-500/60 ring-2 ring-blue-500/30 cursor-pointer"
+                    : "border-border/50 hover:border-blue-500/40 hover:ring-2 hover:ring-blue-500/20 cursor-pointer"
                 )}
-      </div>
-              <div className={cn(
-                "h-12 w-12 rounded-full flex items-center justify-center transition-all",
-                isCompletedFilterActive
-                  ? "bg-primary/15 text-primary scale-110 shadow-primary/20"
-                  : "bg-muted/40 text-muted-foreground"
-              )}>
-                <FileText className="h-6 w-6" />
-              </div>
-            </div>
-            {isCompletedFilterActive && (
-              <Badge variant="outline" className="mt-3 text-xs bg-primary/10 text-primary border-primary/30">
-                Active
-              </Badge>
-            )}
-          </CardContent>
-        </Card>
+                onClick={() => toggleFilter('review_pending')}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Performance Review Pending</p>
+                      <p className="text-3xl font-bold mt-2">
+                        {loadingReviews ? (
+                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        ) : (
+                          pendingReviewsCount
+                        )}
+                      </p>
+                      {!isPendingFilterActive && !loadingReviews && (
+                        <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          Click to filter
+                        </p>
+                      )}
+                    </div>
+                    <div className={cn(
+                      "h-12 w-12 rounded-full flex items-center justify-center transition-all",
+                      isPendingFilterActive
+                        ? "bg-blue-500/20 text-blue-600 scale-110 shadow-blue-500/20"
+                        : "bg-blue-500/10 text-blue-500"
+                    )}>
+                      <Clock className="h-6 w-6" />
+                    </div>
+                  </div>
+                  {isPendingFilterActive && (
+                    <Badge variant="outline" className="mt-3 text-xs bg-blue-500/20 text-blue-700 border-blue-500/40">
+                      Active
+                    </Badge>
+                  )}
+                </CardContent>
+              </Card>
 
-        <Card
-          className={cn(
-            "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
-            isClarificationFilterActive
-              ? "border-amber-500/60 ring-2 ring-amber-500/30 cursor-pointer"
-              : "border-border/50 hover:border-amber-500/40 hover:ring-2 hover:ring-amber-500/20 cursor-pointer"
-          )}
-          onClick={() => toggleFilter('needs_clarification')}
-        >
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className={cn(
-                  "text-sm font-medium transition-colors",
-                  isClarificationFilterActive ? "text-amber-700 dark:text-amber-400" : "text-amber-600 dark:text-amber-500"
-                )}>
-                  Needs Clarification
-                </p>
-                <p className={cn(
-                  "text-3xl font-bold mt-2 transition-colors",
-                  isClarificationFilterActive ? "text-amber-700 dark:text-amber-400" : "text-foreground"
-                )}>
-                  {loadingReviews ? (
-                    <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
-                  ) : (
-                    clarificationCount
-                  )}
-                </p>
-                {!isClarificationFilterActive && !loadingReviews && (
-                  <p className="text-xs text-amber-600/70 dark:text-amber-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Click to filter
-                  </p>
+              <Card
+                className={cn(
+                  "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
+                  isCompletedFilterActive
+                    ? "border-primary/50 ring-2 ring-primary/30 cursor-pointer"
+                    : "border-border/50 hover:border-primary/40 hover:ring-2 hover:ring-primary/20 cursor-pointer"
                 )}
-              </div>
-              <div className={cn(
-                "h-12 w-12 rounded-full flex items-center justify-center transition-all",
-                isClarificationFilterActive
-                  ? "bg-amber-500/20 text-amber-600 scale-110 shadow-amber-500/20"
-                  : "bg-amber-500/10 text-amber-500"
-              )}>
-                <AlertCircle className="h-6 w-6" />
-              </div>
+                onClick={() => toggleFilter('review_completed')}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Performance Review Completed</p>
+                      <p className="text-3xl font-bold mt-2">
+                        {loadingReviewsCount ? (
+                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        ) : (
+                          reviewsCount
+                        )}
+                      </p>
+                      {!isCompletedFilterActive && !loadingReviewsCount && (
+                        <p className="text-xs text-muted-foreground/80 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          Click to filter
+                        </p>
+                      )}
+                    </div>
+                    <div className={cn(
+                      "h-12 w-12 rounded-full flex items-center justify-center transition-all",
+                      isCompletedFilterActive
+                        ? "bg-primary/15 text-primary scale-110 shadow-primary/20"
+                        : "bg-muted/40 text-muted-foreground"
+                    )}>
+                      <FileText className="h-6 w-6" />
+                    </div>
+                  </div>
+                  {isCompletedFilterActive && (
+                    <Badge variant="outline" className="mt-3 text-xs bg-primary/10 text-primary border-primary/30">
+                      Active
+                    </Badge>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card
+                className={cn(
+                  "bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm shadow-lg transition-all duration-300 border-2 group",
+                  isClarificationFilterActive
+                    ? "border-amber-500/60 ring-2 ring-amber-500/30 cursor-pointer"
+                    : "border-border/50 hover:border-amber-500/40 hover:ring-2 hover:ring-amber-500/20 cursor-pointer"
+                )}
+                onClick={() => toggleFilter('needs_clarification')}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={cn(
+                        "text-sm font-medium transition-colors",
+                        isClarificationFilterActive ? "text-amber-700 dark:text-amber-400" : "text-amber-600 dark:text-amber-500"
+                      )}>
+                        Needs Clarification
+                      </p>
+                      <p className={cn(
+                        "text-3xl font-bold mt-2 transition-colors",
+                        isClarificationFilterActive ? "text-amber-700 dark:text-amber-400" : "text-foreground"
+                      )}>
+                        {loadingReviews ? (
+                          <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+                        ) : (
+                          clarificationCount
+                        )}
+                      </p>
+                      {!isClarificationFilterActive && !loadingReviews && (
+                        <p className="text-xs text-amber-600/70 dark:text-amber-400/70 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          Click to filter
+                        </p>
+                      )}
+                    </div>
+                    <div className={cn(
+                      "h-12 w-12 rounded-full flex items-center justify-center transition-all",
+                      isClarificationFilterActive
+                        ? "bg-amber-500/20 text-amber-600 scale-110 shadow-amber-500/20"
+                        : "bg-amber-500/10 text-amber-500"
+                    )}>
+                      <AlertCircle className="h-6 w-6" />
+                    </div>
+                  </div>
+                  {isClarificationFilterActive && (
+                    <Badge variant="outline" className="mt-3 text-xs bg-amber-500/20 text-amber-700 border-amber-500/40">
+                      Active
+                    </Badge>
+                  )}
+                </CardContent>
+              </Card>
             </div>
-            {isClarificationFilterActive && (
-              <Badge variant="outline" className="mt-3 text-xs bg-amber-500/20 text-amber-700 border-amber-500/40">
-                Active
-              </Badge>
-            )}
-          </CardContent>
-        </Card>
-      </div>
           )}
 
           {/* Review Workspace - shown when View Reviews is clicked */}
@@ -1969,8 +2000,8 @@ export function ManagerPerformanceView() {
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     size="icon"
                     onClick={() => {
                       setShowReviewWorkspace(false);
@@ -1987,8 +2018,8 @@ export function ManagerPerformanceView() {
                     </h2>
                   </div>
                 </div>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={async (e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -1996,13 +2027,13 @@ export function ManagerPerformanceView() {
                     console.log('saveDraftRef:', saveDraftRef);
                     console.log('saveDraftRef.current:', saveDraftRef.current);
                     console.log('reviewEmployee:', reviewEmployee);
-                    
+
                     if (!saveDraftRef.current) {
                       console.error('❌ saveDraftRef.current is null or undefined!');
                       alert('Save Draft function is not available. Please ensure you are viewing a review.');
                       return;
                     }
-                    
+
                     console.log('✅ Calling saveDraftRef.current()...');
                     try {
                       await saveDraftRef.current();
@@ -2020,8 +2051,8 @@ export function ManagerPerformanceView() {
                   Save Draft
                 </Button>
               </div>
-              <ManagerReviewWorkspace 
-                initialEmployeeId={reviewEmployee.id} 
+              <ManagerReviewWorkspace
+                initialEmployeeId={reviewEmployee.id}
                 initialCycleYear={selectedCycleYear}
                 hideHeader={true}
                 onSaveDraftRef={saveDraftRef}
@@ -2033,205 +2064,205 @@ export function ManagerPerformanceView() {
           {/* Team Members Grid - shown when review workspace is not active */}
           {!showReviewWorkspace && (
             <>
-          {/* Pending Approvals Section */}
-          {pendingApprovalGoals.length > 0 && (
-            <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 backdrop-blur-sm border-blue-500/20 shadow-lg">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Send className="h-5 w-5 text-blue-600" />
-                      Goals Pending Approval
-                    </CardTitle>
-                    <CardDescription>
-                      {pendingApprovalGoals.length} goal{pendingApprovalGoals.length !== 1 ? 's' : ''} waiting for your review
-                    </CardDescription>
-                  </div>
-                  <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-                    {pendingApprovalGoals.length}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {pendingApprovalGoals.map(({ goal, employee }) => (
-                    <Card key={goal.id} className="bg-background/50 border-border/50">
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2">
-                              <Avatar className="h-8 w-8">
-                                <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                                  {employee.name.split(' ').map(n => n[0]).join('')}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="font-semibold">{employee.name}</p>
-                                <p className="text-xs text-muted-foreground">{employee.position}</p>
+              {/* Pending Approvals Section */}
+              {pendingApprovalGoals.length > 0 && (
+                <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 backdrop-blur-sm border-blue-500/20 shadow-lg">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Send className="h-5 w-5 text-blue-600" />
+                          Goals Pending Approval
+                        </CardTitle>
+                        <CardDescription>
+                          {pendingApprovalGoals.length} goal{pendingApprovalGoals.length !== 1 ? 's' : ''} waiting for your review
+                        </CardDescription>
+                      </div>
+                      <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                        {pendingApprovalGoals.length}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {pendingApprovalGoals.map(({ goal, employee }) => (
+                        <Card key={goal.id} className="bg-background/50 border-border/50">
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <Avatar className="h-8 w-8">
+                                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                      {employee.name.split(' ').map(n => n[0]).join('')}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div>
+                                    <p className="font-semibold">{employee.name}</p>
+                                    <p className="text-xs text-muted-foreground">{employee.position}</p>
+                                  </div>
+                                </div>
+                                <h4 className="font-semibold mb-1">{goal.title}</h4>
+                                <p className="text-sm text-muted-foreground mb-3">{goal.description}</p>
+
+                                {/* Milestones */}
+                                <div className="space-y-2 mb-3">
+                                  <p className="text-xs font-semibold text-muted-foreground">Completed Milestones:</p>
+                                  {goal.milestones?.map((milestone) => (
+                                    <div key={milestone.id} className="flex items-center gap-2 text-xs">
+                                      <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                      <span className={milestone.completed ? "line-through text-muted-foreground" : ""}>
+                                        {milestone.title}
+                                      </span>
+                                      {milestone.evidence && (
+                                        <FileText className="h-3 w-3 text-muted-foreground ml-1" />
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="flex flex-col gap-2">
+                                <Button
+                                  size="sm"
+                                  className="bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20"
+                                  onClick={() => {
+                                    setSelectedGoalForApproval({ goal, employee });
+                                    setApprovalAction('approve');
+                                    setShowApprovalDialog(true);
+                                  }}
+                                >
+                                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-orange-500/20 text-orange-600 hover:bg-orange-500/10"
+                                  onClick={() => {
+                                    setSelectedGoalForApproval({ goal, employee });
+                                    setApprovalAction('reopen');
+                                    setShowApprovalDialog(true);
+                                  }}
+                                >
+                                  <RefreshCw className="h-4 w-4 mr-2" />
+                                  Reopen
+                                </Button>
                               </div>
                             </div>
-                            <h4 className="font-semibold mb-1">{goal.title}</h4>
-                            <p className="text-sm text-muted-foreground mb-3">{goal.description}</p>
-                            
-                            {/* Milestones */}
-                            <div className="space-y-2 mb-3">
-                              <p className="text-xs font-semibold text-muted-foreground">Completed Milestones:</p>
-                              {goal.milestones?.map((milestone) => (
-                                <div key={milestone.id} className="flex items-center gap-2 text-xs">
-                                  <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                  <span className={milestone.completed ? "line-through text-muted-foreground" : ""}>
-                                    {milestone.title}
-                                  </span>
-                                  {milestone.evidence && (
-                                    <FileText className="h-3 w-3 text-muted-foreground ml-1" />
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              size="sm"
-                              className="bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20"
-                              onClick={() => {
-                                setSelectedGoalForApproval({ goal, employee });
-                                setApprovalAction('approve');
-                                setShowApprovalDialog(true);
-                              }}
-                            >
-                              <CheckCircle2 className="h-4 w-4 mr-2" />
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="border-orange-500/20 text-orange-600 hover:bg-orange-500/10"
-                              onClick={() => {
-                                setSelectedGoalForApproval({ goal, employee });
-                                setApprovalAction('reopen');
-                                setShowApprovalDialog(true);
-                              }}
-                            >
-                              <RefreshCw className="h-4 w-4 mr-2" />
-                              Reopen
-                            </Button>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          
-          {/* Search and Filter Info */}
-          <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search team members..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 bg-background/50"
-                />
-              </div>
-                {activeFilter && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setActiveFilter(null);
-                      setSearchTerm("");
-                    }}
-                    className="text-primary border-primary/30 hover:bg-primary/10 whitespace-nowrap"
-                  >
-                    <X className="h-4 w-4 mr-1" />
-                    Clear Filter
-                  </Button>
-                )}
-              </div>
-              {activeFilter && (
-                <div className="mt-3 p-2 rounded-lg bg-primary/10 border border-primary/20">
-                  <p className="text-xs text-primary flex items-center gap-1.5">
-                    <AlertCircle className="h-3.5 w-3.5" />
-                    Showing only employees with {FILTER_DESCRIPTIONS[activeFilter]}
-                  </p>
-                </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
               )}
-            </CardContent>
-          </Card>
 
-          {/* Team Members Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredReports.map((employee) => {
-              const summary = getGoalsSummary(employee.id);
-              const employeeGoalsList = getGoalsForEmployee(employee.id);
-              return (
-                <TeamMemberGoalsCard
-                  key={employee.id}
-                  employee={employee}
-                  summary={summary}
-                  goals={employeeGoalsList}
-                  isLoading={loadingTeamGoals && loadingGoalEmployeeId === employee.id}
-                  onFetchGoals={async () => {
-                    setSelectedEmployee(employee);
-                    // Only fetch if goals are not already loaded
-                    if (!employeeGoals.has(employee.id)) {
-                      await fetchTeamMemberGoals(employee.id);
-                    }
-                  }}
-                  onSetGoals={() => {
-                    setSelectedEmployee(employee);
-                    setShowGoalModal(true);
-                  }}
-                  onAddGoal={() => {
-                    setSelectedEmployee(employee);
-                    setShowGoalModal(true);
-                  }}
-                  onEditGoal={(goalId) => {
-                    const goalToEdit = employeeGoalsList.find(g => g.id === goalId);
-                    if (goalToEdit) {
-                      openEditGoalDialog(goalToEdit, employee);
-                    }
-                  }}
-                  onDeleteGoal={async (goalId) => {
-                    setSelectedEmployee(employee);
-                    await deleteGoal(goalId);
-                    // Remove from cache
-                    allGoalsCache.current.delete(goalId);
-                    // Force refresh to get updated goals after deletion
-                    await fetchTeamMemberGoals(employee.id, true);
-                    // Update cache with refreshed goals
-                    const refreshedGoals = await getEmployeeGoals(employee.id);
-                    refreshedGoals.forEach(goal => {
-                      allGoalsCache.current.set(goal.id, goal);
-                    });
-                  }}
-                  onOpenGoal={(goal, teamMember, trigger) => handleOpenGoalPanel(goal, teamMember, trigger)}
-                  onOpenCategoryGoals={(category, categoryGoals, teamMember, trigger) => handleOpenCategoryGoals(category, categoryGoals, teamMember, trigger)}
-                  onViewReviews={() => {
-                    setReviewEmployee(employee);
-                    setShowReviewWorkspace(true);
-                  }}
-                  activeGoalId={goalPanelState.open ? goalPanelState.goalId : null}
-                  panelId={goalPanelId}
-                  reviewStatus={employeeReviewStatuses.get(employee.id) || 'not_started'}
-                />
-              );
-            })}
-          </div>
+              {/* Search and Filter Info */}
+              <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search team members..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-9 bg-background/50"
+                      />
+                    </div>
+                    {activeFilter && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setActiveFilter(null);
+                          setSearchTerm("");
+                        }}
+                        className="text-primary border-primary/30 hover:bg-primary/10 whitespace-nowrap"
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Clear Filter
+                      </Button>
+                    )}
+                  </div>
+                  {activeFilter && (
+                    <div className="mt-3 p-2 rounded-lg bg-primary/10 border border-primary/20">
+                      <p className="text-xs text-primary flex items-center gap-1.5">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        Showing only employees with {FILTER_DESCRIPTIONS[activeFilter]}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
-          {filteredReports.length === 0 && (
-            <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-              <CardContent className="p-12 text-center">
-                <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                <p className="text-muted-foreground">No direct reports found</p>
-              </CardContent>
-            </Card>
-          )}
+              {/* Team Members Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredReports.map((employee) => {
+                  const summary = getGoalsSummary(employee.id);
+                  const employeeGoalsList = getGoalsForEmployee(employee.id);
+                  return (
+                    <TeamMemberGoalsCard
+                      key={employee.id}
+                      employee={employee}
+                      summary={summary}
+                      goals={employeeGoalsList}
+                      isLoading={loadingTeamGoals && loadingGoalEmployeeId === employee.id}
+                      onFetchGoals={async () => {
+                        setSelectedEmployee(employee);
+                        // Only fetch if goals are not already loaded
+                        if (!employeeGoals.has(employee.id)) {
+                          await fetchTeamMemberGoals(employee.id);
+                        }
+                      }}
+                      onSetGoals={() => {
+                        setSelectedEmployee(employee);
+                        setShowGoalModal(true);
+                      }}
+                      onAddGoal={() => {
+                        setSelectedEmployee(employee);
+                        setShowGoalModal(true);
+                      }}
+                      onEditGoal={(goalId) => {
+                        const goalToEdit = employeeGoalsList.find(g => g.id === goalId);
+                        if (goalToEdit) {
+                          openEditGoalDialog(goalToEdit, employee);
+                        }
+                      }}
+                      onDeleteGoal={async (goalId) => {
+                        setSelectedEmployee(employee);
+                        await deleteGoal(goalId);
+                        // Remove from cache
+                        allGoalsCache.current.delete(goalId);
+                        // Force refresh to get updated goals after deletion
+                        await fetchTeamMemberGoals(employee.id, true);
+                        // Update cache with refreshed goals
+                        const refreshedGoals = await getEmployeeGoals(employee.id);
+                        refreshedGoals.forEach(goal => {
+                          allGoalsCache.current.set(goal.id, goal);
+                        });
+                      }}
+                      onOpenGoal={(goal, teamMember, trigger) => handleOpenGoalPanel(goal, teamMember, trigger)}
+                      onOpenCategoryGoals={(category, categoryGoals, teamMember, trigger) => handleOpenCategoryGoals(category, categoryGoals, teamMember, trigger)}
+                      onViewReviews={() => {
+                        setReviewEmployee(employee);
+                        setShowReviewWorkspace(true);
+                      }}
+                      activeGoalId={goalPanelState.open ? goalPanelState.goalId : null}
+                      panelId={goalPanelId}
+                      reviewStatus={employeeReviewStatuses.get(employee.id) || 'not_started'}
+                    />
+                  );
+                })}
+              </div>
+
+              {filteredReports.length === 0 && (
+                <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
+                  <CardContent className="p-12 text-center">
+                    <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <p className="text-muted-foreground">No direct reports found</p>
+                  </CardContent>
+                </Card>
+              )}
             </>
           )}
         </TabsContent>
@@ -2239,7 +2270,7 @@ export function ManagerPerformanceView() {
         <TabsContent value="my-goals" className="space-y-4">
           {/* Use the same UserPerformanceView component for consistency */}
           <UserPerformanceView employeeId={currentManagerEmployeeId} />
-            </TabsContent>
+        </TabsContent>
 
         {/* Feedback tab content - commented out/hidden */}
         {/* <TabsContent value="feedback" className="space-y-4">
@@ -2275,7 +2306,7 @@ export function ManagerPerformanceView() {
         triggerRef={goalPanelTriggerRef}
         panelId={goalPanelId}
       />
- 
+
       {/* Goal Setting Modal */}
       {showGoalModal && selectedEmployee && (
         <GoalSettingModal
@@ -2306,7 +2337,7 @@ export function ManagerPerformanceView() {
               Update the goal details below
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedGoalForEdit && (
             <div className="space-y-4 py-4">
               <div>
@@ -2322,7 +2353,7 @@ export function ManagerPerformanceView() {
                   className="mt-2"
                   required
                 />
-    </div>
+              </div>
 
               <div>
                 <Label htmlFor="edit-goal-description">Description</Label>
@@ -2341,8 +2372,8 @@ export function ManagerPerformanceView() {
                     Category
                     <span className="text-destructive ml-1">*</span>
                   </Label>
-                  <Select 
-                    value={editGoalForm.category || ""} 
+                  <Select
+                    value={editGoalForm.category || ""}
                     onValueChange={(value) => setEditGoalForm({ ...editGoalForm, category: value })}
                   >
                     <SelectTrigger className="mt-2">
@@ -2377,31 +2408,35 @@ export function ManagerPerformanceView() {
                   Weightage (%)
                   <span className="text-destructive ml-1">*</span>
                 </Label>
-                <Select 
-                  value={editGoalForm.weightage?.toString() || "10"} 
+                <Select
+                  value={editGoalForm.weightage?.toString() || "10"}
                   onValueChange={(value) => setEditGoalForm({ ...editGoalForm, weightage: parseInt(value) })}
                 >
                   <SelectTrigger className="mt-2">
                     <SelectValue placeholder="Select weightage" />
                   </SelectTrigger>
                   <SelectContent>
-                    {[10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((value) => (
-                      <SelectItem key={value} value={value.toString()}>
-                        {value}%
-                      </SelectItem>
-                    ))}
+                    {availableWeightageForEdit.options.length > 0 ? (
+                      availableWeightageForEdit.options.map((value) => (
+                        <SelectItem key={value} value={value.toString()}>
+                          {value}%
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="0" disabled>No weightage available</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Select the percentage weightage for this goal (max 100%)
+                  Other goals: {availableWeightageForEdit.otherGoalsWeightage}% • Available: {availableWeightageForEdit.maxAllowed}%
                 </p>
               </div>
             </div>
           )}
 
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setShowEditGoalDialog(false);
                 setSelectedGoalForEdit(null);
@@ -2416,10 +2451,10 @@ export function ManagerPerformanceView() {
             >
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={async () => {
                 if (!selectedGoalForEdit) return;
-                
+
                 if (!editGoalForm.title.trim() || !editGoalForm.targetDate) {
                   toast({
                     title: "Validation Error",
@@ -2429,7 +2464,19 @@ export function ManagerPerformanceView() {
                   return;
                 }
 
+                // Validate weightage doesn't exceed 100%
+                const newTotal = availableWeightageForEdit.otherGoalsWeightage + editGoalForm.weightage;
+                if (newTotal > 100) {
+                  toast({
+                    title: "Validation Error",
+                    description: `Total weightage cannot exceed 100%. Other goals: ${availableWeightageForEdit.otherGoalsWeightage}%, Selected: ${editGoalForm.weightage}% = ${newTotal}%`,
+                    variant: "destructive"
+                  });
+                  return;
+                }
+
                 try {
+                  setIsEditingGoalLoading(true);
                   const updateData = {
                     title: editGoalForm.title.trim(),
                     description: editGoalForm.description || undefined,
@@ -2439,25 +2486,78 @@ export function ManagerPerformanceView() {
                   };
 
                   const updatedGoal = await updateGoal(selectedGoalForEdit.id, updateData);
-                  
+
                   if (updatedGoal) {
-                    // Update cache with new goal data
+                    // Update local cache immediately without refetching
                     allGoalsCache.current.set(selectedGoalForEdit.id, updatedGoal);
-                    // Refresh goals for the employee
+
+                    // Update employeeGoals Map with the updated goal
                     if (selectedEmployee) {
-                      await fetchTeamMemberGoals(selectedEmployee.id, true);
-                      // Update cache with refreshed goals
-                      const refreshedGoals = await getEmployeeGoals(selectedEmployee.id);
-                      refreshedGoals.forEach(goal => {
-                        allGoalsCache.current.set(goal.id, goal);
+                      const currentGoals = employeeGoals.get(selectedEmployee.id) || [];
+                      const updatedTeamGoals = currentGoals.map(g =>
+                        g.id === updatedGoal.id ? convertGoalToTeamGoal(updatedGoal) : g
+                      );
+
+                      // Trigger re-render by creating a new Map instance
+                      setEmployeeGoals(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(selectedEmployee.id, updatedTeamGoals);
+                        return newMap;
                       });
+
+                      // Also refresh the panel state if it's open for this employee to show updated weightage/details
+                      refreshGoalPanelStateForEmployee(selectedEmployee.id, updatedTeamGoals);
+
+                      // CRITICAL FIX: Update the performance preload cache (localStorage) with updated goals
+                      // This ensures hard refresh shows the correct weightage
+                      if (user?.email) {
+                        // Get all current goals for this employee (with the updated goal)
+                        const allEmployeeGoals = updatedTeamGoals.map(g => {
+                          // Find the full API goal from cache
+                          return allGoalsCache.current.get(g.id) || updatedGoal;
+                        }).filter(g => g.employeeId === selectedEmployee.id);
+
+                        // Update the performance cache to persist the changes
+                        updateCachedGoals(user.email, selectedEmployee.id, allEmployeeGoals);
+                      }
                     }
-                    
+
+                    // If it's the manager's own goal, update myGoals state too
+                    if (currentManagerEmployeeId && selectedGoalForEdit.employeeId === currentManagerEmployeeId) {
+                      setMyGoals(prev => prev.map(g =>
+                        g.id === updatedGoal.id ? convertGoalToMyGoal(updatedGoal) : g
+                      ));
+
+                      // Also update the performance cache for manager's own goals
+                      if (user?.email) {
+                        const allManagerGoals = [...(employeeGoals.get(currentManagerEmployeeId) || [])].map(g => {
+                          if (g.id === updatedGoal.id) return convertGoalToTeamGoal(updatedGoal);
+                          return g;
+                        }).map(g => allGoalsCache.current.get(g.id) || updatedGoal)
+                          .filter(g => g.employeeId === currentManagerEmployeeId);
+
+                        updateCachedGoals(user.email, currentManagerEmployeeId, allManagerGoals);
+                      }
+                    }
+
+                    // CRITICAL: Directly update the goalPanelState if this goal is currently being displayed
+                    // This ensures the UI updates immediately without waiting for other state updates
+                    setGoalPanelState(prev => {
+                      if (prev.open && prev.goalId === updatedGoal.id) {
+                        // Update the summary snapshot with the latest goal data
+                        return {
+                          ...prev,
+                          summary: toTeamGoalSnapshot(convertGoalToTeamGoal(updatedGoal))
+                        };
+                      }
+                      return prev;
+                    });
+
                     toast({
                       title: "Success",
                       description: "Goal updated successfully",
                     });
-                    
+
                     setShowEditGoalDialog(false);
                     setSelectedGoalForEdit(null);
                     setEditGoalForm({
@@ -2475,11 +2575,23 @@ export function ManagerPerformanceView() {
                     description: "Failed to update goal",
                     variant: "destructive"
                   });
+                } finally {
+                  setIsEditingGoalLoading(false);
                 }
               }}
+              disabled={isEditingGoalLoading}
             >
-              <Edit className="h-4 w-4 mr-2" />
-              Save Changes
+              {isEditingGoalLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Save Changes
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2493,19 +2605,19 @@ export function ManagerPerformanceView() {
               {approvalAction === 'approve' ? 'Approve Goal' : 'Reopen Goal'}
             </DialogTitle>
             <DialogDescription>
-              {approvalAction === 'approve' 
+              {approvalAction === 'approve'
                 ? 'Approve this goal as completed. The employee will be notified.'
                 : 'Reopen this goal. Provide feedback on what needs to be improved.'}
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedGoalForApproval && (
             <div className="space-y-4 py-4">
               <div>
                 <Label className="text-base font-semibold">Employee</Label>
                 <p className="text-sm text-muted-foreground mt-1">{selectedGoalForApproval.employee.name}</p>
-    </div>
-              
+              </div>
+
               <div>
                 <Label className="text-base font-semibold">Goal</Label>
                 <p className="text-sm text-muted-foreground mt-1">{selectedGoalForApproval.goal.title}</p>
@@ -2545,7 +2657,7 @@ export function ManagerPerformanceView() {
                   id="comment"
                   value={approvalComment}
                   onChange={(e) => setApprovalComment(e.target.value)}
-                  placeholder={approvalAction === 'approve' 
+                  placeholder={approvalAction === 'approve'
                     ? 'Add any comments about this goal completion...'
                     : 'Explain what needs to be improved or completed...'}
                   className="mt-2 min-h-[100px]"
@@ -2566,7 +2678,7 @@ export function ManagerPerformanceView() {
             <Button
               onClick={async () => {
                 if (!selectedGoalForApproval) return;
-                
+
                 try {
                   if (approvalAction === 'approve') {
                     // Approve the goal via API
@@ -2574,13 +2686,13 @@ export function ManagerPerformanceView() {
                       managerApproved: true,
                       status: 'completed'
                     });
-                    
+
                     // Update cache with new goal data
                     if (updatedGoal) {
                       allGoalsCache.current.set(selectedGoalForApproval.goal.id, updatedGoal);
                     }
                     // Remove from pending list
-                    setPendingApprovalGoals(prev => 
+                    setPendingApprovalGoals(prev =>
                       prev.filter(item => item.goal.id !== selectedGoalForApproval.goal.id)
                     );
                   } else if (approvalAction === 'reopen') {
@@ -2593,36 +2705,36 @@ export function ManagerPerformanceView() {
                       });
                       return;
                     }
-                    
+
                     // Update all milestones with manager comment
                     const updatedMilestones = (selectedGoalForApproval.goal.milestones || []).map(m => ({
                       ...m,
                       managerReopened: true,
                       managerComment: approvalComment.trim()
                     }));
-                    
+
                     const updatedGoal = await updateGoal(selectedGoalForApproval.goal.id, {
                       managerReopened: true,
                       status: 'manager_reopened',
                       milestones: updatedMilestones
                     });
-                    
+
                     // Update cache with new goal data
                     if (updatedGoal) {
                       allGoalsCache.current.set(selectedGoalForApproval.goal.id, updatedGoal);
                     }
-                    
+
                     // Remove from pending list
-                    setPendingApprovalGoals(prev => 
+                    setPendingApprovalGoals(prev =>
                       prev.filter(item => item.goal.id !== selectedGoalForApproval.goal.id)
                     );
                   }
-                  
+
                   setShowApprovalDialog(false);
                   setSelectedGoalForApproval(null);
                   setApprovalComment("");
                   setApprovalAction(null);
-                  
+
                   // Refresh team member goals
                   if (selectedGoalForApproval.employee.id) {
                     await fetchTeamMemberGoals(selectedGoalForApproval.employee.id);
@@ -2631,7 +2743,7 @@ export function ManagerPerformanceView() {
                   console.error("Error processing approval:", error);
                 }
               }}
-              className={approvalAction === 'approve' 
+              className={approvalAction === 'approve'
                 ? "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20"
                 : "bg-orange-500/10 text-orange-600 border-orange-500/20 hover:bg-orange-500/20"}
             >
@@ -2660,7 +2772,7 @@ export function ManagerPerformanceView() {
                 <Label className="text-base font-semibold">Milestone</Label>
                 <p className="text-sm text-muted-foreground mt-1">{selectedMilestone.milestone.title}</p>
               </div>
-              
+
               <div>
                 <Label>Due Date</Label>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -2672,7 +2784,7 @@ export function ManagerPerformanceView() {
                 <div>
                   <Label>Completed Date</Label>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {selectedMilestone.milestone.completedDate 
+                    {selectedMilestone.milestone.completedDate
                       ? new Date(selectedMilestone.milestone.completedDate).toLocaleDateString()
                       : "N/A"}
                   </p>
@@ -2770,16 +2882,16 @@ export function ManagerPerformanceView() {
                   {selectedMilestone.milestone.completed
                     ? "Please provide a reason for reopening this milestone."
                     : (originalComment && milestoneComment.trim() === originalComment.trim()
-                        ? "Please update the comment or provide a new one before completing."
-                        : "Please provide a comment before completing this milestone.")}
+                      ? "Please update the comment or provide a new one before completing."
+                      : "Please provide a comment before completing this milestone.")}
                 </p>
               </div>
             </div>
           )}
 
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setShowMilestoneDialog(false);
                 setSelectedMilestone(null);
@@ -2792,7 +2904,7 @@ export function ManagerPerformanceView() {
               Cancel
             </Button>
             {selectedMilestone?.milestone.completed ? (
-              <Button 
+              <Button
                 variant="outline"
                 className="border-orange-500/20 text-orange-600 hover:bg-orange-500/10"
                 onClick={handleReopenMilestone}
@@ -2838,7 +2950,7 @@ export function ManagerPerformanceView() {
               Add a new milestone to track progress towards your goal
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div>
               <Label htmlFor="milestone-title">
@@ -2876,8 +2988,8 @@ export function ManagerPerformanceView() {
           </div>
 
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setShowAddMilestoneDialog(false);
                 setSelectedGoalForMilestone(null);
