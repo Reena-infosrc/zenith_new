@@ -96,6 +96,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const [managerName, setManagerName] = useState<string>('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [skillsInput, setSkillsInput] = useState<string>('');
+  const [assessmentSkills, setAssessmentSkills] = useState<string[]>([]);
   const { toast } = useToast();
   const { user, isAdmin, isLoading } = useAuth();
   const { updateEmployee, employees, fetchEmployees } = useEmployees();
@@ -184,6 +185,50 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
       setManagerName('Manager not found');
     }
   }, [employee?.reporting_to, employees]);
+
+  // Fetch tools from self-assessment review metadata and filter 2 and 3-star ratings
+  useEffect(() => {
+    const fetchAssessmentSkills = async () => {
+      if (!employee?.id || !isOpen) return;
+
+      try {
+        const cyclesResponse = await authenticatedFetch(`${API_BASE_URL}/reviews/cycles`);
+        if (!cyclesResponse.ok) return;
+        const cycles = await cyclesResponse.json();
+        const filteredCycles = cycles.filter((c: any) => c.status !== 'draft');
+
+        let selectedCycle = filteredCycles.find((c: any) => c.status === 'open' || c.status === 'active');
+        if (!selectedCycle && filteredCycles.length > 0) {
+          selectedCycle = filteredCycles.sort((a: any, b: any) => b.year.localeCompare(a.year))[0];
+        }
+
+        if (selectedCycle) {
+          const reviewResponse = await authenticatedFetch(
+            `${API_BASE_URL}/reviews?employeeId=${employee.id}&cycleYear=${selectedCycle.year}&reviewType=self`
+          );
+
+          if (reviewResponse.ok) {
+            const reviews = await reviewResponse.json();
+            if (Array.isArray(reviews) && reviews.length > 0) {
+              const review = reviews.find((r: any) => !r.isDraft && r.submittedAt) || reviews.find((r: any) => r.isDraft) || reviews[0];
+
+              if (review?.metadata?.toolsAndTechnologies) {
+                const tools = review.metadata.toolsAndTechnologies;
+                const assessmentTools = tools
+                  .filter((t: any) => t.rating === 2 || t.rating === 3)
+                  .map((t: any) => t.tool);
+                setAssessmentSkills(assessmentTools);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching assessment skills:', error);
+      }
+    };
+
+    fetchAssessmentSkills();
+  }, [employee?.id, isOpen]);
 
   // Early return if employee is null
   if (!employee) {
@@ -358,7 +403,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         resignationDate: profileData.resignationDate,
         reasonForResignation: profileData.reasonForResignation
       });
-      
+
       if (updatedEmployee) {
         // Update local state with the complete updated employee data
         setProfileData(prev => {
@@ -1049,64 +1094,64 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
             </CardContent>
           </Card>
 
-          {/* Skills Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Award className="h-5 w-5" />
-                Skills
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isEditing ? (
-                <div className="space-y-2">
-                  <Label htmlFor="skills">Skills (comma-separated)</Label>
-                  <Input 
-                    id="skills" 
-                    name="skills"
-                    value={skillsInput} 
-                    onChange={(e) => {
-                      // Allow user to type freely, including commas
-                      setSkillsInput(e.target.value);
-                    }}
-                    onBlur={() => {
-                      // Convert to skills array when user finishes typing
-                      const skillsArray = skillsInput.split(',').map(skill => skill.trim()).filter(skill => skill);
-                      setProfileData(prev => ({ ...prev, skills: skillsArray }));
-                    }}
-                    placeholder="Enter skills separated by commas (e.g., React, Node.js, Python, Machine Learning)"
-                  />
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">
-                      💡 Type skills separated by commas. You can type commas freely - they will be processed when you finish typing.
-                    </p>
-                    <p className="text-xs text-blue-600">
-                      ✅ Example: "React, Node.js, Python, Machine Learning"
-                    </p>
-                    {skillsInput && (
-                      <p className="text-xs text-green-600">
-                        📝 You can see your input: "{skillsInput}"
+            {/* Skills Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Award className="h-5 w-5" />
+                  Skills
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="skills">Skills (comma-separated)</Label>
+                    <Input
+                      id="skills"
+                      name="skills"
+                      value={skillsInput}
+                      onChange={(e) => {
+                        // Allow user to type freely, including commas
+                        setSkillsInput(e.target.value);
+                      }}
+                      onBlur={() => {
+                        // Convert to skills array when user finishes typing
+                        const skillsArray = skillsInput.split(',').map(skill => skill.trim()).filter(skill => skill);
+                        setProfileData(prev => ({ ...prev, skills: skillsArray }));
+                      }}
+                      placeholder="Enter skills separated by commas (e.g., React, Node.js, Python, Machine Learning)"
+                    />
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">
+                        💡 Type skills separated by commas. You can type commas freely - they will be processed when you finish typing.
                       </p>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {profileData.skills && profileData.skills.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {profileData.skills.map((skill, index) => (
-                        <span key={index} className="px-2 py-1 bg-muted rounded-md text-xs">
-                          {skill}
-                        </span>
-                      ))}
+                      <p className="text-xs text-blue-600">
+                        ✅ Example: "React, Node.js, Python, Machine Learning"
+                      </p>
+                      {skillsInput && (
+                        <p className="text-xs text-green-600">
+                          📝 You can see your input: "{skillsInput}"
+                        </p>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No skills provided</p>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
+                  </div>
+                ) : (
+                  <>
+                    {((profileData.skills || []).length > 0 || assessmentSkills.length > 0) ? (
+                      <div className="flex flex-wrap gap-2">
+                        {[...new Set([...(profileData.skills || []), ...assessmentSkills])].map((skill, index) => (
+                          <span key={index} className="px-2 py-1 bg-muted rounded-md text-xs">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No skills provided</p>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
           {/* Expertise Section */}
           <Card>

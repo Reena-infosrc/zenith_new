@@ -14,7 +14,10 @@ import {
   BarChart2,
   ArrowUpDown,
   Download,
-  User
+  User,
+  MapPin,
+  ChevronDown,
+  ChevronRight
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmployeeCard, EmployeeCardProps } from "@/components/EmployeeCard";
@@ -26,7 +29,8 @@ import { AddEmployeeForm } from "@/components/employee/AddEmployeeForm";
 import { ImportEmployees } from "@/components/employee/ImportEmployees";
 import { exportEmployeesToCSV } from "@/utils/csvExport";
 import { useAuth } from "@/hooks/use-auth"; // Assuming you have this
-import { consolidateRemoteLocations, DEPARTMENT_OPTIONS } from "@/lib/utils";
+import { consolidateRemoteLocations, DEPARTMENT_OPTIONS, groupLocationsByCountry, groupAccounts } from "@/lib/utils";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,7 +63,10 @@ export default function Directory() {
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
-  
+  const [expandedCountry, setExpandedCountry] = useState<string | null>(null);
+  const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
+
+
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const { toast } = useToast();
   
@@ -84,18 +91,20 @@ export default function Directory() {
   
   // Available departments, locations, and accounts for filters - use predefined department options
   const departments = DEPARTMENT_OPTIONS;
-  
-  // Process locations to consolidate remote locations
-  const locations = useMemo(() => {
+
+  // Process locations to group by country
+  const groupedLocations = useMemo(() => {
     const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
-    return consolidateRemoteLocations(rawLocations);
+    const consolidated = consolidateRemoteLocations(rawLocations);
+    return groupLocationsByCountry(consolidated);
   }, [employees]);
-  
-  const accounts = useMemo(() => 
-    [...new Set(employees.map(emp => emp.account).filter(Boolean))].sort(),
-    [employees]
-  );
-  
+
+  const accounts = useMemo(() => {
+    const rawAccounts = [...new Set(employees.map(emp => emp.account).filter(Boolean))];
+    return groupAccounts(rawAccounts);
+  }, [employees]);
+
+
   const toggleFilter = (filter: string) => {
     setActiveFilters(prev => 
       prev.includes(filter) 
@@ -187,36 +196,42 @@ export default function Directory() {
   // NOTE: Include inactive employees but they will be shown in disabled state
   const filteredEmployees = employees.filter(employee => {
     // Department filters
-    if (activeFilters.some(filter => filter.startsWith("Department:")) && 
-        !activeFilters.includes(`Department: ${employee.department}`)) {
-      return false;
+    if (activeFilters.some(filter => filter.startsWith("Department:"))) {
+      const hasMatch = activeFilters.some(filter => {
+        if (!filter.startsWith("Department: ")) return false;
+        const filterValue = filter.replace("Department: ", "").trim().toLowerCase();
+        return employee.department?.trim().toLowerCase() === filterValue;
+      });
+      if (!hasMatch) return false;
     }
     
     // Location filters
     if (activeFilters.some(filter => filter.startsWith("Location:"))) {
       const employeeLocation = employee.location;
       const normalizedLocation = employeeLocation?.trim().toLowerCase();
-      const isRemoteEmployee = normalizedLocation?.startsWith('remote -') || normalizedLocation === 'remote';
-      const hasRemoteFilter = activeFilters.includes('Location: Remote');
-      
-      // If employee is remote and we have a Remote filter, include them
-      if (isRemoteEmployee && hasRemoteFilter) {
-        // Continue to next filter check
-      }
-      // If employee is remote but we don't have Remote filter, exclude them
-      else if (isRemoteEmployee && !hasRemoteFilter) {
-        return false;
-      }
-      // If employee is not remote, check exact location match
-      else if (!isRemoteEmployee && !activeFilters.includes(`Location: ${employeeLocation}`)) {
-        return false;
-      }
+      const isRemoteEmployee = normalizedLocation?.startsWith('remote -') || normalizedLocation === 'remote' || normalizedLocation?.startsWith('remote-');
+      const hasRemoteFilter = activeFilters.some(f => f.toLowerCase() === 'location: remote');
+
+      // Check if any location filter matches
+      const hasMatch = activeFilters.some(filter => {
+        if (!filter.startsWith("Location: ")) return false;
+        const filterValue = filter.replace("Location: ", "").trim().toLowerCase();
+
+        if (filterValue === 'remote' && isRemoteEmployee) return true;
+        return normalizedLocation === filterValue;
+      });
+
+      if (!hasMatch) return false;
     }
-    
+
     // Account filters
-    if (activeFilters.some(filter => filter.startsWith("Account:")) && 
-        !activeFilters.includes(`Account: ${employee.account}`)) {
-      return false;
+    if (activeFilters.some(filter => filter.startsWith("Account:"))) {
+      const hasMatch = activeFilters.some(filter => {
+        if (!filter.startsWith("Account: ")) return false;
+        const filterValue = filter.replace("Account: ", "").trim().toLowerCase();
+        return employee.account?.trim().toLowerCase() === filterValue;
+      });
+      if (!hasMatch) return false;
     }
     
     return true;
@@ -314,41 +329,96 @@ export default function Directory() {
                     </div>
                     
                     {/* Location Section */}
-                    {locations.length > 0 && (
+                    {Object.keys(groupedLocations).length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b">
+                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b z-10">
                           Location
                         </div>
-                        <div className="max-h-32 overflow-y-auto">
-                          {locations.map(location => (
-                            <DropdownMenuItem 
-                              key={location} 
-                              onClick={() => toggleFilter(`Location: ${location}`)}
-                              className="pl-4"
-                            >
-                              {location}
-                            </DropdownMenuItem>
-                          ))}
+                        <div className="max-h-64 overflow-y-auto overflow-x-hidden">
+                          {Object.entries(groupedLocations).map(([country, cityList]) => {
+                            const isExpanded = expandedCountry === country;
+                            return (
+                              <div key={country} className="mb-0">
+                                <DropdownMenuItem
+                                  onSelect={(e) => {
+                                    e.preventDefault();
+                                    setExpandedCountry(isExpanded ? null : country);
+                                  }}
+                                  className="px-4 py-1.5 text-sm flex items-center justify-between cursor-pointer focus:bg-accent transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <MapPin className="h-3 w-3" />
+                                    {country}
+                                  </div>
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-3 w-3" />
+                                  ) : (
+                                    <ChevronRight className="h-3 w-3" />
+                                  )}
+                                </DropdownMenuItem>
+                                {isExpanded && (
+                                  <div className="bg-muted/5">
+                                    {cityList.map(city => (
+                                      <DropdownMenuItem
+                                        key={city}
+                                        onClick={() => toggleFilter(`Location: ${city}`)}
+                                        className="pl-8 py-1.5 text-sm focus:bg-accent"
+                                      >
+                                        {city}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </>
                     )}
                     
                     {/* Account Section */}
-                    {accounts.length > 0 && (
+                    {Object.keys(accounts).length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b">
+                        <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b z-10">
                           Account
                         </div>
-                        <div className="max-h-32 overflow-y-auto">
-                          {accounts.map(account => (
-                            <DropdownMenuItem 
-                              key={account} 
-                              onClick={() => toggleFilter(`Account: ${account}`)}
-                              className="pl-4"
-                            >
-                              {account}
-                            </DropdownMenuItem>
-                          ))}
+                        <div className="max-h-64 overflow-y-auto overflow-x-hidden">
+                          {Object.entries(accounts).map(([parentAccount, subAccounts]) => {
+                            const isExpanded = expandedAccount === parentAccount;
+                            return (
+                              <div key={parentAccount} className="mb-0">
+                                <DropdownMenuItem
+                                  onSelect={(e) => {
+                                    e.preventDefault();
+                                    setExpandedAccount(isExpanded ? null : parentAccount);
+                                  }}
+                                  className="px-4 py-1.5 text-sm flex items-center justify-between cursor-pointer focus:bg-accent transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {parentAccount}
+                                  </div>
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-3 w-3" />
+                                  ) : (
+                                    <ChevronRight className="h-3 w-3" />
+                                  )}
+                                </DropdownMenuItem>
+                                {isExpanded && (
+                                  <div className="bg-muted/5">
+                                    {subAccounts.map(account => (
+                                      <DropdownMenuItem
+                                        key={account}
+                                        onClick={() => toggleFilter(`Account: ${account}`)}
+                                        className="pl-8 py-1.5 text-sm focus:bg-accent"
+                                      >
+                                        {account}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </>
                     )}
