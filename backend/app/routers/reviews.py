@@ -2063,6 +2063,7 @@ async def export_dashboard_csv(
                 "selfReview_ChallengesAndSolutions",
                 "selfReview_AreasOfImprovement",
                 "selfReview_CertificationsCompleted",
+                "selfReview_OverallRating",
                 # Manager Summary
                 "managerOverallRating",
                 "managerSummary_SummaryFeedback",
@@ -2141,15 +2142,22 @@ async def export_dashboard_csv(
             # Get self-review data
             self_review = self_review_map.get(review.employeeId)
             self_review_fields = {}
-            if self_review and self_review.metadata:
-                self_review_meta = self_review.metadata.get("selfReviewFields", {})
-                self_review_fields = {
-                    "keyAccomplishments": self_review_meta.get("significantAccomplishments", ""),
-                    "beyondRoleContributions": self_review_meta.get("beyondRoleContributions", ""),
-                    "challengesAndSolutions": self_review_meta.get("challengesAndSolutions", ""),
-                    "areasOfImprovement": self_review_meta.get("areasNeedingImprovement", ""),
-                    "certificationsCompleted": self_review_meta.get("certificationsCompleted", ""),
-                }
+            self_review_overall_rating = ""
+            if self_review:
+                if self_review.metadata:
+                    self_review_meta = self_review.metadata.get("selfReviewFields", {})
+                    self_review_fields = {
+                        "keyAccomplishments": self_review_meta.get("significantAccomplishments", ""),
+                        "beyondRoleContributions": self_review_meta.get("beyondRoleContributions", ""),
+                        "challengesAndSolutions": self_review_meta.get("challengesAndSolutions", ""),
+                        "areasOfImprovement": self_review_meta.get("areasNeedingImprovement", ""),
+                        "certificationsCompleted": self_review_meta.get("certificationsCompleted", ""),
+                    }
+                    self_review_overall_rating = self_review.metadata.get("selfRating", "")
+                
+                # Check ratings.overall if metadata.selfRating is empty
+                if not self_review_overall_rating and self_review.ratings:
+                    self_review_overall_rating = self_review.ratings.get("overall", "")
 
             # Get manager summary from metadata
             manager_metadata = review.metadata or {}
@@ -2203,6 +2211,7 @@ async def export_dashboard_csv(
                     self_review_fields.get("challengesAndSolutions", ""),
                     self_review_fields.get("areasOfImprovement", ""),
                     self_review_fields.get("certificationsCompleted", ""),
+                    self_review_overall_rating,
                     # Manager Summary
                     overall_rating if overall_rating is not None else "",
                     manager_summary.get("summaryFeedback", ""),
