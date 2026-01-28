@@ -4,10 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { 
-  ChevronRight, 
+import {
+  ChevronRight,
   ChevronDown,
-  Users, 
+  Users,
   Loader2,
   AlertCircle,
   RefreshCw,
@@ -45,11 +45,11 @@ interface EmployeeDetailModalProps {
 function EmployeeDetailModal({ employee, employees, isOpen, onClose }: EmployeeDetailModalProps) {
   if (!employee) return null;
 
-  const directReports = employees.filter(emp => 
+  const directReports = employees.filter(emp =>
     emp.reporting_to && emp.reporting_to.trim() !== '' && emp.reporting_to === employee.id
   );
-  
-  const reportingManager = employee.reporting_to && employee.reporting_to.trim() !== '' 
+
+  const reportingManager = employee.reporting_to && employee.reporting_to.trim() !== ''
     ? employees.find(emp => emp.id === employee.reporting_to)
     : null;
 
@@ -79,23 +79,23 @@ function EmployeeDetailModal({ employee, employees, isOpen, onClose }: EmployeeD
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <span className="text-sm font-medium">Department:</span>
+                  <span className="text-sm font-medium">Department:</span>
                   <p className="text-sm text-muted-foreground">{employee.department}</p>
                 </div>
                 <div>
-                    <span className="text-sm font-medium">Location:</span>
+                  <span className="text-sm font-medium">Location:</span>
                   <p className="text-sm text-muted-foreground">{employee.location || 'Not specified'}</p>
                 </div>
                 <div>
-                    <span className="text-sm font-medium">Employment Category:</span>
-                  <Badge variant="secondary">{employee.employment_category || 'Not specified'}</Badge>
+                  <span className="text-sm font-medium">Employment Category:</span>
+                  <Badge variant="secondary">{employee.employmentCategory || 'Not specified'}</Badge>
                 </div>
                 <div>
-                    <span className="text-sm font-medium">Status:</span>
-                  <Badge variant={employee.employee_status === 'Billable' ? 'default' : 'secondary'}>
-                    {employee.employee_status || 'Not specified'}
+                  <span className="text-sm font-medium">Status:</span>
+                  <Badge variant={employee.employeeStatus === 'Billable' ? 'default' : 'secondary'}>
+                    {employee.employeeStatus || 'Not specified'}
                   </Badge>
-                </div>
+                </div> 
               </div>
             </CardContent>
           </Card>
@@ -108,47 +108,47 @@ function EmployeeDetailModal({ employee, employees, isOpen, onClose }: EmployeeD
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-                  {reportingManager && (
-                    <div className="space-y-2">
-                        <span className="text-sm font-medium">Reports to:</span>
+              {reportingManager && (
+                <div className="space-y-2">
+                  <span className="text-sm font-medium">Reports to:</span>
                   <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={reportingManager.photoUrl} alt={reportingManager.name} />
+                      <AvatarFallback className="text-xs">
+                        {reportingManager.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="text-sm font-medium">{reportingManager.name}</p>
+                      <p className="text-xs text-muted-foreground">{reportingManager.position}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {directReports.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-sm font-medium">Direct Reports ({directReports.length}):</span>
+                  <div className="space-y-2">
+                    {directReports.map(report => (
+                      <div key={report.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={reportingManager.photoUrl} alt={reportingManager.name} />
+                          <AvatarImage src={report.photoUrl} alt={report.name} />
                           <AvatarFallback className="text-xs">
-                            {reportingManager.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                            {report.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="text-sm font-medium">{reportingManager.name}</p>
-                          <p className="text-xs text-muted-foreground">{reportingManager.position}</p>
+                          <p className="text-sm font-medium">{report.name}</p>
+                          <p className="text-xs text-muted-foreground">{report.position}</p>
                         </div>
                       </div>
-                    </div>
-                  )}
-                  
-                  {directReports.length > 0 && (
-                    <div className="space-y-2">
-                        <span className="text-sm font-medium">Direct Reports ({directReports.length}):</span>
-                  <div className="space-y-2">
-                        {directReports.map(report => (
-                          <div key={report.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src={report.photoUrl} alt={report.name} />
-                              <AvatarFallback className="text-xs">
-                                {report.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <p className="text-sm font-medium">{report.name}</p>
-                              <p className="text-xs text-muted-foreground">{report.position}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </DialogContent>
     </Dialog>
@@ -176,7 +176,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
   const buildTree = useCallback(() => {
     try {
       setLoading(true);
-      
+
       if (!employees || employees.length === 0) {
         setTree([]);
         setLoading(false);
@@ -212,10 +212,10 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
 
       // Recursively build tree
       const buildNodeWithChildren = (employee: Employee, level: number = 0): TreeNode => {
-        const directReports = employees.filter(emp => 
+        const directReports = employees.filter(emp =>
           emp.reporting_to && emp.reporting_to.trim() !== '' && emp.reporting_to === employee.id
         );
-        
+
         // Sort direct reports: those with more reportees first, then by name
         directReports.sort((a, b) => {
           const aReportees = directReportsCount.get(a.id) || 0;
@@ -226,9 +226,9 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
           // If same number of reportees, sort by name
           return a.name.localeCompare(b.name);
         });
-        
+
         const children = directReports.map(child => buildNodeWithChildren(child, level + 1));
-        
+
         return {
           employee,
           children,
@@ -238,7 +238,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
       };
 
       const rootNodes = rootEmployees.map(emp => buildNodeWithChildren(emp, 0));
-      
+
       // Sort root nodes: those with more reportees first, then by name
       rootNodes.sort((a, b) => {
         // First, prioritize nodes with more reportees
@@ -247,7 +247,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
         // If same number of reportees, sort by name
         return a.employee.name.localeCompare(b.employee.name);
       });
-      
+
       setTree(rootNodes);
       setError(null);
     } catch (err) {
@@ -350,7 +350,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
   const navigateToEmployee = useCallback((employee: Employee) => {
     // Find all parent nodes that need to be expanded
     const parentChain = findParentChain(employee.id);
-    
+
     // Expand all parent nodes
     setExpandedNodes(prev => {
       const next = new Set(prev);
@@ -377,10 +377,10 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
         }
         return;
       }
-      
+
       const container = chartContainerRef.current;
       const containerInner = container.querySelector('.p-8') as HTMLElement;
-      
+
       if (!containerInner) {
         if (attempt < 5) {
           setTimeout(() => scrollToNode(attempt + 1), 150);
@@ -392,31 +392,31 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
       // offsetLeft/offsetTop are relative to the offset parent (.p-8 div)
       const nodeX = nodeElement.offsetLeft;
       const nodeY = nodeElement.offsetTop;
-      
+
       // Get element dimensions
       const elementWidth = nodeElement.offsetWidth;
       const elementHeight = nodeElement.offsetHeight;
-      
+
       // Calculate element center in content coordinates
       const elementCenterX = nodeX + (elementWidth / 2);
       const elementCenterY = nodeY + (elementHeight / 2);
-      
+
       // Get viewport dimensions (in content coordinates, not scaled)
       const viewportWidth = container.clientWidth;
       const viewportHeight = container.clientHeight;
-      
+
       // Calculate scroll position to center the element
       // Scroll positions are in content coordinates
       const targetScrollLeft = elementCenterX - (viewportWidth / 2);
       const targetScrollTop = elementCenterY - (viewportHeight / 2);
-      
+
       // Ensure scroll position is within bounds
       const maxScrollLeft = Math.max(0, container.scrollWidth - viewportWidth);
       const maxScrollTop = Math.max(0, container.scrollHeight - viewportHeight);
-      
+
       const finalScrollLeft = Math.max(0, Math.min(targetScrollLeft, maxScrollLeft));
       const finalScrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
-      
+
       // Perform the scroll
       container.scrollTo({
         left: finalScrollLeft,
@@ -428,17 +428,17 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
       setTimeout(() => {
         const nodeRect = nodeElement.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
-        
+
         // Check if element is roughly centered (with some tolerance)
         const elementCenterX = nodeRect.left + (nodeRect.width / 2);
         const elementCenterY = nodeRect.top + (nodeRect.height / 2);
         const viewportCenterX = containerRect.left + (containerRect.width / 2);
         const viewportCenterY = containerRect.top + (containerRect.height / 2);
-        
+
         const distanceX = Math.abs(elementCenterX - viewportCenterX);
         const distanceY = Math.abs(elementCenterY - viewportCenterY);
         const tolerance = 50; // pixels
-        
+
         // If not centered, try alternative method
         if ((distanceX > tolerance || distanceY > tolerance) && attempt < 2) {
           // Use getBoundingClientRect approach as fallback
@@ -448,13 +448,13 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
           const relElementCenterY = relativeTop + (nodeRect.height / 2);
           const relViewportCenterX = container.clientWidth / 2;
           const relViewportCenterY = container.clientHeight / 2;
-          
+
           const scrollX = container.scrollLeft + relElementCenterX - relViewportCenterX;
           const scrollY = container.scrollTop + relElementCenterY - relViewportCenterY;
-          
+
           const fallbackMaxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
           const fallbackMaxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-          
+
           container.scrollTo({
             left: Math.max(0, Math.min(scrollX, fallbackMaxScrollLeft)),
             top: Math.max(0, Math.min(scrollY, fallbackMaxScrollTop)),
@@ -474,7 +474,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
     // First timeout: wait for state updates (expanded nodes)
     setTimeout(() => {
       setConnectorUpdateKey(prev => prev + 1); // Force connector update
-      
+
       // Second timeout: wait for connector rendering and layout
       setTimeout(() => {
         // Use requestAnimationFrame to ensure layout is complete
@@ -496,31 +496,31 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
     if (!query) return false;
     const lowerQuery = query.toLowerCase();
     return employee.name.toLowerCase().includes(lowerQuery) ||
-           employee.position?.toLowerCase().includes(lowerQuery) ||
-           employee.department?.toLowerCase().includes(lowerQuery);
+      employee.position?.toLowerCase().includes(lowerQuery) ||
+      employee.department?.toLowerCase().includes(lowerQuery);
   };
 
   // Calculate path for straight lines with rounded corners (fillet)
   // Creates: horizontal segment -> rounded corner -> vertical segment -> rounded corner -> horizontal to child
   const calculateStraightLinePath = (
-    x1: number, y1: number, 
+    x1: number, y1: number,
     x2: number, y2: number,
     cornerRadius: number = 8
   ): string => {
     // Calculate the bend point (where horizontal meets vertical)
     const bendX = x1 + Math.min((x2 - x1) * 0.5, 60); // Bend point at 50% or max 60px from parent
-    
+
     // Check if nodes are at same vertical level (within threshold)
     if (Math.abs(y2 - y1) < 5) {
       // Same level - single straight horizontal line
       return `M ${x1} ${y1} L ${x2} ${y2}`;
     }
-    
+
     // Different levels - create path with rounded corners
     // Determine direction (y2 > y1 means child is below)
     const goingDown = y2 > y1;
     const radius = Math.min(cornerRadius, Math.abs(y2 - y1) / 2); // Don't exceed half the vertical distance
-    
+
     if (goingDown) {
       // Parent above child: horizontal right -> rounded corner down -> vertical down -> rounded corner right -> horizontal to child
       return `M ${x1} ${y1} 
@@ -545,11 +545,11 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
     if (!element || !container) return { x: 0, y: 0 };
     const elementRect = element.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
-    
+
     // Account for scroll position
     const scrollLeft = container.scrollLeft || 0;
     const scrollTop = container.scrollTop || 0;
-    
+
     return {
       x: elementRect.left + elementRect.width / 2 - containerRect.left + scrollLeft,
       y: elementRect.top + elementRect.height / 2 - containerRect.top + scrollTop
@@ -598,29 +598,29 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
     if (connections.length === 0) return null;
 
     const paths: Array<{ d: string; fromId: string; toId: string }> = [];
-    
+
     connections.forEach((conn) => {
       const fromCenter = getElementCenter(conn.from, chartContainerRef.current);
       const toCenter = getElementCenter(conn.to, chartContainerRef.current);
-      
+
       // Validate coordinates - ensure they are valid numbers
       if (isNaN(fromCenter.x) || isNaN(fromCenter.y) || isNaN(toCenter.x) || isNaN(toCenter.y)) {
         console.warn('Invalid coordinates for connection:', { fromCenter, toCenter, fromId: conn.fromId, toId: conn.toId });
         return;
       }
-      
+
       // Ensure minimum distance between points
       if (Math.abs(toCenter.x - fromCenter.x) < 1 && Math.abs(toCenter.y - fromCenter.y) < 1) {
         return;
       }
-      
+
       // Calculate straight line path with rounded corners
       const pathData = calculateStraightLinePath(
         fromCenter.x, fromCenter.y,
         toCenter.x, toCenter.y,
         8 // corner radius in pixels
       );
-      
+
       // Validate path data
       if (pathData && pathData.trim().length > 0) {
         paths.push({ d: pathData, fromId: conn.fromId, toId: conn.toId });
@@ -628,7 +628,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
     });
 
     return (
-      <svg 
+      <svg
         key={`connectors-${connectorUpdateKey}`}
         className="absolute inset-0 w-full h-full pointer-events-none z-0"
         style={{ overflow: 'visible' }}
@@ -657,7 +657,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeMiterlimit="10"
-              style={{ 
+              style={{
                 opacity: 1,
                 pointerEvents: 'none'
               }}
@@ -691,11 +691,11 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
     const timeout1 = setTimeout(() => {
       setConnectorUpdateKey(prev => prev + 1);
     }, 100);
-    
+
     const timeout2 = setTimeout(() => {
       setConnectorUpdateKey(prev => prev + 1);
     }, 300);
-    
+
     return () => {
       clearTimeout(timeout1);
       clearTimeout(timeout2);
@@ -725,9 +725,9 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
 
   // Render a single node with left-to-right layout
   const renderNode = useCallback((
-    node: TreeNode, 
-    columnIndex: number, 
-    nodeIndex: number, 
+    node: TreeNode,
+    columnIndex: number,
+    nodeIndex: number,
     totalNodesInColumn: number
   ): React.ReactNode => {
     const hasChildren = node.directReportsCount > 0;
@@ -735,15 +735,15 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
     const isHighlighted = shouldHighlight(node.employee);
 
     return (
-      <div 
-        key={node.employee.id} 
+      <div
+        key={node.employee.id}
         className="relative flex flex-row items-start flex-shrink-0"
       >
         {/* Column Container */}
         <div className="flex flex-col items-start gap-6">
           {/* Employee Card - Always Static */}
           <div className="relative flex-shrink-0">
-            <div 
+            <div
               ref={(el) => {
                 if (el) {
                   nodeRefs.current.set(node.employee.id, el);
@@ -752,7 +752,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
                 }
               }}
               data-node-card
-          className={cn(
+              className={cn(
                 "relative group",
                 "bg-gradient-to-br from-background/95 via-background/90 to-background/95",
                 "backdrop-blur-xl border rounded-xl",
@@ -762,11 +762,11 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
                 "w-[220px] min-w-[220px] flex flex-col gap-2",
                 isHighlighted ? "ring-2 ring-primary shadow-lg border-primary" : "border-border/60 shadow-sm",
                 columnIndex === 0 ? "ring-1 ring-primary/20 shadow-md" : ""
-          )}
-          onClick={() => handleEmployeeClick(node.employee)}
-          tabIndex={0}
-          role="button"
-          aria-expanded={isExpanded}
+              )}
+              onClick={() => handleEmployeeClick(node.employee)}
+              tabIndex={0}
+              role="button"
+              aria-expanded={isExpanded}
             >
               {/* Employee Info */}
               <div className="flex items-center gap-3">
@@ -788,7 +788,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
                   )}>
                     {node.employee.name}
                   </h3>
-                  
+
                   <p className="text-xs text-muted-foreground truncate">
                     {node.employee.position}
                   </p>
@@ -802,30 +802,30 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
                 </div>
               </div>
 
-          {/* Expand/Collapse Button */}
-          {hasChildren && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
+              {/* Expand/Collapse Button */}
+              {hasChildren && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
                     "absolute -right-3 top-1/2 -translate-y-1/2 h-7 w-7 p-0 rounded-full z-20",
                     "bg-background border border-border shadow-md",
                     "hover:bg-primary hover:text-primary-foreground hover:border-primary",
                     "transition-all duration-200"
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleNode(node.employee.id);
-              }}
-              aria-label={isExpanded ? 'Collapse team' : 'Expand team'}
-            >
-              {isExpanded ? (
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleNode(node.employee.id);
+                  }}
+                  aria-label={isExpanded ? 'Collapse team' : 'Expand team'}
+                >
+                  {isExpanded ? (
                     <ChevronDown className="h-4 w-4 rotate-90" />
-              ) : (
-                <ChevronRight className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </Button>
               )}
-            </Button>
-          )}
             </div>
           </div>
         </div>
@@ -918,7 +918,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
             Click on any employee to view details. Use the expand button to see direct reportees.
           </p>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* Search */}
           <div className="relative" ref={searchDropdownRef}>
@@ -991,7 +991,7 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
               </div>
             )}
           </div>
-          
+
           {/* Zoom Controls - Hidden */}
           {/* <div className="flex items-center gap-1 border border-border/50 rounded-lg p-1 bg-background/50 backdrop-blur-sm">
             <Button
@@ -1031,21 +1031,26 @@ export function InteractiveOrgChart({ employees, searchQuery = '' }: Interactive
       </div>
 
       {/* Organization Chart Container */}
-      <div className="relative border border-border/50 rounded-2xl bg-gradient-to-br from-background/95 via-background/90 to-background/95 backdrop-blur-xl overflow-hidden shadow-2xl">
+      <div className="relative border border-border/50 rounded-2xl bg-gradient-to-br from-background/95 via-background/90 to-background/95 backdrop-blur-xl overflow-hidden shadow-2xl w-full max-w-full">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/5 pointer-events-none" />
-        
-        <div 
+
+        <div
           ref={chartContainerRef}
-          className="relative h-[700px] overflow-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent"
-          style={{
-            transform: `scale(${zoomLevel})`,
-            transformOrigin: 'top left',
-            transition: 'transform 0.2s ease-out'
-          }}
+          className="relative h-[720px] w-full overflow-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent bg-transparent"
         >
-          <div className="p-8 min-w-max relative">
-            {/* SVG Connectors Overlay */}
+          {/* SVG Connectors Overlay - Sibling of scaled content to ensure alignment matches scaled positions */}
+          <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
             {renderConnectors()}
+          </div>
+
+          <div
+            className="p-8 min-w-max relative z-10"
+            style={{
+              transform: `scale(${zoomLevel})`,
+              transformOrigin: 'top left',
+              transition: 'transform 0.2s ease-out'
+            }}
+          >
             {/* Tree Nodes */}
             {renderChart()}
           </div>

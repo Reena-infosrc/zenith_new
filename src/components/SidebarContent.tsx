@@ -231,8 +231,8 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
           </div>
         </div> */}
         
-        <div className="px-4 py-3 flex justify-center">
-          <h1 className="text-xl font-bold text-gradient-primary">
+        <div className="px-4 py-3 flex justify-center mb-3">
+          <h1 className="text-2xl font-bold text-gradient-primary">
             Zenith
           </h1>
         </div>

@@ -133,7 +133,7 @@ export default function Login() {
       apiCache.clear();
       
       const token = localStorage.getItem('auth_token');
-      const headers: HeadersInit = {
+      const headers: HeadersInit = { 
         'Content-Type': 'application/json',
       };
       

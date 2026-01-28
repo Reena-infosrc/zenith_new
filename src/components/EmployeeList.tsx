@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Eye, Edit2, ChevronUp, ChevronDown } from "lucide-react";
 import { EmployeeProfile } from "./employee/EmployeeProfile";
 import { EmployeeSelect } from "@/components/ui/employee-select";
-import { 
+import {
   Table,
   TableBody,
   TableCell,
@@ -21,9 +21,10 @@ interface EmployeeListProps {
   sortBy?: string;
   sortOrder?: string;
   onSort?: (field: string) => void;
+  isAdmin?: boolean;
 }
 
-export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onSort }: EmployeeListProps) {
+export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onSort, isAdmin }: EmployeeListProps) {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<string | null>(null);
 
@@ -55,15 +56,15 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead 
+              <TableHead
                 className="cursor-pointer hover:bg-muted/50"
                 onClick={() => onSort?.("employeeId")}
               >
                 <div className="flex items-center">
                   Employee ID
                   {sortBy === "employeeId" && (
-                    sortOrder === "asc" ? 
-                      <ChevronUp className="ml-1 h-4 w-4" /> : 
+                    sortOrder === "asc" ?
+                      <ChevronUp className="ml-1 h-4 w-4" /> :
                       <ChevronDown className="ml-1 h-4 w-4" />
                   )}
                 </div>
@@ -79,7 +80,7 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
             {employees.map((employee) => {
               const isInactive = (employee.status || 'active') === 'inactive';
               return (
-                <TableRow 
+                <TableRow
                   key={employee.id}
                   className={isInactive ? 'opacity-50 grayscale cursor-not-allowed' : ''}
                 >
@@ -114,7 +115,7 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
                         <span className="text-sm">
                           {employee.reporting_to ? getEmployeeName(employee.reporting_to) : "No manager"}
                         </span>
-                        {!isInactive && (
+                        {isAdmin && !isInactive && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -129,9 +130,9 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => !isInactive && setSelectedEmployee(employee)}
                       disabled={isInactive}
                       className={isInactive ? 'cursor-not-allowed' : ''}
@@ -149,7 +150,7 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
 
       {/* Employee Profile Dialog */}
       {selectedEmployee && (
-        <EmployeeProfile 
+        <EmployeeProfile
           isOpen={!!selectedEmployee}
           onClose={() => setSelectedEmployee(null)}
           employee={selectedEmployee}

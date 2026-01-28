@@ -102,17 +102,15 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const { updateEmployee, employees, fetchEmployees } = useEmployees();
   const { clients: dynamicClients, isLoading: clientsLoading } = useClients();
   const { employeeStatuses: dynamicEmployeeStatuses, isLoading: statusesLoading } = useEmployeeStatuses();
-  
+
   // Determine if current user can edit this profile
   // Allow editing if:
   // 1. User is an admin, OR
   // 2. User's email matches the employee's email (case-insensitive)
-  const canEditProfile = !isLoading && (isAdmin || (user?.email && employee?.email && user.email.toLowerCase() === employee.email.toLowerCase()));
-  
-  // Determine if user can edit basic information fields
-  // When profile is editable (admin or self), allow all fields to be edited
-  const canEditBasicInfo = canEditProfile;
-  
+  const isSelf = !!(user?.email && employee?.email && user.email.toLowerCase() === employee.email.toLowerCase());
+  const canEditProfile = !isLoading && (isAdmin || isSelf);
+  const canEditBasicInfo = !isLoading && isAdmin;
+
   // Debug logging removed for security
 
   // Update profileData when employee prop changes
@@ -155,11 +153,11 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const employeeStatusOptions = dynamicEmployeeStatuses.length > 0 ? dynamicEmployeeStatuses : EMPLOYEE_STATUS_OPTIONS;
   // Use dynamic client/account options from API, fallback to predefined options
   const clientOptions = dynamicClients.length > 0 ? dynamicClients : CLIENT_OPTIONS;
-  
+
   // Ensure arrays are not empty and have valid values
   const validDepartments = departments.filter(dept => dept && dept.trim() !== '');
   const validLocations = locations.filter(loc => loc && loc.trim() !== '');
-  
+
   // Gender options
   const genderOptions = ['MALE', 'FEMALE'];
 
@@ -243,7 +241,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      
+
       // Validate file type
       if (!file.type.startsWith('image/')) {
         toast({
@@ -253,7 +251,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         });
         return;
       }
-      
+
       // Validate file size (5MB limit)
       if (file.size > 5 * 1024 * 1024) {
         toast({
@@ -263,10 +261,10 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         });
         return;
       }
-      
+
       // Reset the photo cleared flag since user is selecting a new photo
       setPhotoClearedByUser(false);
-      
+
       // Create preview URL and show crop modal
       const previewUrl = URL.createObjectURL(file);
       setPhotoPreview(previewUrl);
@@ -279,16 +277,16 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     const croppedFile = new File([croppedImageBlob], 'cropped-image.jpg', {
       type: 'image/jpeg',
     });
-    
+
     setPhoto(croppedFile);
     setShowCropModal(false);
-    
+
     // Clean up preview URL
     if (photoPreview) {
       URL.revokeObjectURL(photoPreview);
       setPhotoPreview(null);
     }
-    
+
     toast({
       title: "Image cropped successfully",
       description: "Your profile picture has been cropped and is ready to upload.",
@@ -297,13 +295,13 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   const handleCropCancel = () => {
     setShowCropModal(false);
-    
+
     // Clean up preview URL
     if (photoPreview) {
       URL.revokeObjectURL(photoPreview);
       setPhotoPreview(null);
     }
-    
+
     // Reset file input
     const fileInput = document.getElementById('profile-picture') as HTMLInputElement;
     if (fileInput) {
@@ -313,27 +311,27 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
 
   const calculateExperience = (dateOfJoining?: string) => {
     if (!dateOfJoining) return 'N/A';
-    
+
     try {
       const joiningDate = new Date(dateOfJoining);
       const currentDate = new Date();
-      
+
       // Calculate the difference in years
       let years = currentDate.getFullYear() - joiningDate.getFullYear();
       let months = currentDate.getMonth() - joiningDate.getMonth();
-      
+
       // Adjust if the current month is before the joining month
       if (months < 0) {
         years--;
         months += 12;
       }
-      
+
       // Calculate days for more precise calculation
       const daysDiff = currentDate.getDate() - joiningDate.getDate();
       if (daysDiff < 0) {
         months--;
       }
-      
+
       // Format the experience
       if (years === 0 && months === 0) {
         return 'Less than 1 month';
@@ -353,30 +351,30 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     setIsUpdating(true);
     try {
       let photoUrl = profileData.photoUrl;
-      
+
       // Upload photo if one is selected
       if (photo) {
         const formData = new FormData();
         formData.append('file', photo);
         formData.append('name', employee.name);
-        
+
         const response = await authenticatedFetch(`${API_BASE_URL}/employees/upload-photo/${employee.id}`, {
           method: 'POST',
           body: formData,
         });
-        
+
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.detail || 'Failed to upload image');
         }
-        
+
         const data = await response.json();
         photoUrl = data.photo_url;
-        
+
         // Clear the photo state since it's now uploaded
         setPhoto(null);
       }
-      
+
       // Update employee with all data including new photo URL
       const updatedEmployee = await updateEmployee(employee.id, {
         employeeId: profileData.employeeId,
@@ -414,13 +412,13 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
           };
           return newData;
         });
-        
+
         // Update skills input with the new skills
         setSkillsInput(updatedEmployee.skills ? updatedEmployee.skills.join(', ') : '');
-        
+
         // Force refresh the global employees list to ensure Directory gets updated
         await fetchEmployees();
-        
+
         setIsEditing(false);
         toast({
           title: "Success",
@@ -465,8 +463,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
           <DialogTitle className="flex items-center gap-3">
             <div className="h-12 w-12 rounded-lg overflow-hidden bg-muted flex-shrink-0" key={profileData.photoUrl}>
               {profileData.photoUrl ? (
-                <img 
-                  src={profileData.photoUrl} 
+                <img
+                  src={profileData.photoUrl}
                   alt={profileData.name}
                   className="w-full h-full object-cover"
                 />
@@ -493,9 +491,9 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                       <X className="h-4 w-4" />
                       Cancel
                     </Button>
-                    <Button 
-                      size="sm" 
-                      className="gap-2" 
+                    <Button
+                      size="sm"
+                      className="gap-2"
                       onClick={handleSubmit}
                       disabled={isUpdating}
                     >
@@ -532,567 +530,569 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         <div className="flex-1 overflow-y-auto">
           <div className="space-y-6 p-1">
 
-          {/* Profile Picture Section */}
-          {isEditing && (
+            {/* Profile Picture Section */}
+            {isEditing && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Upload className="h-5 w-5" />
+                    Profile Picture
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col md:flex-row items-start gap-6">
+                    {/* Photo Preview Section */}
+                    <div className="md:w-1/3">
+                      <div className="flex flex-col items-center">
+                        <div className="relative w-32 h-32 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 bg-gray-50">
+                          {photoPreview ? (
+                            <>
+                              <img
+                                src={photoPreview}
+                                alt="Profile preview"
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  // Prevent the label click from triggering
+                                  e.stopPropagation();
+                                  e.preventDefault();
+
+                                  setPhotoPreview(null);
+                                  setPhoto(null);
+                                  const fileInput = document.getElementById('profile-picture') as HTMLInputElement;
+                                  if (fileInput) fileInput.value = '';
+                                }}
+                                className="absolute top-2 right-2 p-1 bg-black/50 rounded-full hover:bg-black/70 transition-colors z-10"
+                              >
+                                <X className="h-4 w-4 text-white" />
+                              </button>
+                            </>
+                          ) : profileData.photoUrl ? (
+                            <>
+                              <img
+                                src={profileData.photoUrl}
+                                alt={profileData.name}
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  // Prevent the label click from triggering
+                                  e.stopPropagation();
+                                  e.preventDefault();
+
+                                  // Clear the existing profile photo
+                                  setPhotoClearedByUser(true);
+                                  setProfileData(prev => ({ ...prev, photoUrl: '' }));
+                                  setPhotoPreview(null);
+                                  setPhoto(null);
+                                  const fileInput = document.getElementById('profile-picture') as HTMLInputElement;
+                                  if (fileInput) fileInput.value = '';
+
+                                  toast({
+                                    title: "Profile photo removed",
+                                    description: "The profile photo has been removed. You can upload a new one.",
+                                  });
+                                }}
+                                className="absolute top-2 right-2 p-1 bg-black/50 rounded-full hover:bg-black/70 transition-colors z-10"
+                              >
+                                <X className="h-4 w-4 text-white" />
+                              </button>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center w-full h-full">
+                              <Upload className="h-10 w-10 text-muted-foreground mb-2" />
+                              <p className="text-xs text-center text-muted-foreground">Upload photo</p>
+                            </div>
+                          )}
+
+                          <input
+                            type="file"
+                            id="profile-picture"
+                            className="hidden"
+                            accept="image/*"
+                            onChange={handlePhotoChange}
+                          />
+                          <label
+                            htmlFor="profile-picture"
+                            className="absolute inset-0 cursor-pointer"
+                          ></label>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2 text-center">
+                          Recommended: Square image, 300x300px or larger
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Upload Info Section */}
+                    <div className="md:w-2/3 space-y-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="profile-picture" className="text-sm font-medium">
+                          Choose Profile Picture
+                        </Label>
+                        <div className="w-full">
+                          <Input
+                            id="profile-picture"
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePhotoChange}
+                            className="h-14 w-full cursor-pointer file:cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 file:transition-colors file:min-w-fit file:whitespace-nowrap"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Upload a new profile picture (JPG, PNG, GIF). Maximum file size: 5MB
+                      </p>
+                      {photo && (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                          <p className="text-sm text-blue-700 font-medium flex items-center gap-2">
+                            📷 Photo selected: {photo.name}
+                          </p>
+                          <p className="text-xs text-blue-600 mt-1">
+                            Click "Save Changes" to upload the cropped image
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Basic Information */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Upload className="h-5 w-5" />
-                  Profile Picture
+                  <User className="h-5 w-5" />
+                  Basic Information
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="flex flex-col md:flex-row items-start gap-6">
-                  {/* Photo Preview Section */}
-                  <div className="md:w-1/3">
-                    <div className="flex flex-col items-center">
-                      <div className="relative w-32 h-32 rounded-lg overflow-hidden border-2 border-dashed border-gray-300 bg-gray-50">
-                        {photoPreview ? (
-                          <>
-                            <img 
-                              src={photoPreview} 
-                              alt="Profile preview" 
-                              className="w-full h-full object-cover"
-                            />
-                            <button 
-                              type="button"
-                              onClick={(e) => {
-                                // Prevent the label click from triggering
-                                e.stopPropagation();
-                                e.preventDefault();
-                                
-                                setPhotoPreview(null);
-                                setPhoto(null);
-                                const fileInput = document.getElementById('profile-picture') as HTMLInputElement;
-                                if (fileInput) fileInput.value = '';
-                              }}
-                              className="absolute top-2 right-2 p-1 bg-black/50 rounded-full hover:bg-black/70 transition-colors z-10"
-                            >
-                              <X className="h-4 w-4 text-white" />
-                            </button>
-                          </>
-                        ) : profileData.photoUrl ? (
-                          <>
-                            <img 
-                              src={profileData.photoUrl} 
-                              alt={profileData.name}
-                              className="w-full h-full object-cover"
-                            />
-                            <button 
-                              type="button"
-                              onClick={(e) => {
-                                // Prevent the label click from triggering
-                                e.stopPropagation();
-                                e.preventDefault();
-                                
-                                // Clear the existing profile photo
-                                setPhotoClearedByUser(true);
-                                setProfileData(prev => ({ ...prev, photoUrl: '' }));
-                                setPhotoPreview(null);
-                                setPhoto(null);
-                                const fileInput = document.getElementById('profile-picture') as HTMLInputElement;
-                                if (fileInput) fileInput.value = '';
-                                
-                                toast({
-                                  title: "Profile photo removed",
-                                  description: "The profile photo has been removed. You can upload a new one.",
-                                });
-                              }}
-                              className="absolute top-2 right-2 p-1 bg-black/50 rounded-full hover:bg-black/70 transition-colors z-10"
-                            >
-                              <X className="h-4 w-4 text-white" />
-                            </button>
-                          </>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center w-full h-full">
-                            <Upload className="h-10 w-10 text-muted-foreground mb-2" />
-                            <p className="text-xs text-center text-muted-foreground">Upload photo</p>
-                          </div>
-                        )}
-                        
-                        <input 
-                          type="file" 
-                          id="profile-picture" 
-                          className="hidden" 
-                          accept="image/*"
-                          onChange={handlePhotoChange}
-                        />
-                        <label 
-                          htmlFor="profile-picture"
-                          className="absolute inset-0 cursor-pointer"
-                        ></label>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-2 text-center">
-                        Recommended: Square image, 300x300px or larger
-                      </p>
-                    </div>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Employee ID */}
+                  <div className="space-y-2">
+                    <Label htmlFor="employeeId">Employee ID</Label>
+                    <Input
+                      id="employeeId"
+                      name="employeeId"
+                      value={profileData.employeeId || ''}
+                      disabled={true}
+                      readOnly
+                      className="bg-muted cursor-not-allowed"
+                    />
                   </div>
-                  
-                  {/* Upload Info Section */}
-                  <div className="md:w-2/3 space-y-3">
+
+                  {/* Email */}
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      value={profileData.email || ''}
+                      disabled={true}
+                      readOnly
+                      className="bg-muted cursor-not-allowed"
+                    />
+                  </div>
+
+                  {/* Phone */}
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone</Label>
+                    <Input
+                      id="phone"
+                      name="phone"
+                      value={profileData.phone || profileData.mobile || ''}
+                      disabled={true}
+                      readOnly
+                      className="bg-muted cursor-not-allowed"
+                    />
+                  </div>
+
+                  {/* Location */}
+                  <div className="space-y-2">
+                    <Label htmlFor="location">Location</Label>
+                    {isEditing ? (
+                      <Select
+                        value={profileData.location || 'none'}
+                        onValueChange={(value) => setProfileData(prev => ({ ...prev, location: value === 'none' ? '' : value }))}
+                        disabled={!isAdmin}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select location" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Location</SelectItem>
+                          {validLocations.length > 0 ? (
+                            validLocations.map((location) => (
+                              <SelectItem key={location} value={location}>
+                                {location}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value="none" disabled>No locations available</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={profileData.location || 'Not provided'}
+                        disabled
+                        className="bg-muted"
+                      />
+                    )}
+                  </div>
+
+                  {/* Department */}
+                  <div className="space-y-2">
+                    <Label htmlFor="department">Department</Label>
+                    {isEditing ? (
+                      <Select
+                        value={profileData.department || 'none'}
+                        onValueChange={(value) => setProfileData(prev => ({ ...prev, department: value === 'none' ? '' : value }))}
+                        disabled={!canEditBasicInfo}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {validDepartments.length > 0 ? (
+                            validDepartments.map((dept) => (
+                              <SelectItem key={dept} value={dept}>
+                                {dept}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value="none" disabled>No departments available</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={profileData.department || 'Not provided'}
+                        disabled
+                        className="bg-muted"
+                      />
+                    )}
+                  </div>
+
+                  {/* Employee Status */}
+                  <div className="space-y-2">
+                    <Label htmlFor="employeeStatus">Employee Status</Label>
+                    {isEditing ? (
+                      <Select
+                        value={profileData.employeeStatus || 'none'}
+                        onValueChange={(value) => setProfileData(prev => ({ ...prev, employeeStatus: value === 'none' ? '' : value }))}
+                        disabled={!canEditBasicInfo}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select employee status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Status</SelectItem>
+                          {employeeStatusOptions.map((status) => (
+                            <SelectItem key={status} value={status}>
+                              {status}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={profileData.employeeStatus || 'Not provided'}
+                        disabled
+                        className="bg-muted"
+                      />
+                    )}
+                  </div>
+
+                  {/* Client */}
+                  <div className="space-y-2">
+                    <Label htmlFor="account">Client</Label>
+                    {isEditing ? (
+                      <Select
+                        value={profileData.account || 'none'}
+                        onValueChange={(value) => setProfileData(prev => ({ ...prev, account: value === 'none' ? '' : value }))}
+                        disabled={!canEditBasicInfo}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select client" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No Client</SelectItem>
+                          {clientOptions.map((client) => (
+                            <SelectItem key={client} value={client}>
+                              {client}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={profileData.account || 'Not provided'}
+                        disabled
+                        className="bg-muted"
+                      />
+                    )}
+                  </div>
+
+                  {/* Manager */}
+                  <div className="space-y-2">
+                    <Label htmlFor="manager">Manager</Label>
+                    {isEditing ? (
+                      <>
+                        {/* Searchable Combobox */}
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between"
+                              disabled={!canEditBasicInfo}
+                            >
+                              {(() => {
+                                const selected = managers.find(m => m.id === (profileData.reporting_to || ''))
+                                return selected ? `${selected.name} (${selected.position})` : 'No Manager'
+                              })()}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="p-0 w-[--radix-popover-trigger-width]">
+                            <Command>
+                              <CommandInput placeholder="Search manager..." />
+                              <CommandEmpty>No managers found.</CommandEmpty>
+                              <CommandList>
+                                <CommandGroup>
+                                  <CommandItem
+                                    value="none"
+                                    onSelect={() => setProfileData(prev => ({ ...prev, reporting_to: '' }))}
+                                  >
+                                    No Manager
+                                  </CommandItem>
+                                  {managers.map(manager => (
+                                    <CommandItem
+                                      key={manager.id}
+                                      value={`${manager.name} ${manager.position}`}
+                                      onSelect={() => setProfileData(prev => ({ ...prev, reporting_to: manager.id }))}
+                                    >
+                                      {manager.name} ({manager.position})
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      </>
+                    ) : (
+                      <Input
+                        value={managerName || 'Not provided'}
+                        disabled
+                        className="bg-muted"
+                      />
+                    )}
+                  </div>
+
+                  {/* Gender */}
+                  <div className="space-y-2">
+                    <Label htmlFor="gender">Gender</Label>
+                    {isEditing ? (
+                      <Select
+                        value={profileData.gender || 'none'}
+                        onValueChange={(value) => setProfileData(prev => ({ ...prev, gender: value === 'none' ? '' : value }))}
+                        disabled={!canEditBasicInfo}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Prefer not to say</SelectItem>
+                          {genderOptions.map((gender) => (
+                            <SelectItem key={gender} value={gender}>
+                              {gender}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={profileData.gender || 'Not provided'}
+                        disabled
+                        className="bg-muted"
+                      />
+                    )}
+                  </div>
+
+                  {/* Date of Birth */}
+                  <div className="space-y-2">
+                    <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                    <Input
+                      id="dateOfBirth"
+                      name="dateOfBirth"
+                      type="date"
+                      value={profileData.dateOfBirth || ''}
+                      onChange={handleChange}
+                      disabled={!isEditing}
+                      className={!isEditing ? "bg-muted" : ""}
+                    />
+                  </div>
+
+                  {/* Date of Joining */}
+                  <div className="space-y-2">
+                    <Label htmlFor="dateOfJoining">Date of Joining</Label>
+                    <Input
+                      id="dateOfJoining"
+                      name="dateOfJoining"
+                      type="date"
+                      value={profileData.dateOfJoining || ''}
+                      onChange={handleChange}
+                      disabled={!isEditing || !canEditBasicInfo}
+                      className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
+                    />
+                  </div>
+
+                  {/* Project Start Date */}
+                  <div className="space-y-2">
+                    <Label htmlFor="projectStartDate">Project Start Date</Label>
+                    <Input
+                      id="projectStartDate"
+                      name="projectStartDate"
+                      type="date"
+                      value={profileData.projectStartDate || ''}
+                      onChange={handleChange}
+                      disabled={!isEditing || !canEditBasicInfo}
+                      className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
+                    />
+                  </div>
+
+                  {/* Project End Date */}
+                  <div className="space-y-2">
+                    <Label htmlFor="projectEndDate">Project End Date</Label>
+                    <Input
+                      id="projectEndDate"
+                      name="projectEndDate"
+                      type="date"
+                      value={profileData.projectEndDate || ''}
+                      onChange={handleChange}
+                      disabled={!isEditing || !canEditBasicInfo}
+                      className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
+                    />
+                  </div>
+
+                  {/* Experience At Info Services - Only show in view mode */}
+                  {!isEditing && profileData.dateOfJoining && (
                     <div className="space-y-2">
-                      <Label htmlFor="profile-picture" className="text-sm font-medium">
-                        Choose Profile Picture
-                      </Label>
-                      <div className="w-full">
-                        <Input
-                          id="profile-picture"
-                          type="file"
-                          accept="image/*"
-                          onChange={handlePhotoChange}
-                          className="h-14 w-full cursor-pointer file:cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 file:transition-colors file:min-w-fit file:whitespace-nowrap"
-                        />
+                      <Label htmlFor="experience">Experience At Info Services</Label>
+                      <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">
+                          {calculateExperience(profileData.dateOfJoining)}
+                        </span>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Upload a new profile picture (JPG, PNG, GIF). Maximum file size: 5MB
-                    </p>
-                    {photo && (
-                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                        <p className="text-sm text-blue-700 font-medium flex items-center gap-2">
-                          📷 Photo selected: {photo.name}
-                        </p>
-                        <p className="text-xs text-blue-600 mt-1">
-                          Click "Save Changes" to upload the cropped image
-                        </p>
+                  )}
+
+                  {/* Employee Status */}
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Employee Status</Label>
+                    {isEditing ? (
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          id="status"
+                          checked={(profileData.status !== undefined ? profileData.status : 'active') === 'active'}
+                          onCheckedChange={(checked) => {
+                            setProfileData(prev => ({
+                              ...prev,
+                              status: checked ? 'active' : 'inactive',
+                              // Clear resignation fields when switching to active
+                              resignationDate: checked ? '' : prev.resignationDate,
+                              reasonForResignation: checked ? '' : prev.reasonForResignation
+                            }));
+                          }}
+                          disabled={!canEditBasicInfo}
+                        />
+                        <Label htmlFor="status" className="text-sm font-medium">
+                          {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}
+                        </Label>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                        <div className={`w-2 h-2 rounded-full ${(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <span className="text-sm font-medium">
+                          {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}
+                        </span>
                       </div>
                     )}
                   </div>
+
+                  {/* Resignation Date - Only show when inactive (optional for update) */}
+                  {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="resignationDate">
+                        Resignation Date
+                      </Label>
+                      <Input
+                        id="resignationDate"
+                        name="resignationDate"
+                        type="date"
+                        value={profileData.resignationDate || ''}
+                        onChange={handleChange}
+                        disabled={!isEditing}
+                        className={!isEditing ? "bg-muted" : ""}
+                      />
+                    </div>
+                  )}
+
+                  {/* Reason for Resignation - Only show when inactive (optional for update) */}
+                  {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="reasonForResignation">
+                        Reason for Resignation
+                      </Label>
+                      <Textarea
+                        id="reasonForResignation"
+                        name="reasonForResignation"
+                        value={profileData.reasonForResignation || ''}
+                        onChange={handleChange}
+                        disabled={!isEditing}
+                        className={!isEditing ? "bg-muted" : ""}
+                        placeholder="Enter reason for resignation..."
+                      />
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          )}
 
-          {/* Basic Information */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <User className="h-5 w-5" />
-                Basic Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Employee ID */}
-                <div className="space-y-2">
-                  <Label htmlFor="employeeId">Employee ID</Label>
-                  <Input 
-                    id="employeeId"
-                    name="employeeId"
-                    value={profileData.employeeId || ''} 
-                    disabled={true}
-                    readOnly
-                    className="bg-muted cursor-not-allowed"
-                  />
-                </div>
-
-                {/* Email */}
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input 
-                    id="email"
-                    name="email"
-                    type="email"
-                    value={profileData.email || ''} 
-                    disabled={true}
-                    readOnly
-                    className="bg-muted cursor-not-allowed"
-                  />
-                </div>
-
-                {/* Phone */}
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input 
-                    id="phone"
-                    name="phone"
-                    value={profileData.phone || profileData.mobile || ''} 
-                    disabled={true}
-                    readOnly
-                    className="bg-muted cursor-not-allowed"
-                  />
-                </div>
-
-                {/* Location */}
-                <div className="space-y-2">
-                  <Label htmlFor="location">Location</Label>
-                  {isEditing ? (
-                    <Select 
-                      value={profileData.location || 'none'} 
-                      onValueChange={(value) => setProfileData(prev => ({ ...prev, location: value === 'none' ? '' : value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select location" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No Location</SelectItem>
-                        {validLocations.length > 0 ? (
-                          validLocations.map((location) => (
-                            <SelectItem key={location} value={location}>
-                              {location}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <SelectItem value="none" disabled>No locations available</SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input 
-                      value={profileData.location || 'Not provided'} 
-                      disabled
-                      className="bg-muted"
-                    />
-                  )}
-                </div>
-
-                {/* Department */}
-                <div className="space-y-2">
-                  <Label htmlFor="department">Department</Label>
-                  {isEditing ? (
-                    <Select 
-                      value={profileData.department || 'none'} 
-                      onValueChange={(value) => setProfileData(prev => ({ ...prev, department: value === 'none' ? '' : value }))}
-                      disabled={!canEditBasicInfo}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select department" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {validDepartments.length > 0 ? (
-                          validDepartments.map((dept) => (
-                            <SelectItem key={dept} value={dept}>
-                              {dept}
-                            </SelectItem>
-                          ))
-                        ) : (
-                          <SelectItem value="none" disabled>No departments available</SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input 
-                      value={profileData.department || 'Not provided'} 
-                      disabled
-                      className="bg-muted"
-                    />
-                  )}
-                </div>
-
-                {/* Employee Status */}
-                <div className="space-y-2">
-                  <Label htmlFor="employeeStatus">Employee Status</Label>
-                  {isEditing ? (
-                    <Select 
-                      value={profileData.employeeStatus || 'none'} 
-                      onValueChange={(value) => setProfileData(prev => ({ ...prev, employeeStatus: value === 'none' ? '' : value }))}
-                      disabled={!canEditBasicInfo}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select employee status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No Status</SelectItem>
-                        {employeeStatusOptions.map((status) => (
-                          <SelectItem key={status} value={status}>
-                            {status}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input 
-                      value={profileData.employeeStatus || 'Not provided'} 
-                      disabled
-                      className="bg-muted"
-                    />
-                  )}
-                </div>
-
-                {/* Client */}
-                <div className="space-y-2">
-                  <Label htmlFor="account">Client</Label>
-                  {isEditing ? (
-                    <Select 
-                      value={profileData.account || 'none'} 
-                      onValueChange={(value) => setProfileData(prev => ({ ...prev, account: value === 'none' ? '' : value }))}
-                      disabled={!canEditBasicInfo}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select client" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No Client</SelectItem>
-                        {clientOptions.map((client) => (
-                          <SelectItem key={client} value={client}>
-                            {client}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input 
-                      value={profileData.account || 'Not provided'} 
-                      disabled
-                      className="bg-muted"
-                    />
-                  )}
-                </div>
-
-                {/* Manager */}
-                <div className="space-y-2">
-                  <Label htmlFor="manager">Manager</Label>
-                  {isEditing ? (
-                    <>
-                      {/* Searchable Combobox */}
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            role="combobox"
-                            className="w-full justify-between"
-                            disabled={!canEditBasicInfo}
-                          >
-                            {(() => {
-                              const selected = managers.find(m => m.id === (profileData.reporting_to || ''))
-                              return selected ? `${selected.name} (${selected.position})` : 'No Manager'
-                            })()}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="p-0 w-[--radix-popover-trigger-width]">
-                          <Command>
-                            <CommandInput placeholder="Search manager..." />
-                            <CommandEmpty>No managers found.</CommandEmpty>
-                            <CommandList>
-                              <CommandGroup>
-                                <CommandItem
-                                  value="none"
-                                  onSelect={() => setProfileData(prev => ({ ...prev, reporting_to: '' }))}
-                                >
-                                  No Manager
-                                </CommandItem>
-                                {managers.map(manager => (
-                                  <CommandItem
-                                    key={manager.id}
-                                    value={`${manager.name} ${manager.position}`}
-                                    onSelect={() => setProfileData(prev => ({ ...prev, reporting_to: manager.id }))}
-                                  >
-                                    {manager.name} ({manager.position})
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    </>
-                  ) : (
-                    <Input 
-                      value={managerName || 'Not provided'} 
-                      disabled
-                      className="bg-muted"
-                    />
-                  )}
-                </div>
-
-                {/* Gender */}
-                <div className="space-y-2">
-                  <Label htmlFor="gender">Gender</Label>
-                  {isEditing ? (
-                    <Select 
-                      value={profileData.gender || 'none'} 
-                      onValueChange={(value) => setProfileData(prev => ({ ...prev, gender: value === 'none' ? '' : value }))}
-                      disabled={!canEditBasicInfo}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Prefer not to say</SelectItem>
-                        {genderOptions.map((gender) => (
-                          <SelectItem key={gender} value={gender}>
-                            {gender}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input 
-                      value={profileData.gender || 'Not provided'} 
-                      disabled
-                      className="bg-muted"
-                    />
-                  )}
-                </div>
-
-                {/* Date of Birth */}
-                <div className="space-y-2">
-                  <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                  <Input 
-                    id="dateOfBirth"
-                    name="dateOfBirth"
-                    type="date"
-                    value={profileData.dateOfBirth || ''} 
-                    onChange={handleChange}
-                    disabled={!isEditing}
-                    className={!isEditing ? "bg-muted" : ""}
-                  />
-                </div>
-
-                {/* Date of Joining */}
-                <div className="space-y-2">
-                  <Label htmlFor="dateOfJoining">Date of Joining</Label>
-                  <Input 
-                    id="dateOfJoining"
-                    name="dateOfJoining"
-                    type="date"
-                    value={profileData.dateOfJoining || ''} 
-                    onChange={handleChange}
-                    disabled={!isEditing || !canEditBasicInfo}
-                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
-                  />
-                </div>
-
-                {/* Project Start Date */}
-                <div className="space-y-2">
-                  <Label htmlFor="projectStartDate">Project Start Date</Label>
-                  <Input 
-                    id="projectStartDate"
-                    name="projectStartDate"
-                    type="date"
-                    value={profileData.projectStartDate || ''} 
-                    onChange={handleChange}
-                    disabled={!isEditing || !canEditBasicInfo}
-                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
-                  />
-                </div>
-
-                {/* Project End Date */}
-                <div className="space-y-2">
-                  <Label htmlFor="projectEndDate">Project End Date</Label>
-                  <Input 
-                    id="projectEndDate"
-                    name="projectEndDate"
-                    type="date"
-                    value={profileData.projectEndDate || ''} 
-                    onChange={handleChange}
-                    disabled={!isEditing || !canEditBasicInfo}
-                    className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
-                  />
-                </div>
-
-                {/* Experience At Info Services - Only show in view mode */}
-                {!isEditing && profileData.dateOfJoining && (
+            {/* Bio Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Bio
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isEditing ? (
                   <div className="space-y-2">
-                    <Label htmlFor="experience">Experience At Info Services</Label>
-                    <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">
-                        {calculateExperience(profileData.dateOfJoining)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Employee Status */}
-                <div className="space-y-2">
-                  <Label htmlFor="status">Employee Status</Label>
-                  {isEditing ? (
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        id="status"
-                        checked={(profileData.status !== undefined ? profileData.status : 'active') === 'active'}
-                        onCheckedChange={(checked) => {
-                          setProfileData(prev => ({ 
-                            ...prev, 
-                            status: checked ? 'active' : 'inactive',
-                            // Clear resignation fields when switching to active
-                            resignationDate: checked ? '' : prev.resignationDate,
-                            reasonForResignation: checked ? '' : prev.reasonForResignation
-                          }));
-                        }}
-                        disabled={!canEditBasicInfo}
-                      />
-                      <Label htmlFor="status" className="text-sm font-medium">
-                        {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}
-                      </Label>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
-                      <div className={`w-2 h-2 rounded-full ${(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                      <span className="text-sm font-medium">
-                        {(profileData.status !== undefined ? profileData.status : 'active') === 'active' ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Resignation Date - Only show when inactive (optional for update) */}
-                {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="resignationDate">
-                      Resignation Date
-                    </Label>
-                    <Input 
-                      id="resignationDate"
-                      name="resignationDate"
-                      type="date"
-                      value={profileData.resignationDate || ''} 
+                    <Label htmlFor="bio">Bio</Label>
+                    <Textarea
+                      id="bio"
+                      name="bio"
+                      value={profileData.bio || ''}
                       onChange={handleChange}
-                      disabled={!isEditing}
-                      className={!isEditing ? "bg-muted" : ""}
+                      rows={4}
+                      placeholder="Enter employee biography..."
+                      disabled={!isAdmin}
                     />
                   </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{profileData.bio || 'No bio provided'}</p>
                 )}
-
-                {/* Reason for Resignation - Only show when inactive (optional for update) */}
-                {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="reasonForResignation">
-                      Reason for Resignation
-                    </Label>
-                    <Textarea 
-                      id="reasonForResignation"
-                      name="reasonForResignation"
-                      value={profileData.reasonForResignation || ''} 
-                      onChange={handleChange}
-                      disabled={!isEditing}
-                      className={!isEditing ? "bg-muted" : ""}
-                      placeholder="Enter reason for resignation..."
-                    />
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Bio Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <User className="h-5 w-5" />
-                Bio
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isEditing ? (
-                <div className="space-y-2">
-                  <Label htmlFor="bio">Bio</Label>
-                  <Textarea 
-                    id="bio" 
-                    name="bio"
-                    value={profileData.bio || ''} 
-                    onChange={handleChange}
-                    rows={4}
-                    placeholder="Enter employee biography..."
-                  />
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">{profileData.bio || 'No bio provided'}</p>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
             {/* Skills Section */}
             <Card>
@@ -1120,6 +1120,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                         setProfileData(prev => ({ ...prev, skills: skillsArray }));
                       }}
                       placeholder="Enter skills separated by commas (e.g., React, Node.js, Python, Machine Learning)"
+                      disabled={!isAdmin}
                     />
                     <div className="space-y-1">
                       <p className="text-xs text-muted-foreground">
@@ -1153,78 +1154,80 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
               </CardContent>
             </Card>
 
-          {/* Expertise Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Award className="h-5 w-5" />
-                Expertise
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isEditing ? (
-                <div className="space-y-2">
-                  <Label htmlFor="expertise">Expertise</Label>
-                  {/* Expertise dropdown populated from existing employees' expertise values */}
-                  <Select
-                    value={profileData.expertise || ''}
-                    onValueChange={(value) => setProfileData(prev => ({ ...prev, expertise: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select expertise" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {/* Unique expertise values across employees */}
-                      {[...new Set((employees || []).map(e => e.expertise).filter(Boolean))].map((exp) => (
-                        <SelectItem key={String(exp)} value={String(exp)}>
-                          {String(exp)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {profileData.expertise || 'No expertise provided'}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+            {/* Expertise Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Award className="h-5 w-5" />
+                  Expertise
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="expertise">Expertise</Label>
+                    {/* Expertise dropdown populated from existing employees' expertise values */}
+                    <Select
+                      value={profileData.expertise || ''}
+                      onValueChange={(value) => setProfileData(prev => ({ ...prev, expertise: value }))}
+                      disabled={!isAdmin}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select expertise" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {/* Unique expertise values across employees */}
+                        {[...new Set((employees || []).map(e => e.expertise).filter(Boolean))].map((exp) => (
+                          <SelectItem key={String(exp)} value={String(exp)}>
+                            {String(exp)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {profileData.expertise || 'No expertise provided'}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
-          {/* Experience Years Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                Experience Years
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isEditing ? (
-                <div className="space-y-2">
-                  <Label htmlFor="experienceYears">Experience Years</Label>
-                  <Input 
-                    id="experienceYears" 
-                    name="experienceYears"
-                    type="number"
-                    min="0"
-                    max="50"
-                    value={profileData.experienceYears || ''} 
-                    onChange={handleChange}
-                    placeholder="Enter years of experience"
-                  />
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {profileData.experienceYears ? `${profileData.experienceYears} years` : 'No experience provided'}
-                </p>
-              )}
-            </CardContent>
-          </Card>
+            {/* Experience Years Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Calendar className="h-5 w-5" />
+                  Experience Years
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="experienceYears">Experience Years</Label>
+                    <Input
+                      id="experienceYears"
+                      name="experienceYears"
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={profileData.experienceYears || ''}
+                      onChange={handleChange}
+                      placeholder="Enter years of experience"
+                      disabled={!isAdmin}
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {profileData.experienceYears ? `${profileData.experienceYears} years` : 'No experience provided'}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </DialogContent>
-      
+
       {/* Image Crop Modal */}
       {showCropModal && photoPreview && (
         <ImageCrop

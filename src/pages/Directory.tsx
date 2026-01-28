@@ -3,13 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { Button } from "@/components/ui/button";
-import { 
-  Grid3x3, 
-  List, 
-  Network, 
-  Filter, 
-  X, 
-  Upload, 
+import {
+  Grid3x3,
+  List,
+  Network,
+  Filter,
+  X,
+  Upload,
   Plus,
   BarChart2,
   ArrowUpDown,
@@ -69,12 +69,12 @@ export default function Directory() {
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const { toast } = useToast();
-  
+
   const { isAdmin } = useAuth();
-  
-  const { 
-    employees, 
-    isLoading, 
+
+  const {
+    employees,
+    isLoading,
     error,
     createEmployee,
     updateEmployee,
@@ -83,12 +83,12 @@ export default function Directory() {
     clearCache,
     bulkUpdateEmployeeNames
   } = useEmployees();
-  
+
   const { stats: dashboardStats } = useDashboardStats();
-  
+
   // Show loading state when navigating or when data is loading
   const showLoading = isLoading || isNavigating;
-  
+
   // Available departments, locations, and accounts for filters - use predefined department options
   const departments = DEPARTMENT_OPTIONS;
 
@@ -106,15 +106,15 @@ export default function Directory() {
 
 
   const toggleFilter = (filter: string) => {
-    setActiveFilters(prev => 
-      prev.includes(filter) 
-        ? prev.filter(f => f !== filter) 
+    setActiveFilters(prev =>
+      prev.includes(filter)
+        ? prev.filter(f => f !== filter)
         : [...prev, filter]
     );
   };
-  
+
   const clearFilters = () => setActiveFilters([]);
-  
+
   const handleSort = (field: string) => {
     if (sortBy === field) {
       // Toggle order if same field
@@ -125,18 +125,18 @@ export default function Directory() {
       setSortOrder("asc");
     }
   };
-  
+
   const clearSort = () => {
     setSortBy("");
     setSortOrder("asc");
   };
-  
+
   // CSV Export function - Updated with comprehensive field coverage
   const exportToCSV = () => {
     try {
       // Use the filtered and sorted employees data
       const dataToExport = sortedAndFilteredEmployees;
-      
+
       if (dataToExport.length === 0) {
         toast({
           title: "No Data to Export",
@@ -145,20 +145,20 @@ export default function Directory() {
         });
         return;
       }
-      
+
       // Helper function to get employee name by ID (for manager field)
       const getManagerName = (employeeId: string) => {
         const employee = employees.find(emp => emp.id === employeeId);
         return employee ? employee.name : "Unknown";
       };
-      
+
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
       const filename = `employees_${timestamp}.csv`;
-      
+
       // Use the comprehensive CSV export utility
       exportEmployeesToCSV(dataToExport, filename, getManagerName);
-      
+
       toast({
         title: "Export Successful",
         description: `${dataToExport.length} employees exported to CSV successfully.`,
@@ -172,13 +172,13 @@ export default function Directory() {
       });
     }
   };
-  
+
   // Handle navigation to dashboard with loading state
   const handleNavigateToDashboard = () => {
     setIsNavigating(true);
     navigate('/dashboard');
   };
-  
+
   // Reset navigation state when component mounts or data loads
   useEffect(() => {
     if (!isLoading && employees.length > 0) {
@@ -191,7 +191,7 @@ export default function Directory() {
     clearCache();
     fetchEmployees();
   }, []); // Empty dependency array means this runs only once on mount
-  
+
   // Filter employees based on active filters
   // NOTE: Include inactive employees but they will be shown in disabled state
   const filteredEmployees = employees.filter(employee => {
@@ -204,7 +204,7 @@ export default function Directory() {
       });
       if (!hasMatch) return false;
     }
-    
+
     // Location filters
     if (activeFilters.some(filter => filter.startsWith("Location:"))) {
       const employeeLocation = employee.location;
@@ -233,20 +233,20 @@ export default function Directory() {
       });
       if (!hasMatch) return false;
     }
-    
+
     return true;
   });
-  
+
   // Calculate active employees count - use dashboard stats API if available, otherwise calculate from employees list
   const activeEmployeesCount = dashboardStats?.totalEmployees ?? employees.filter(emp => (emp.status || 'active') !== 'inactive').length;
-  
+
   // Sort filtered employees
   const sortedAndFilteredEmployees = [...filteredEmployees].sort((a, b) => {
     if (!sortBy) return 0;
-    
+
     let aValue: string | number;
     let bValue: string | number;
-    
+
     switch (sortBy) {
       case "name":
         aValue = a.name?.toLowerCase() || "";
@@ -263,7 +263,7 @@ export default function Directory() {
       default:
         return 0;
     }
-    
+
     if (sortOrder === "asc") {
       return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
     } else {
@@ -271,36 +271,35 @@ export default function Directory() {
     }
   });
 
-  
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <Header onMenuToggle={toggleSidebar} />
-      
+
       {/* Main Layout */}
-      <div className="flex min-h-[calc(100vh-4rem)]">
+      <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
         {/* Left Sidebar - Always Fixed */}
-        <aside className={`fixed inset-y-0 left-0 z-20 w-64 sidebar-glass transform transition-transform duration-300 ease-in-out pt-16 flex flex-col ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0`}>
-          <SidebarContent 
-            activeModule={activeModule} 
-            onModuleChange={setActiveModule} 
+        <aside className={`fixed inset-y-0 left-0 z-20 w-64 sidebar-glass transform transition-transform duration-300 ease-in-out pt-16 flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } lg:translate-x-0`}>
+          <SidebarContent
+            activeModule={activeModule}
+            onModuleChange={setActiveModule}
           />
         </aside>
-        
+
         {/* Overlay */}
         {sidebarOpen && (
-          <div 
+          <div
             className="fixed inset-0 bg-black/20 z-10 lg:hidden"
             onClick={toggleSidebar}
           />
         )}
-        
+
         {/* Main Content - Account for fixed sidebar and header */}
-        <main className="flex-1 transition-all duration-300 lg:ml-64 pt-16">
-          <div className="container px-6 py-8">
-            
+        <main className="flex-1 transition-all duration-300 lg:ml-64 pt-16 overflow-hidden max-w-full h-full">
+          <div className="container px-6 py-8 h-full overflow-y-auto scrollbar-thin">
+
             {/* Filters and Actions */}
             <div className="flex flex-col sm:flex-row gap-4 mb-6 items-center">
               <div className="flex flex-col sm:flex-row gap-4 mb-6 items-center">
@@ -318,8 +317,8 @@ export default function Directory() {
                     </div>
                     <div className="max-h-32 overflow-y-auto">
                       {departments.map(dept => (
-                        <DropdownMenuItem 
-                          key={dept} 
+                        <DropdownMenuItem
+                          key={dept}
                           onClick={() => toggleFilter(`Department: ${dept}`)}
                           className="pl-4"
                         >
@@ -327,7 +326,7 @@ export default function Directory() {
                         </DropdownMenuItem>
                       ))}
                     </div>
-                    
+
                     {/* Location Section */}
                     {Object.keys(groupedLocations).length > 0 && (
                       <>
@@ -375,7 +374,7 @@ export default function Directory() {
                         </div>
                       </>
                     )}
-                    
+
                     {/* Account Section */}
                     {Object.keys(accounts).length > 0 && (
                       <>
@@ -422,10 +421,10 @@ export default function Directory() {
                         </div>
                       </>
                     )}
-                    
+
                   </DropdownMenuContent>
                 </DropdownMenu>
-                
+
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="gap-2">
@@ -442,7 +441,7 @@ export default function Directory() {
                     <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground">
                       Sort by
                     </div>
-                    <DropdownMenuItem 
+                    <DropdownMenuItem
                       onClick={() => handleSort("name")}
                       className="pl-4"
                     >
@@ -453,7 +452,7 @@ export default function Directory() {
                         )}
                       </div>
                     </DropdownMenuItem>
-                    <DropdownMenuItem 
+                    <DropdownMenuItem
                       onClick={() => handleSort("date_of_joining")}
                       className="pl-4"
                     >
@@ -467,7 +466,7 @@ export default function Directory() {
                     {sortBy && (
                       <>
                         <div className="border-t my-1"></div>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={clearSort}
                           className="pl-4 text-muted-foreground"
                         >
@@ -477,34 +476,34 @@ export default function Directory() {
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-                
+
                 <div className="flex border border-border rounded-md overflow-hidden">
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className={`rounded-none ${viewMode === "grid" ? "bg-accent" : ""}`}
                     onClick={() => setViewMode("grid")}
                   >
                     <Grid3x3 className="h-4 w-4" />
                   </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className={`rounded-none ${viewMode === "list" ? "bg-accent" : ""}`}
                     onClick={() => setViewMode("list")}
                   >
                     <List className="h-4 w-4" />
                   </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className={`rounded-none ${viewMode === "hierarchy" ? "bg-accent" : ""}`}
                     onClick={() => setViewMode("hierarchy")}
                   >
                     <Network className="h-4 w-4" />
                   </Button>
                 </div>
-                
+
                 {isAdmin && (
                   <>
                     <Button variant="default" className="gap-2" onClick={() => setShowAddEmployee(true)}>
@@ -546,13 +545,13 @@ export default function Directory() {
                 </Button> */}
               </div>
             </div>
-            
+
             {/* Active Filters */}
             {activeFilters.length > 0 && (
               <div className="mb-6 flex flex-wrap gap-2">
                 {activeFilters.map((filter, index) => (
-                  <div 
-                    key={index} 
+                  <div
+                    key={index}
                     className="bg-muted text-muted-foreground text-sm px-3 py-1 rounded-full flex items-center gap-2"
                   >
                     <span>{filter}</span>
@@ -561,7 +560,7 @@ export default function Directory() {
                     </button>
                   </div>
                 ))}
-                <button 
+                <button
                   className="text-primary text-sm hover:underline"
                   onClick={clearFilters}
                 >
@@ -569,7 +568,7 @@ export default function Directory() {
                 </button>
               </div>
             )}
-            
+
             {/* Employee Directory */}
             <div className="mb-8">
               {showLoading ? (
@@ -594,7 +593,7 @@ export default function Directory() {
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div className="text-muted-foreground text-lg font-semibold mb-2">No Employees Found</div>
                   <div className="text-muted-foreground mb-4">
-                    {employees.length === 0 
+                    {employees.length === 0
                       ? "No employees have been added yet. Click 'Add Employee' to get started."
                       : "No employees match your current filters. Try adjusting your filters."
                     }
@@ -620,7 +619,7 @@ export default function Directory() {
                       })}
                     </div>
                   )}
-                  
+
                   {viewMode === "list" && (
                     <div className="space-y-4">
                       {/* List View Header with Download Button */}
@@ -629,9 +628,9 @@ export default function Directory() {
                           Showing {sortedAndFilteredEmployees.length} employees ({activeEmployeesCount} active)
                         </div>
                         {isAdmin && (
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={exportToCSV}
                             className="gap-2"
                           >
@@ -640,18 +639,19 @@ export default function Directory() {
                           </Button>
                         )}
                       </div>
-                      
+
                       {/* Employee List Table */}
-                      <EmployeeList 
-                        employees={sortedAndFilteredEmployees as ApiEmployee[]} 
+                      <EmployeeList
+                        employees={sortedAndFilteredEmployees as ApiEmployee[]}
                         updateEmployee={updateEmployee as (id: string, data: Partial<ApiEmployee>) => Promise<ApiEmployee | null>}
                         sortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
+                        isAdmin={isAdmin}
                       />
                     </div>
                   )}
-                  
+
                   {viewMode === "hierarchy" && (
                     <>
                       {/* Hierarchy View Toggle */}
@@ -704,16 +704,16 @@ export default function Directory() {
         </main>
       </div>
       {/* Render AddEmployeeForm dialog */}
-      <AddEmployeeForm 
-        isOpen={showAddEmployee} 
-        onClose={() => setShowAddEmployee(false)} 
-        departments={departments} 
+      <AddEmployeeForm
+        isOpen={showAddEmployee}
+        onClose={() => setShowAddEmployee(false)}
+        departments={departments}
       />
-      
+
       {/* Render ImportEmployees dialog */}
-      <ImportEmployees 
-        isOpen={showImport} 
-        onClose={() => setShowImport(false)} 
+      <ImportEmployees
+        isOpen={showImport}
+        onClose={() => setShowImport(false)}
       />
     </div>
   );

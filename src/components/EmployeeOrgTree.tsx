@@ -4,10 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { 
-  ChevronDown, 
-  ChevronRight, 
-  Users, 
+import {
+  ChevronDown,
+  ChevronRight,
+  Users,
   Loader2,
   AlertCircle,
   RefreshCw,
@@ -104,7 +104,7 @@ function EmployeeDetailModal({ employee, isOpen, onClose }: EmployeeDetailModalP
                     <span className="text-sm font-medium">Employment Category:</span>
                   </div>
                   <Badge variant="secondary" className="ml-6">
-                    {employee.employment_category || 'Not specified'}
+                    {employee.employmentCategory || 'Not specified'}
                   </Badge>
                 </div>
 
@@ -112,11 +112,11 @@ function EmployeeDetailModal({ employee, isOpen, onClose }: EmployeeDetailModalP
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">Status:</span>
                   </div>
-                  <Badge 
-                    variant={employee.employee_status === 'Billable' ? 'default' : 'secondary'}
+                  <Badge
+                    variant={employee.employeeStatus === 'Billable' ? 'default' : 'secondary'}
                     className="ml-6"
                   >
-                    {employee.employee_status || 'Not specified'}
+                    {employee.employeeStatus || 'Not specified'}
                   </Badge>
                 </div>
               </div>
@@ -162,13 +162,13 @@ function EmployeeDetailModal({ employee, isOpen, onClose }: EmployeeDetailModalP
                 <div className="space-y-2">
                   <span className="text-sm font-medium">Date of Joining:</span>
                   <p className="text-sm text-muted-foreground">
-                    {formatDate(employee.date_of_joining)}
+                    {formatDate(employee.dateOfJoining)}
                   </p>
                 </div>
                 <div className="space-y-2">
                   <span className="text-sm font-medium">Date of Birth:</span>
                   <p className="text-sm text-muted-foreground">
-                    {formatDate(employee.date_of_birth)}
+                    {formatDate(employee.dateOfBirth)}
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -211,7 +211,7 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
   const buildTree = useCallback(() => {
     try {
       // Find root employees (those who don't report to anyone or report to someone not in the list)
-      const rootEmployees = employees.filter(emp => 
+      const rootEmployees = employees.filter(emp =>
         !emp.reporting_to || !employees.find(e => e.id === emp.reporting_to)
       );
 
@@ -227,7 +227,7 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
       const buildNodeWithChildren = (employee: Employee, level: number = 0): TreeNode => {
         const directReports = employees.filter(emp => emp.reporting_to === employee.id);
         const children = directReports.map(child => buildNodeWithChildren(child, level + 1));
-        
+
         return {
           employee,
           children,
@@ -249,13 +249,6 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
     }
   }, [employees]);
 
-  // Toggle node expansion (simplified since all children are pre-loaded)
-  const toggleNode = useCallback((nodeId: string) => {
-    setTree(prev => 
-      prev.map(toggleNodeExpansion(nodeId))
-    );
-  }, [toggleNodeExpansion]);
-
   // Helper function to toggle node expansion
   const toggleNodeExpansion = useCallback((nodeId: string) => (node: TreeNode): TreeNode => {
     if (node.employee.id === nodeId) {
@@ -266,6 +259,13 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
       children: node.children.map(toggleNodeExpansion(nodeId))
     };
   }, []);
+
+  // Toggle node expansion (simplified since all children are pre-loaded)
+  const toggleNode = useCallback((nodeId: string) => {
+    setTree(prev =>
+      prev.map(toggleNodeExpansion(nodeId))
+    );
+  }, [toggleNodeExpansion]);
 
   // Handle employee click
   const handleEmployeeClick = (employee: Employee) => {
@@ -286,11 +286,11 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
     const baseWidth = 180;
     const maxWidth = 220;
     const minWidth = 140;
-    
+
     // Reduce width for deeper levels to fit more nodes
     const depthReduction = depth * 8;
     const calculatedWidth = Math.max(minWidth, Math.min(maxWidth, baseWidth - depthReduction));
-    
+
     return calculatedWidth;
   };
 
@@ -303,7 +303,7 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
     return (
       <div key={node.employee.id} className="flex flex-col items-center">
         {/* Employee Card */}
-        <div 
+        <div
           className={cn(
             "flex flex-col items-center gap-2 p-3 rounded-lg border transition-all duration-200",
             "hover:bg-accent/50 cursor-pointer group relative shadow-sm",
@@ -316,7 +316,7 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
           tabIndex={0}
           role="button"
           aria-expanded={isExpanded}
-          aria-label={`${node.employee.name}, ${node.position}, ${node.directReportsCount} direct reports`}
+          aria-label={`${node.employee.name}, ${node.employee.position}, ${node.directReportsCount} direct reports`}
         >
           {/* Expand/Collapse Button */}
           {hasChildren && (
@@ -336,7 +336,7 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
               )}
             </Button>
           )}
-          
+
           {/* Employee Avatar */}
           <Avatar className={cn(
             "ring-2 ring-background group-hover:ring-primary/20 transition-all",
@@ -461,8 +461,8 @@ export function EmployeeOrgTree({ employees }: EmployeeOrgTreeProps) {
       </div>
 
       {/* Enhanced tree container with better scrolling */}
-      <div className="border border-border rounded-lg bg-card overflow-hidden">
-        <div className="h-[600px] overflow-auto">
+      <div className="border border-border rounded-lg bg-card overflow-hidden w-full max-w-full">
+        <div className="max-h-[600px] h-[500px] w-full overflow-auto scrollbar-thin scrollbar-thumb-primary/20">
           <div className="p-6">
             <div className="flex flex-col items-center min-w-max">
               {tree.map(node => renderTreeNode(node))}
