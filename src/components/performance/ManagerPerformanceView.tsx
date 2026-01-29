@@ -691,6 +691,7 @@ export function ManagerPerformanceView() {
           })
           .map(emp => ({
             ...emp,
+            yearsOfExperience: emp.experienceYears || 0,
             reviewStatus: 'not_started'
           }));
         setDirectReports(reports);
@@ -810,9 +811,10 @@ export function ManagerPerformanceView() {
         // Use already loaded goals from employeeGoals map instead of fetching again
         for (const report of directReports) {
           const goals = employeeGoals.get(report.id) || [];
-          const goalsPendingApproval = goals.filter(g => g.status === 'pending_manager_approval');
+          const goalsPendingApproval = goals.filter(g => g.status === 'pending_manager_approval' || g.status === 'pending');
 
           for (const goal of goalsPendingApproval) {
+
             pendingGoals.push({
               goal: goal,
               employee: report
@@ -1426,7 +1428,7 @@ export function ManagerPerformanceView() {
 
   const getGoalsSummary = (employeeId: string) => {
     const goals = getGoalsForEmployee(employeeId);
-    const active = goals.filter(g => g.status === 'in_progress' || g.status === 'pending_manager_approval').length;
+    const active = goals.filter(g => ['in_progress', 'pending_manager_approval', 'pending', 'manager_reopened'].includes(g.status)).length;
     const completed = goals.filter(g => g.status === 'completed').length;
     const total = goals.length;
     return { total, active, completed };
@@ -2101,7 +2103,12 @@ export function ManagerPerformanceView() {
                                     <p className="text-xs text-muted-foreground">{employee.position}</p>
                                   </div>
                                 </div>
-                                <h4 className="font-semibold mb-1">{goal.title}</h4>
+                                <h4 className="font-semibold mb-1">
+                                  {goal.title}
+                                  {goal.status === 'pending' && (
+                                    <Badge variant="outline" className="ml-2 bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px] h-4">Proposed</Badge>
+                                  )}
+                                </h4>
                                 <p className="text-sm text-muted-foreground mb-3">{goal.description}</p>
 
                                 {/* Milestones */}
@@ -2304,6 +2311,12 @@ export function ManagerPerformanceView() {
         }
         isSubmittingGoal={submittingGoalId === goalPanelState.goalId}
         triggerRef={goalPanelTriggerRef}
+        onDeleteGoal={async (goalId) => {
+          await deleteGoal(goalId);
+          if (goalPanelState.employee?.id) {
+            await fetchTeamMemberGoals(goalPanelState.employee.id, true);
+          }
+        }}
         panelId={goalPanelId}
       />
 
@@ -2602,13 +2615,18 @@ export function ManagerPerformanceView() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              {approvalAction === 'approve' ? 'Approve Goal' : 'Reopen Goal'}
+              {approvalAction === 'approve'
+                ? (selectedGoalForApproval?.goal.status === 'pending' ? 'Approve Proposed Goal' : 'Approve Completed Goal')
+                : 'Reopen Goal'}
             </DialogTitle>
             <DialogDescription>
               {approvalAction === 'approve'
-                ? 'Approve this goal as completed. The employee will be notified.'
+                ? (selectedGoalForApproval?.goal.status === 'pending'
+                  ? 'Approve this proposed goal to move it to "In Progress".'
+                  : 'Approve this goal as completed. The employee will be notified.')
                 : 'Reopen this goal. Provide feedback on what needs to be improved.'}
             </DialogDescription>
+
           </DialogHeader>
 
           {selectedGoalForApproval && (
@@ -2682,10 +2700,12 @@ export function ManagerPerformanceView() {
                 try {
                   if (approvalAction === 'approve') {
                     // Approve the goal via API
+                    const isProposed = selectedGoalForApproval.goal.status === 'pending';
                     const updatedGoal = await updateGoal(selectedGoalForApproval.goal.id, {
-                      managerApproved: true,
-                      status: 'completed'
+                      managerApproved: !isProposed,
+                      status: isProposed ? 'in_progress' : 'completed'
                     });
+
 
                     // Update cache with new goal data
                     if (updatedGoal) {

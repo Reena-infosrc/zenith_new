@@ -193,24 +193,30 @@ async def create_goal(
     current_user: dict = Depends(get_current_active_user)
 ):
     """
-    Create a new goal for a team member (Manager only)
-    Manager can set goals for their direct reports
+    Create a new goal.
+    - Employees can create goals for themselves (status: pending)
+    - Managers can create goals for their direct reports (status: in_progress)
     """
     try:
-        # Get manager's employee ID
-        manager_employee_id = await get_employee_id_from_user(current_user)
-        if not manager_employee_id:
+        # Get current user's employee ID
+        user_employee_id = await get_employee_id_from_user(current_user)
+        if not user_employee_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Manager employee ID not found"
+                detail="Current user's employee ID not found"
             )
         
-        # Verify manager is the manager of the employee
-        if not await is_manager_of_employee(manager_employee_id, goal.employeeId):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only set goals for your direct reports"
-            )
+        # Verify permissions
+        is_self = user_employee_id == goal.employeeId
+        is_manager = False
+        
+        if not is_self:
+            is_manager = await is_manager_of_employee(user_employee_id, goal.employeeId)
+            if not is_manager:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only set goals for yourself or your direct reports"
+                )
         
         # Verify employee exists
         employees_table = await get_employees_table()
@@ -242,6 +248,9 @@ async def create_goal(
                     "userComment": None
                 })
         
+        # Set initial status: 'pending' if created by employee, 'in_progress' if by manager
+        initial_status = "pending" if is_self else "in_progress"
+        
         goal_dict = {
             "id": goal_id,
             "employeeId": goal.employeeId,
@@ -249,11 +258,11 @@ async def create_goal(
             "description": goal.description or "",
             "category": goal.category,
             "targetDate": goal.targetDate,
-            "status": "in_progress",
+            "status": initial_status,
             "completion": 0.0,
-            "weightage": goal.weightage,  # Include weightage if provided
+            "weightage": goal.weightage,
             "milestones": milestones,
-            "createdBy": manager_employee_id,
+            "createdBy": user_employee_id,
             "managerApproved": None,
             "managerReopened": None,
             "created_at": now,
@@ -479,8 +488,9 @@ async def update_goal(
     current_user: dict = Depends(get_current_active_user)
 ):
     """
-    Update a goal (Manager only)
-    Manager can edit goals they created for their team members
+    Update a goal.
+    - Employees can edit their own goals if status is 'pending' or 'manager_reopened'.
+    - Managers can edit goals of their direct reports and approve them (status -> 'in_progress').
     """
     try:
         table = await get_goals_table()
@@ -494,20 +504,37 @@ async def update_goal(
             )
         
         existing_goal = parse_dynamodb_item(response["Item"])
-        manager_employee_id = await get_employee_id_from_user(current_user)
+        user_employee_id = await get_employee_id_from_user(current_user)
         
-        # Verify manager created this goal or is manager of the employee
-        if existing_goal.get("createdBy") != manager_employee_id:
-            if not manager_employee_id or not await is_manager_of_employee(manager_employee_id, existing_goal.get("employeeId")):
+        is_owner = existing_goal.get("employeeId") == user_employee_id
+        is_manager = await is_manager_of_employee(user_employee_id, existing_goal.get("employeeId"))
+        
+        if not is_owner and not is_manager:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to update this goal"
+            )
+            
+        # If employee is updating, check status (only allow editing if not already approved/in progress)
+        if is_owner and not is_manager:
+            if existing_goal.get("status") not in ["pending", "manager_reopened"]:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You can only edit goals you created for your team members"
+                    detail="Cannot edit goal once it has been approved and is in progress"
                 )
         
         # Update goal
         update_data = {k: v for k, v in goal_update.dict().items() if v is not None}
         update_data["updated_at"] = datetime.utcnow().isoformat()
         
+        # Special handling for status transitions
+        # If manager updates a 'pending' goal, they might be approving it
+        if is_manager and existing_goal.get("status") == "pending" and "status" not in update_data:
+            # Optionally auto-approve if manager edits? 
+            # Or better: require explicit status change or assume if they edit it they might approve it?
+            # Let's keep it flexible. The UI will send the new status.
+            pass
+
         # Recalculate completion if milestones are updated
         if "milestones" in update_data and update_data["milestones"]:
             completed_count = sum(1 for m in update_data["milestones"] if m.get("completed", False))
@@ -546,8 +573,9 @@ async def delete_goal(
     current_user: dict = Depends(get_current_active_user)
 ):
     """
-    Delete a goal (Manager only)
-    Manager can delete goals they created for their team members
+    Delete a goal.
+    - Owner can delete if status is 'pending'.
+    - Manager can delete goals of their team members.
     """
     try:
         table = await get_goals_table()
@@ -561,14 +589,24 @@ async def delete_goal(
             )
         
         existing_goal = parse_dynamodb_item(response["Item"])
-        manager_employee_id = await get_employee_id_from_user(current_user)
+        user_employee_id = await get_employee_id_from_user(current_user)
         
-        # Verify manager created this goal
-        if existing_goal.get("createdBy") != manager_employee_id:
+        is_owner = existing_goal.get("employeeId") == user_employee_id
+        is_manager = await is_manager_of_employee(user_employee_id, existing_goal.get("employeeId"))
+        
+        if not is_owner and not is_manager:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only delete goals you created"
+                detail="You don't have permission to delete this goal"
             )
+        
+        # If owner (not manager), only allow deleting if pending
+        if is_owner and not is_manager:
+            if existing_goal.get("status") != "pending":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only delete goals that are pending approval"
+                )
         
         # Delete goal
         await table.delete_item(Key={"id": goal_id})

@@ -26,8 +26,10 @@ import {
   RefreshCw,
   Send,
   Target,
+  Trash2,
   X
 } from "lucide-react";
+
 
 interface EmployeeSummary {
   id: string;
@@ -68,8 +70,12 @@ export interface GoalDetailPanelProps {
   triggerRef?: React.RefObject<HTMLElement> | null;
   onGoalOpened?: (goalId: string) => void;
   onGoalClosed?: (goalId: string) => void;
+  onGoalUpdate?: () => Promise<void> | void;
+  onDeleteGoal?: (goalId: string) => Promise<void> | void;
   panelId?: string;
 }
+
+
 
 const MAX_INITIAL_MILESTONES = 10;
 const MILESTONE_INCREMENT = 10;
@@ -175,14 +181,22 @@ export function GoalDetailPanel({
   triggerRef,
   onGoalOpened,
   onGoalClosed,
+  onGoalUpdate,
+  onDeleteGoal,
   panelId
 }: GoalDetailPanelProps) {
+
+
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const [loading, setLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const [details, setDetails] = useState<Goal | null>(null);
   const [visibleMilestones, setVisibleMilestones] = useState(MAX_INITIAL_MILESTONES);
   const [error, setError] = useState<string | null>(null);
+
   const [selectedGoalFromCategory, setSelectedGoalFromCategory] = useState<string | null>(null);
+
   const [expandedGoalIds, setExpandedGoalIds] = useState<Set<string>>(new Set());
   const [expandedGoalDetails, setExpandedGoalDetails] = useState<Map<string, Goal>>(new Map());
   const [loadingGoalIds, setLoadingGoalIds] = useState<Set<string>>(new Set());
@@ -318,6 +332,24 @@ export function GoalDetailPanel({
     setError(null);
     hasAnnouncedRef.current = false;
   }, []);
+
+  const handleDeleteGoal = async (id: string, title: string) => {
+    if (!onDeleteGoal) return;
+
+    const confirmed = window.confirm(`Are you sure you want to delete the goal: "${title}"? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      await onDeleteGoal(id);
+      onClose();
+    } catch (err) {
+      console.error("Error deleting goal:", err);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
 
   const announceOpen = useCallback(() => {
     if (hasAnnouncedRef.current || !open) return;
@@ -762,32 +794,51 @@ export function GoalDetailPanel({
                         </div>
 
                         {/* Action Buttons for Manager */}
-                        {(onEditGoal || onAddMilestone) && goal.id && (
-                          <div className="flex gap-2.5">
-                            {onEditGoal && (
+                        {(onEditGoal || onAddMilestone || onDeleteGoal) && goal.id && (
+                          <div className="flex flex-col gap-2.5">
+                            <div className="flex gap-2.5">
+                              {onEditGoal && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => onEditGoal(goal.id)}
+                                  className="flex-1 bg-gradient-to-r from-background to-background/80 hover:from-primary/10 hover:to-primary/5 border-primary/20 hover:border-primary/40 transition-all duration-200 shadow-sm hover:shadow-md"
+                                >
+                                  <Edit className="h-3.5 w-3.5 mr-1.5" />
+                                  Edit Goal
+                                </Button>
+                              )}
+                              {onAddMilestone && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => onAddMilestone(goal.id)}
+                                  className="flex-1 bg-gradient-to-r from-background to-background/80 hover:from-primary/10 hover:to-primary/5 border-primary/20 hover:border-primary/40 transition-all duration-200 shadow-sm hover:shadow-md"
+                                >
+                                  <Target className="h-3.5 w-3.5 mr-1.5" />
+                                  Add Milestone
+                                </Button>
+                              )}
+                            </div>
+                            {onDeleteGoal && (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => onEditGoal(goal.id)}
-                                className="flex-1 bg-gradient-to-r from-background to-background/80 hover:from-primary/10 hover:to-primary/5 border-primary/20 hover:border-primary/40 transition-all duration-200 shadow-sm hover:shadow-md"
+                                onClick={() => handleDeleteGoal(goal.id, goal.title)}
+                                disabled={isDeleting}
+                                className="w-full bg-destructive/5 hover:bg-destructive/10 text-destructive border-destructive/20 hover:border-destructive/40 transition-all duration-200"
                               >
-                                <Edit className="h-3.5 w-3.5 mr-1.5" />
-                                Edit Goal
-                              </Button>
-                            )}
-                            {onAddMilestone && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => onAddMilestone(goal.id)}
-                                className="flex-1 bg-gradient-to-r from-background to-background/80 hover:from-primary/10 hover:to-primary/5 border-primary/20 hover:border-primary/40 transition-all duration-200 shadow-sm hover:shadow-md"
-                              >
-                                <Target className="h-3.5 w-3.5 mr-1.5" />
-                                Add Milestone
+                                {isDeleting ? (
+                                  <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                )}
+                                Delete Goal
                               </Button>
                             )}
                           </div>
                         )}
+
 
                         {/* Goal Details Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1098,6 +1149,23 @@ export function GoalDetailPanel({
               Add Milestone
             </Button>
           )}
+          {onDeleteGoal && activeGoalId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDeleteGoal(activeGoalId, goalTitle)}
+              disabled={isDeleting}
+              className="text-destructive border-destructive/20 hover:bg-destructive/10 hover:border-destructive/40"
+            >
+              {isDeleting ? (
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Delete Goal
+            </Button>
+          )}
+
           {onSubmitGoal && activeGoalId && (
             <Button
               size="sm"

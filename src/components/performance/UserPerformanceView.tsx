@@ -46,7 +46,9 @@ import { useEmployees } from "@/hooks/use-employees";
 import { usePerformancePreload } from "@/hooks/use-performance-preload";
 import { GoalDetailPanel, GoalDetailSnapshot } from "./GoalDetailPanel";
 import { GoalSummaryCard, GoalSummary } from "./GoalSummaryCard";
+import { GoalSettingModal } from "./GoalSettingModal";
 import { EmployeeSelfAssessment } from "./EmployeeSelfAssessment";
+
 import {
   LineChart as RechartsLineChart,
   Line,
@@ -229,8 +231,10 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState<string>("");
   const [submittingGoalId, setSubmittingGoalId] = useState<string | null>(null);
   const [isAddMilestoneLoading, setIsAddMilestoneLoading] = useState(false);
+  const [showGoalModal, setShowGoalModal] = useState(false);
 
   const [goalPanelState, setGoalPanelState] = useState<{
+
     open: boolean;
     goalId: string | null;
     summary: GoalDetailSnapshot | null;
@@ -317,13 +321,13 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     if (goalsLoadedRef.current === currentEmployeeId) {
       return;
     }
-    
+
     const fetchGoals = async () => {
       if (!currentEmployeeId || !user?.email) return;
 
       try {
         setLoading(true);
-        
+
         // Check cache first
         const cached = getCachedData(user.email);
         if (cached && cached.employeeId === currentEmployeeId && cached.goals.length > 0) {
@@ -370,68 +374,68 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
 
   // Fetch reviews for Annual Reviews section - check cache first
   const fetchReviews = useCallback(async () => {
-      // Skip if already loaded for this employee
-      if (reviewsLoadedRef.current === currentEmployeeId) {
+    // Skip if already loaded for this employee
+    if (reviewsLoadedRef.current === currentEmployeeId) {
+      return;
+    }
+
+    if (!currentEmployeeId || !user?.email) return;
+
+    try {
+      setLoadingReviews(true);
+
+      // Check cache first
+      const cached = getCachedData(user.email);
+      if (cached && cached.employeeId === currentEmployeeId && cached.reviews.length > 0) {
+        console.log('📦 Using cached reviews data - NO API CALL');
+        const sortedReviews = cached.reviews.sort((a: any, b: any) => {
+          if (a.cycleYear !== b.cycleYear) {
+            return b.cycleYear.localeCompare(a.cycleYear);
+          }
+          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        });
+        // Only update state if reviews have actually changed
+        setReviews(prevReviews => {
+          const reviewsChanged = prevReviews.length !== sortedReviews.length ||
+            prevReviews.some((r, i) => r.id !== sortedReviews[i]?.id);
+          return reviewsChanged ? sortedReviews : prevReviews;
+        });
+        setLoadingReviews(false);
+        reviewsLoadedRef.current = currentEmployeeId;
         return;
       }
-      
-      if (!currentEmployeeId || !user?.email) return;
-      
-      try {
-        setLoadingReviews(true);
-        
-        // Check cache first
-        const cached = getCachedData(user.email);
-        if (cached && cached.employeeId === currentEmployeeId && cached.reviews.length > 0) {
-          console.log('📦 Using cached reviews data - NO API CALL');
-          const sortedReviews = cached.reviews.sort((a: any, b: any) => {
+
+      // Fetch from API if not cached (only once per employee)
+      reviewsLoadedRef.current = currentEmployeeId;
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}`,
+        { method: 'GET' }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          // Sort by cycle year and created date (most recent first)
+          const sortedReviews = data.sort((a: any, b: any) => {
             if (a.cycleYear !== b.cycleYear) {
               return b.cycleYear.localeCompare(a.cycleYear);
             }
             return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
           });
-          // Only update state if reviews have actually changed
-          setReviews(prevReviews => {
-            const reviewsChanged = prevReviews.length !== sortedReviews.length ||
-              prevReviews.some((r, i) => r.id !== sortedReviews[i]?.id);
-            return reviewsChanged ? sortedReviews : prevReviews;
-          });
-          setLoadingReviews(false);
-          reviewsLoadedRef.current = currentEmployeeId;
-          return;
+          setReviews(sortedReviews);
         }
-        
-        // Fetch from API if not cached (only once per employee)
-        reviewsLoadedRef.current = currentEmployeeId;
-        const response = await authenticatedFetch(
-          `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}`,
-          { method: 'GET' }
-        );
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            // Sort by cycle year and created date (most recent first)
-            const sortedReviews = data.sort((a: any, b: any) => {
-              if (a.cycleYear !== b.cycleYear) {
-                return b.cycleYear.localeCompare(a.cycleYear);
-              }
-              return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-            });
-            setReviews(sortedReviews);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching reviews:", error);
-        reviewsLoadedRef.current = null; // Allow retry on error
-        toast({
-          title: "Error",
-          description: "Failed to load reviews",
-          variant: "destructive"
-        });
-      } finally {
-        setLoadingReviews(false);
       }
+    } catch (error) {
+      console.error("Error fetching reviews:", error);
+      reviewsLoadedRef.current = null; // Allow retry on error
+      toast({
+        title: "Error",
+        description: "Failed to load reviews",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingReviews(false);
+    }
   }, [currentEmployeeId, user?.email, toast, getCachedData]);
 
   useEffect(() => {
@@ -451,29 +455,29 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
       setShowManagerFeedbackModal(false);
       return;
     }
-    
+
     setManagerReviewData(null);
     setLoadingManagerReview(true);
-    
+
     try {
       const response = await authenticatedFetch(
         `${API_BASE_URL}/reviews?employeeId=${currentEmployeeId}&cycleYear=${cycleYear}&reviewType=manager&isDraft=false&includeInactive=true`,
         { method: 'GET' }
       );
-      
+
       if (response.ok) {
         const data = await response.json();
         // Find the most recent submitted manager review
         const managerReviews = Array.isArray(data) ? data : [];
         const submittedReview = managerReviews
           .filter((r: any) => !r.isDraft && r.submittedAt)
-          .sort((a: any, b: any) => 
-            new Date(b.submittedAt || b.updatedAt || 0).getTime() - 
+          .sort((a: any, b: any) =>
+            new Date(b.submittedAt || b.updatedAt || 0).getTime() -
             new Date(a.submittedAt || a.updatedAt || 0).getTime()
           )[0];
-        
+
         setManagerReviewData(submittedReview || null);
-        
+
         if (!submittedReview) {
           toast({
             title: "No Feedback Available",
@@ -511,21 +515,21 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     if (cyclesLoadedRef.current) {
       return;
     }
-    
+
     const fetchCycles = async () => {
       if (!user?.email) return;
-      
+
       try {
         setLoadingActiveCycle(true);
         setLoadingAllCycles(true);
-        
+
         // Check cache first
         const cached = getCachedData(user.email);
         if (cached && cached.cycles.length > 0) {
           console.log('📦 Using cached cycles data - NO API CALL');
           const filteredCycles = cached.cycles.filter((cycle: any) => cycle.status !== 'draft');
           if (filteredCycles.length > 0) {
-            const sortedCycles = filteredCycles.sort((a: any, b: any) => 
+            const sortedCycles = filteredCycles.sort((a: any, b: any) =>
               b.year.localeCompare(a.year)
             );
             // Only update state if cycles have actually changed
@@ -544,23 +548,23 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           cyclesLoadedRef.current = true;
           return;
         }
-        
+
         // Fetch from API if not cached (only once)
         cyclesLoadedRef.current = true;
         const response = await authenticatedFetch(
           `${API_BASE_URL}/reviews/cycles`,
           { method: 'GET' }
         );
-        
+
         if (response.ok) {
           const cycles = await response.json();
           // Filter out draft cycles - draft cycles should not be visible to anyone in performance module
           const filteredCycles = cycles.filter((cycle: any) => cycle.status !== 'draft');
-          
+
           // Sort by year descending (most recent first)
           const sortedCycles = filteredCycles.sort((a: any, b: any) => b.year.localeCompare(a.year));
           setAllCycles(sortedCycles);
-          
+
           // Find the active cycle (status === 'open' in backend, 'active' in frontend)
           const active = sortedCycles.find((cycle: any) => cycle.status === 'open' || cycle.status === 'active');
           setActiveCycle(active || null);
@@ -634,21 +638,21 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     return <Target className="h-4 w-4" />;
   };
 
-// Normalize category value to match Select options
-const normalizeCategory = (category: string): string => {
-  const cat = category.toLowerCase();
-  // Map old categories to new ones
-  if (cat.includes('business') || cat.includes('project') || cat.includes('revenue') || cat.includes('sales') || cat.includes('client') || cat.includes('delivery') || cat.includes('product')) {
-    return 'Business/Project Goals';
-  }
-  if (cat.includes('functional') || cat.includes('behavioral') || cat.includes('competency') || cat.includes('technical') || cat.includes('skill') || cat.includes('leadership') || cat.includes('communication')) {
-    return 'Functional/Behavioral Competencies';
-  }
-  if (cat.includes('innovation') || cat.includes('initiative') || cat.includes('collaboration') || cat.includes('certification') || cat.includes('learning') || cat.includes('development') || cat.includes('training')) {
-    return 'Innovation/Initiatives/Collaboration';
-  }
-  return 'Business/Project Goals'; // default
-};
+  // Normalize category value to match Select options
+  const normalizeCategory = (category: string): string => {
+    const cat = category.toLowerCase();
+    // Map old categories to new ones
+    if (cat.includes('business') || cat.includes('project') || cat.includes('revenue') || cat.includes('sales') || cat.includes('client') || cat.includes('delivery') || cat.includes('product')) {
+      return 'Business/Project Goals';
+    }
+    if (cat.includes('functional') || cat.includes('behavioral') || cat.includes('competency') || cat.includes('technical') || cat.includes('skill') || cat.includes('leadership') || cat.includes('communication')) {
+      return 'Functional/Behavioral Competencies';
+    }
+    if (cat.includes('innovation') || cat.includes('initiative') || cat.includes('collaboration') || cat.includes('certification') || cat.includes('learning') || cat.includes('development') || cat.includes('training')) {
+      return 'Innovation/Initiatives/Collaboration';
+    }
+    return 'Business/Project Goals'; // default
+  };
 
   // Handle milestone edit
   const handleMilestoneClick = (goalId: string, milestone: Milestone) => {
@@ -999,30 +1003,30 @@ const normalizeCategory = (category: string): string => {
               </CardHeader>
               <CardContent className="space-y-4 pt-6">
                 <ResponsiveContainer width="100%" height={250}>
-                  <AreaChart 
+                  <AreaChart
                     data={growthData}
                     margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
                   >
                     <defs>
                       <linearGradient id="colorPerformance" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#4facfe" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#4facfe" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#4facfe" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#4facfe" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid 
-                      strokeDasharray="3 3" 
-                      stroke="hsl(var(--border))" 
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="hsl(var(--border))"
                       opacity={0.3}
                       vertical={false}
                     />
-                    <XAxis 
-                      dataKey="month" 
+                    <XAxis
+                      dataKey="month"
                       stroke="hsl(var(--muted-foreground))"
                       tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
                       tickLine={{ stroke: 'hsl(var(--muted-foreground))' }}
                       axisLine={{ stroke: 'hsl(var(--muted-foreground))' }}
                     />
-                    <YAxis 
+                    <YAxis
                       stroke="hsl(var(--muted-foreground))"
                       tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
                       tickLine={{ stroke: 'hsl(var(--muted-foreground))' }}
@@ -1098,8 +1102,8 @@ const normalizeCategory = (category: string): string => {
                       animationEasing="ease-out"
                     >
                       {categoryData.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
+                        <Cell
+                          key={`cell-${index}`}
                           fill={`url(#gradient-user-${index})`}
                           style={{
                             filter: "drop-shadow(0 4px 8px rgba(0, 0, 0, 0.15))",
@@ -1153,7 +1157,23 @@ const normalizeCategory = (category: string): string => {
         </TabsContent>
 
         <TabsContent value="goals" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Your Goals</h3>
+              <p className="text-sm text-muted-foreground">Manage and track your performance objectives.</p>
+            </div>
+            <Button
+              onClick={() => setShowGoalModal(true)}
+              className="bg-primary hover:bg-primary/90 shadow-sm"
+              size="sm"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Propose New Goal
+            </Button>
+          </div>
+
           {loading ? (
+
             <div className="flex items-center justify-center p-16">
               <div className="text-center space-y-4">
                 <div className="relative mx-auto w-14 h-14">
@@ -1206,7 +1226,7 @@ const normalizeCategory = (category: string): string => {
           {!showSelfAssessmentForm ? (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold mb-4">Annual Review Cycles</h3>
-              
+
               {loadingAllCycles ? (
                 <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
                   <CardContent className="p-12 text-center">
@@ -1222,282 +1242,282 @@ const normalizeCategory = (category: string): string => {
                       return cycle.status !== 'draft';
                     })
                     .map((cycle) => {
-                    const isActive = cycle.status === 'open' || cycle.status === 'active';
-                    
-                    // Normalize year comparison and prefer submitted reviews if both draft and submitted exist
-                    const normalizedCycleYear = (cycle.year || cycle.metadata?.cycleYear || cycle.name?.match(/\d{4}/)?.[0] || '').toString().trim();
-                    const isSameCycle = (item: any) => {
-                      const reviewYear = (item.cycleYear || item.metadata?.cycleYear || '').toString().trim();
-                      return normalizedCycleYear && reviewYear ? reviewYear === normalizedCycleYear : false;
-                    };
-                    
-                    const cycleSelfReviews = reviews.filter((r: any) => {
-                      const reviewYear = (r.cycleYear || r.metadata?.cycleYear || '').toString().trim();
-                      const sameYear = normalizedCycleYear && reviewYear ? reviewYear === normalizedCycleYear : false;
-                      return sameYear && r.reviewType === 'self' && r.employeeId === currentEmployeeId;
-                    });
-                    
-                    const submittedReview = cycleSelfReviews.find((r: any) => !r.isDraft && r.submittedAt);
-                    const cycleReview = submittedReview || cycleSelfReviews[0];
-                    
-                    // If self-review is missing, fall back to manager review to determine state (self must have been submitted)
-                    const cycleManagerReview = reviews.find((r: any) => isSameCycle(r) && r.reviewType === 'manager' && r.employeeId === currentEmployeeId);
-                    
-                    // Determine review status
-                    let reviewStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' | 'needs_clarification' = 'not_started';
-                    let isHrApprovedStatus = false;
-                    if (cycleReview) {
-                      if (cycleReview.isDraft || !cycleReview.submittedAt) {
-                        reviewStatus = 'draft';
+                      const isActive = cycle.status === 'open' || cycle.status === 'active';
+
+                      // Normalize year comparison and prefer submitted reviews if both draft and submitted exist
+                      const normalizedCycleYear = (cycle.year || cycle.metadata?.cycleYear || cycle.name?.match(/\d{4}/)?.[0] || '').toString().trim();
+                      const isSameCycle = (item: any) => {
+                        const reviewYear = (item.cycleYear || item.metadata?.cycleYear || '').toString().trim();
+                        return normalizedCycleYear && reviewYear ? reviewYear === normalizedCycleYear : false;
+                      };
+
+                      const cycleSelfReviews = reviews.filter((r: any) => {
+                        const reviewYear = (r.cycleYear || r.metadata?.cycleYear || '').toString().trim();
+                        const sameYear = normalizedCycleYear && reviewYear ? reviewYear === normalizedCycleYear : false;
+                        return sameYear && r.reviewType === 'self' && r.employeeId === currentEmployeeId;
+                      });
+
+                      const submittedReview = cycleSelfReviews.find((r: any) => !r.isDraft && r.submittedAt);
+                      const cycleReview = submittedReview || cycleSelfReviews[0];
+
+                      // If self-review is missing, fall back to manager review to determine state (self must have been submitted)
+                      const cycleManagerReview = reviews.find((r: any) => isSameCycle(r) && r.reviewType === 'manager' && r.employeeId === currentEmployeeId);
+
+                      // Determine review status
+                      let reviewStatus: 'not_started' | 'draft' | 'submitted' | 'under_manager_review' | 'finalized' | 'needs_clarification' = 'not_started';
+                      let isHrApprovedStatus = false;
+                      if (cycleReview) {
+                        if (cycleReview.isDraft || !cycleReview.submittedAt) {
+                          reviewStatus = 'draft';
+                        }
+                        if (cycleReview.submittedAt && !cycleReview.isDraft) {
+                          const metadataStatus = resolveReviewStatus(cycleReview);
+                          if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected' || metadataStatus === 'clarification_requested') {
+                            reviewStatus = 'needs_clarification';
+                            isHrApprovedStatus = false;
+                          } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing' || metadataStatus === 'clarification_responded') {
+                            reviewStatus = 'under_manager_review';
+                            isHrApprovedStatus = false;
+                          } else if (
+                            metadataStatus === 'manager_submitted' ||
+                            metadataStatus === 'finalized' ||
+                            metadataStatus === 'hr_approved' ||
+                            metadataStatus === 'approved'
+                          ) {
+                            reviewStatus = 'finalized';
+                            isHrApprovedStatus = metadataStatus === 'hr_approved' || metadataStatus === 'approved';
+                          } else if (!metadataStatus || metadataStatus === 'self_submitted') {
+                            reviewStatus = 'submitted';
+                            isHrApprovedStatus = false;
+                          } else {
+                            reviewStatus = 'under_manager_review';
+                            isHrApprovedStatus = false;
+                          }
+                        }
                       }
-                      if (cycleReview.submittedAt && !cycleReview.isDraft) {
-                        const metadataStatus = resolveReviewStatus(cycleReview);
-                        if (metadataStatus === 'changes_requested' || metadataStatus === 'hr_rejected' || metadataStatus === 'clarification_requested') {
+
+                      if (cycleManagerReview && !cycleManagerReview.isDraft) {
+                        const managerStatus = resolveReviewStatus(cycleManagerReview);
+                        if (managerStatus === 'hr_rejected' || managerStatus === 'changes_requested' || managerStatus === 'clarification_requested') {
                           reviewStatus = 'needs_clarification';
                           isHrApprovedStatus = false;
-                        } else if (metadataStatus === 'self_submitted' || metadataStatus === 'manager_reviewing' || metadataStatus === 'clarification_responded') {
-                          reviewStatus = 'under_manager_review';
-                          isHrApprovedStatus = false;
-                        } else if (
-                          metadataStatus === 'manager_submitted' ||
-                          metadataStatus === 'finalized' ||
-                          metadataStatus === 'hr_approved' ||
-                          metadataStatus === 'approved'
-                        ) {
+                        } else if (managerStatus === 'hr_approved' || managerStatus === 'approved') {
                           reviewStatus = 'finalized';
-                          isHrApprovedStatus = metadataStatus === 'hr_approved' || metadataStatus === 'approved';
-                        } else if (!metadataStatus || metadataStatus === 'self_submitted') {
-                          reviewStatus = 'submitted';
-                          isHrApprovedStatus = false;
-                        } else {
+                          isHrApprovedStatus = true;
+                        } else if (managerStatus === 'manager_submitted' || managerStatus === 'finalized') {
+                          reviewStatus = 'finalized';
+                          // keep existing isHrApprovedStatus flag (could already be true from self review)
+                        } else if (reviewStatus === 'not_started' || reviewStatus === 'draft' || reviewStatus === 'submitted') {
                           reviewStatus = 'under_manager_review';
                           isHrApprovedStatus = false;
                         }
                       }
-                    }
-                    
-                    if (cycleManagerReview && !cycleManagerReview.isDraft) {
-                      const managerStatus = resolveReviewStatus(cycleManagerReview);
-                      if (managerStatus === 'hr_rejected' || managerStatus === 'changes_requested' || managerStatus === 'clarification_requested') {
-                        reviewStatus = 'needs_clarification';
-                        isHrApprovedStatus = false;
-                      } else if (managerStatus === 'hr_approved' || managerStatus === 'approved') {
-                        reviewStatus = 'finalized';
-                        isHrApprovedStatus = true;
-                      } else if (managerStatus === 'manager_submitted' || managerStatus === 'finalized') {
-                        reviewStatus = 'finalized';
-                        // keep existing isHrApprovedStatus flag (could already be true from self review)
-                      } else if (reviewStatus === 'not_started' || reviewStatus === 'draft' || reviewStatus === 'submitted') {
-                        reviewStatus = 'under_manager_review';
-                        isHrApprovedStatus = false;
-                      }
-                    }
-                    
-                    // Enable button when action is required
-                    const isEnabled = isActive && (reviewStatus === 'not_started' || reviewStatus === 'draft' || reviewStatus === 'needs_clarification');
-                    
-                    // Determine badge status and styling
-                    let badgeConfig: { label: string; className: string; icon: any } = {
-                      label: 'Active',
-                      className: 'bg-green-500/10 text-green-600 border-green-500/20',
-                      icon: CheckCircle2
-                    };
-                    
-                    if (reviewStatus === 'needs_clarification') {
-                      badgeConfig = {
-                        label: 'Needs Clarification',
-                        className: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
-                        icon: AlertCircle
-                      };
-                    } else if (reviewStatus === 'under_manager_review' || reviewStatus === 'submitted') {
-                      badgeConfig = {
-                        label: reviewStatus === 'under_manager_review' ? 'Under Review' : 'Submitted',
-                        className: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
-                        icon: FileText
-                      };
-                    } else if (reviewStatus === 'finalized') {
-                      badgeConfig = {
-                        label: isHrApprovedStatus ? 'HR Approved' : 'Completed',
-                        className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-                        icon: CheckCircle2
-                      };
-                    } else if (reviewStatus === 'draft') {
-                      badgeConfig = {
-                        label: 'Draft',
-                        className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-                        icon: SquarePen
-                      };
-                    } else if (isActive) {
-                      badgeConfig = {
+
+                      // Enable button when action is required
+                      const isEnabled = isActive && (reviewStatus === 'not_started' || reviewStatus === 'draft' || reviewStatus === 'needs_clarification');
+
+                      // Determine badge status and styling
+                      let badgeConfig: { label: string; className: string; icon: any } = {
                         label: 'Active',
                         className: 'bg-green-500/10 text-green-600 border-green-500/20',
                         icon: CheckCircle2
                       };
-                    } else if (cycle.status === 'draft') {
-                      badgeConfig = {
-                        label: 'Draft',
-                        className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-                        icon: SquarePen
-                      };
-                    } else {
-                      badgeConfig = {
-                        label: 'Closed',
-                        className: 'bg-muted/50 text-muted-foreground',
-                        icon: Clock
-                      };
-                    }
-                    
-                    const BadgeIcon = badgeConfig.icon;
-                    
-                    return (
-                      <div
-                        key={cycle.cycleId || cycle.year}
-                        className="group relative rounded-xl border bg-gradient-to-r from-background/95 via-background/90 to-background/95 backdrop-blur-sm border-border/50 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-300 overflow-hidden"
-                      >
-                        {/* Subtle gradient overlay on hover */}
-                        <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                        
-                        <div className="relative flex items-center justify-between p-4 gap-4">
-                          {/* Left Section - Cycle Info */}
-                          <div className="flex items-center gap-4 flex-1 min-w-0">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-3 flex-wrap">
-                                <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors">
-                                {cycle.name || `${cycle.year} Annual Performance Review`}
-                              </h3>
-                            <Badge 
-                              variant="outline" 
-                              className={cn(
-                                    "rounded-full border px-2.5 py-0.5 text-xs font-semibold flex items-center gap-1.5 flex-shrink-0",
-                                    badgeConfig.className
+
+                      if (reviewStatus === 'needs_clarification') {
+                        badgeConfig = {
+                          label: 'Needs Clarification',
+                          className: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+                          icon: AlertCircle
+                        };
+                      } else if (reviewStatus === 'under_manager_review' || reviewStatus === 'submitted') {
+                        badgeConfig = {
+                          label: reviewStatus === 'under_manager_review' ? 'Under Review' : 'Submitted',
+                          className: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+                          icon: FileText
+                        };
+                      } else if (reviewStatus === 'finalized') {
+                        badgeConfig = {
+                          label: isHrApprovedStatus ? 'HR Approved' : 'Completed',
+                          className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
+                          icon: CheckCircle2
+                        };
+                      } else if (reviewStatus === 'draft') {
+                        badgeConfig = {
+                          label: 'Draft',
+                          className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+                          icon: SquarePen
+                        };
+                      } else if (isActive) {
+                        badgeConfig = {
+                          label: 'Active',
+                          className: 'bg-green-500/10 text-green-600 border-green-500/20',
+                          icon: CheckCircle2
+                        };
+                      } else if (cycle.status === 'draft') {
+                        badgeConfig = {
+                          label: 'Draft',
+                          className: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+                          icon: SquarePen
+                        };
+                      } else {
+                        badgeConfig = {
+                          label: 'Closed',
+                          className: 'bg-muted/50 text-muted-foreground',
+                          icon: Clock
+                        };
+                      }
+
+                      const BadgeIcon = badgeConfig.icon;
+
+                      return (
+                        <div
+                          key={cycle.cycleId || cycle.year}
+                          className="group relative rounded-xl border bg-gradient-to-r from-background/95 via-background/90 to-background/95 backdrop-blur-sm border-border/50 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-300 overflow-hidden"
+                        >
+                          {/* Subtle gradient overlay on hover */}
+                          <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+                          <div className="relative flex items-center justify-between p-4 gap-4">
+                            {/* Left Section - Cycle Info */}
+                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors">
+                                    {cycle.name || `${cycle.year} Annual Performance Review`}
+                                  </h3>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "rounded-full border px-2.5 py-0.5 text-xs font-semibold flex items-center gap-1.5 flex-shrink-0",
+                                      badgeConfig.className
+                                    )}
+                                  >
+                                    <BadgeIcon className="h-3 w-3" />
+                                    {badgeConfig.label}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                  {cycle.startDate && cycle.endDate && (
+                                    <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                                      <Calendar className="h-3.5 w-3.5" />
+                                      {new Date(cycle.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - {new Date(cycle.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                    </p>
                                   )}
-                                >
-                                  <BadgeIcon className="h-3 w-3" />
-                                  {badgeConfig.label}
-                            </Badge>
-                          </div>
-                              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                                {cycle.startDate && cycle.endDate && (
-                                  <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-                                    <Calendar className="h-3.5 w-3.5" />
-                                    {new Date(cycle.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - {new Date(cycle.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                  </p>
-                                )}
-                            {cycle.metadata?.selfReviewEnabled && (
-                                  <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2">
-                                <FileText className="h-3 w-3" /> Self Review
-                              </Badge>
-                            )}
-                                {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' ? (
-                                  <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-purple-500/10 text-purple-600 border-purple-500/20">
-                                    <Send className="h-3 w-3" /> Submitted to Manager
-                                  </Badge>
-                                ) : reviewStatus === 'finalized' ? (
-                                  <Badge variant="outline" className={cn(
-                                    "flex items-center gap-1.5 text-xs h-5 px-2 border shadow-sm",
-                                    isHrApprovedStatus
-                                      ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                      : "bg-green-500/10 text-green-600 border-green-500/20"
-                                  )}>
-                                    <CheckCircle2 className="h-3 w-3" /> {isHrApprovedStatus ? "HR Approved" : "Completed"}
-                                  </Badge>
-                                ) : reviewStatus === 'draft' ? (
-                                  <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-blue-500/10 text-blue-600 border-blue-500/20">
-                                    <SquarePen className="h-3 w-3" /> In Progress
-                                  </Badge>
-                                ) : null}
-                          </div>
+                                  {cycle.metadata?.selfReviewEnabled && (
+                                    <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2">
+                                      <FileText className="h-3 w-3" /> Self Review
+                                    </Badge>
+                                  )}
+                                  {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' ? (
+                                    <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-purple-500/10 text-purple-600 border-purple-500/20">
+                                      <Send className="h-3 w-3" /> Submitted to Manager
+                                    </Badge>
+                                  ) : reviewStatus === 'finalized' ? (
+                                    <Badge variant="outline" className={cn(
+                                      "flex items-center gap-1.5 text-xs h-5 px-2 border shadow-sm",
+                                      isHrApprovedStatus
+                                        ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                                        : "bg-green-500/10 text-green-600 border-green-500/20"
+                                    )}>
+                                      <CheckCircle2 className="h-3 w-3" /> {isHrApprovedStatus ? "HR Approved" : "Completed"}
+                                    </Badge>
+                                  ) : reviewStatus === 'draft' ? (
+                                    <Badge variant="outline" className="flex items-center gap-1.5 text-xs h-5 px-2 bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                      <SquarePen className="h-3 w-3" /> In Progress
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                          
-                          {/* Right Section - Action Buttons */}
-                          <div className="flex-shrink-0 flex items-center gap-2">
-                            {isHrApprovedStatus && (
+
+                            {/* Right Section - Action Buttons */}
+                            <div className="flex-shrink-0 flex items-center gap-2">
+                              {isHrApprovedStatus && (
+                                <Button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('Manager Feedback button clicked for cycle:', cycle.year, 'employeeId:', currentEmployeeId);
+                                    // Open modal immediately
+                                    setShowManagerFeedbackModal(true);
+                                    setManagerReviewData(null);
+                                    // Then fetch data
+                                    fetchManagerReview(cycle.year);
+                                  }}
+                                  className="transition-all duration-300 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-md hover:shadow-lg"
+                                  type="button"
+                                  variant="default"
+                                  size="sm"
+                                  disabled={loadingManagerReview}
+                                >
+                                  {loadingManagerReview ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      Loading...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <MessageSquare className="h-4 w-4 mr-2" />
+                                      Manager Feedback
+                                    </>
+                                  )}
+                                </Button>
+                              )}
                               <Button
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  console.log('Manager Feedback button clicked for cycle:', cycle.year, 'employeeId:', currentEmployeeId);
-                                  // Open modal immediately
-                                  setShowManagerFeedbackModal(true);
-                                  setManagerReviewData(null);
-                                  // Then fetch data
-                                  fetchManagerReview(cycle.year);
+                                  console.log('Review button clicked for cycle:', cycle.year, 'status:', reviewStatus);
+
+                                  setSelectedCycleYear(cycle.year);
+                                  setShowSelfAssessmentForm(true);
+
+                                  // Scroll to the self-assessment section
+                                  setTimeout(() => {
+                                    const selfAssessmentSection = document.querySelector('[data-section="self-assessment"]');
+                                    if (selfAssessmentSection) {
+                                      selfAssessmentSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }
+                                  }, 100);
                                 }}
-                                className="transition-all duration-300 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 shadow-md hover:shadow-lg"
+                                className={cn(
+                                  "transition-all duration-300",
+                                  isEnabled
+                                    ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg hover:shadow-xl hover:scale-105"
+                                    : "hover:bg-accent"
+                                )}
                                 type="button"
-                                variant="default"
+                                disabled={false}
+                                variant={isEnabled ? "default" : "outline"}
                                 size="sm"
-                                disabled={loadingManagerReview}
                               >
-                                {loadingManagerReview ? (
+                                {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' || reviewStatus === 'finalized' ? (
                                   <>
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Loading...
+                                    <FileText className="h-4 w-4 mr-2" />
+                                    {reviewStatus === 'finalized' ? 'View Submission' : 'View Review'}
+                                  </>
+                                ) : reviewStatus === 'draft' ? (
+                                  <>
+                                    <SquarePen className="h-4 w-4 mr-2" />
+                                    Continue
+                                  </>
+                                ) : reviewStatus === 'needs_clarification' ? (
+                                  <>
+                                    <AlertCircle className="h-4 w-4 mr-2" />
+                                    Resolve Feedback
                                   </>
                                 ) : (
                                   <>
-                                    <MessageSquare className="h-4 w-4 mr-2" />
-                                    Manager Feedback
+                                    <SquarePen className="h-4 w-4 mr-2" />
+                                    Start
                                   </>
                                 )}
                               </Button>
-                            )}
-                            <Button
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                console.log('Review button clicked for cycle:', cycle.year, 'status:', reviewStatus);
-                                
-                                setSelectedCycleYear(cycle.year);
-                                setShowSelfAssessmentForm(true);
-                                
-                                // Scroll to the self-assessment section
-                                setTimeout(() => {
-                                  const selfAssessmentSection = document.querySelector('[data-section="self-assessment"]');
-                                  if (selfAssessmentSection) {
-                                    selfAssessmentSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                  }
-                                }, 100);
-                              }}
-                              className={cn(
-                                "transition-all duration-300",
-                                isEnabled 
-                                  ? "bg-gradient-to-r from-primary to-primary/80 shadow-lg hover:shadow-xl hover:scale-105" 
-                                  : "hover:bg-accent"
-                              )}
-                              type="button"
-                              disabled={false}
-                              variant={isEnabled ? "default" : "outline"}
-                              size="sm"
-                            >
-                              {reviewStatus === 'submitted' || reviewStatus === 'under_manager_review' || reviewStatus === 'finalized' ? (
-                                <>
-                                  <FileText className="h-4 w-4 mr-2" />
-                                  {reviewStatus === 'finalized' ? 'View Submission' : 'View Review'}
-                                </>
-                              ) : reviewStatus === 'draft' ? (
-                                <>
-                              <SquarePen className="h-4 w-4 mr-2" />
-                              Continue
-                                </>
-                              ) : reviewStatus === 'needs_clarification' ? (
-                                <>
-                                  <AlertCircle className="h-4 w-4 mr-2" />
-                                  Resolve Feedback
-                                </>
-                              ) : (
-                                <>
-                                  <SquarePen className="h-4 w-4 mr-2" />
-                                  Start
-                                </>
-                              )}
-                            </Button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               ) : (
                 <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
@@ -1514,8 +1534,8 @@ const normalizeCategory = (category: string): string => {
                 <h3 className="text-lg font-semibold">Self Assessment</h3>
                 <div className="flex flex-wrap items-center gap-2">
                   {!selfAssessmentReadOnly && (
-                <Button
-                  variant="outline"
+                    <Button
+                      variant="outline"
                       onClick={async (e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -1546,20 +1566,20 @@ const normalizeCategory = (category: string): string => {
                   <Button
                     variant="outline"
                     onClick={async () => {
-                    setShowSelfAssessmentForm(false);
-                    setSelectedCycleYear(null);
+                      setShowSelfAssessmentForm(false);
+                      setSelectedCycleYear(null);
                       setSelfAssessmentSaveDraft(null);
                       setSelfAssessmentSaving(false);
                       setSelfAssessmentReadOnly(false);
                       // Refresh reviews to get updated status
                       await fetchReviews();
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  Back to Cycles
-                </Button>
-              </div>
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Back to Cycles
+                  </Button>
+                </div>
               </div>
               <EmployeeSelfAssessment
                 initialSection="form"
@@ -1584,8 +1604,40 @@ const normalizeCategory = (category: string): string => {
           isSubmittingGoal={submittingGoalId === goalPanelState.goalId}
           triggerRef={goalPanelTriggerRef}
           panelId={goalPanelId}
+          onGoalUpdate={async () => {
+            // Refresh goals after update
+            if (currentEmployeeId) {
+              const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
+              const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
+              setGoals(convertedGoals);
+            }
+          }}
         />
       </Tabs>
+
+      {currentEmployeeSummary && (
+        <GoalSettingModal
+          open={showGoalModal}
+          onClose={() => setShowGoalModal(false)}
+          employee={{
+            id: currentEmployeeSummary.id,
+            name: currentEmployeeSummary.name,
+            email: user?.email || "",
+            position: currentEmployeeSummary.role || "",
+            department: currentEmployeeSummary.department || "",
+            yearsOfExperience: employees.find(emp => emp.id === currentEmployeeId)?.experienceYears || 0,
+            skills: employees.find(emp => emp.id === currentEmployeeId)?.skills || []
+          }}
+          onAISuggestions={async () => {
+            // Refresh goals if needed
+            if (currentEmployeeId) {
+              const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
+              const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
+              setGoals(convertedGoals);
+            }
+          }}
+        />
+      )}
 
       {/* Milestone Edit Dialog */}
       <Dialog open={showMilestoneDialog} onOpenChange={setShowMilestoneDialog}>
@@ -1706,8 +1758,8 @@ const normalizeCategory = (category: string): string => {
                   {selectedMilestone.milestone.completed
                     ? "Please provide a reason for reopening this milestone."
                     : (originalComment && milestoneComment.trim() === originalComment.trim()
-                        ? "Please update the comment or provide a new one before completing."
-                        : "Please provide a comment before completing this milestone.")}
+                      ? "Please update the comment or provide a new one before completing."
+                      : "Please provide a comment before completing this milestone.")}
                 </p>
               </div>
             </div>
@@ -1902,8 +1954,8 @@ const normalizeCategory = (category: string): string => {
                                 key={rating}
                                 className={cn(
                                   "h-8 w-8 transition-all duration-200",
-                                  (managerReviewData.metadata?.finalRating?.overallRating || 
-                                   managerReviewData.ratings?.overall || 0) >= rating
+                                  (managerReviewData.metadata?.finalRating?.overallRating ||
+                                    managerReviewData.ratings?.overall || 0) >= rating
                                     ? "fill-emerald-500 text-emerald-500 drop-shadow-sm"
                                     : "fill-muted/15 text-muted-foreground/15"
                                 )}
@@ -1912,8 +1964,8 @@ const normalizeCategory = (category: string): string => {
                           </div>
                           <div className="flex items-baseline gap-2">
                             <span className="text-4xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
-                              {managerReviewData.metadata?.finalRating?.overallRating || 
-                               managerReviewData.ratings?.overall || '—'}
+                              {managerReviewData.metadata?.finalRating?.overallRating ||
+                                managerReviewData.ratings?.overall || '—'}
                             </span>
                             <span className="text-lg font-medium text-muted-foreground">/5</span>
                           </div>
@@ -2029,8 +2081,8 @@ const normalizeCategory = (category: string): string => {
                     </CardHeader>
                     <CardContent className="pt-0 space-y-4">
                       {managerReviewData.metadata.goalReviews.map((goalReview: any, index: number) => (
-                        <div 
-                          key={goalReview.goalId || index} 
+                        <div
+                          key={goalReview.goalId || index}
                           className="group p-5 rounded-xl border border-border/60 bg-muted/40 hover:bg-muted/60 hover:border-border transition-all duration-200"
                         >
                           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-3">
@@ -2091,8 +2143,8 @@ const normalizeCategory = (category: string): string => {
 
           {/* Sleek Footer */}
           <DialogFooter className="px-8 py-5 border-t border-border/40 bg-muted/20">
-            <Button 
-              onClick={() => setShowManagerFeedbackModal(false)} 
+            <Button
+              onClick={() => setShowManagerFeedbackModal(false)}
               variant="outline"
               className="min-w-[100px]"
             >

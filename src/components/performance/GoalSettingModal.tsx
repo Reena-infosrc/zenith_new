@@ -17,6 +17,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { useGoals } from "@/hooks/use-goals";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { API_BASE_URL } from '@/config/api';
+import { authenticatedFetch } from '@/utils/auth-utils';
+
+
 
 export interface Employee {
   id: string;
@@ -39,7 +44,9 @@ interface GoalSettingModalProps {
 export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: GoalSettingModalProps) {
   const { createGoal, getEmployeeGoals, loading: creatingGoal } = useGoals();
   const { toast } = useToast();
-  
+  const { user } = useAuth();
+
+
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -118,26 +125,60 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
   const handleAISuggestions = async () => {
     setLoading(true);
     setShowSuggestions(true);
-    // TODO: Call AI API
-    // Mock suggestions for now
-    setTimeout(() => {
-      setAiSuggestions([
-        {
-          title: `Master ${employee.skills[0] || 'Advanced'} Concepts`,
-          description: `Based on ${employee.yearsOfExperience} years of experience, focus on advanced patterns and best practices.`,
-          category: "Business/Project Goals",
-          reasoning: "Aligns with current skill level and growth path"
+
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/ai/suggest-goals`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        {
-          title: "Lead Technical Project",
-          description: `With ${employee.yearsOfExperience} years of experience, leading a project will develop leadership skills.`,
-          category: "Functional/Behavioral Competencies",
-          reasoning: "Natural progression for senior role"
-        }
-      ]);
+        body: JSON.stringify({
+          employee_data: {
+            name: employee.name,
+            position: employee.position,
+            department: employee.department,
+            skills: employee.skills,
+            yearsOfExperience: employee.yearsOfExperience,
+            performance_areas: {} // Can be populated if available
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch AI suggestions');
+      }
+
+      const data = await response.json();
+
+      if (data.suggestions && Array.isArray(data.suggestions)) {
+        // Map reasoning if missing since it's used in the UI
+        const mappedSuggestions = data.suggestions.map((s: any) => ({
+          ...s,
+          reasoning: s.reasoning || "Aligns with your profile and career path"
+        }));
+        setAiSuggestions(mappedSuggestions);
+      } else {
+        // Fallback or empty state
+        setAiSuggestions([]);
+        toast({
+          title: "Notice",
+          description: "Could not generate suggestions at this time. Please try again later.",
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching AI suggestions:", error);
+      toast({
+        title: "Error",
+        description: "Failed to generate AI suggestions. Please try again.",
+        variant: "destructive"
+      });
+      // Clear suggestions on error
+      setAiSuggestions([]);
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
+
 
   const applySuggestion = (suggestion: any) => {
     setFormData({
@@ -200,7 +241,7 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
       };
 
       const createdGoal = await createGoal(goalData);
-      
+
       if (createdGoal) {
         // Reset form
         setFormData({
@@ -227,6 +268,11 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
     }
   };
 
+  const isSelfService = useMemo(() => {
+    return employee.email === user?.email;
+  }, [employee.email, user?.email]);
+
+
   if (!open) return null;
 
   return (
@@ -235,8 +281,15 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
         <CardHeader className="border-b border-border/50">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-2xl">Set Goals for {employee.name}</CardTitle>
-              <CardDescription>{employee.position} • {employee.department}</CardDescription>
+              <CardTitle className="text-2xl">
+                {isSelfService ? "Propose Your New Goal" : `Set Goals for ${employee.name}`}
+              </CardTitle>
+              <CardDescription>
+                {isSelfService
+                  ? "Define your goal and submit it to your manager for review and approval."
+                  : `${employee.position} • ${employee.department}`
+                }
+              </CardDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose}>
               <X className="h-4 w-4" />
@@ -374,7 +427,7 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
                   </div>
                 )}
               </div>
-              
+
               {remainingWeightage === 0 ? (
                 <Alert className="bg-amber-500/10 border-amber-500/20">
                   <AlertCircle className="h-4 w-4 text-amber-600" />
@@ -384,8 +437,8 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
                 </Alert>
               ) : (
                 <>
-                  <Select 
-                    value={formData.weightage.toString()} 
+                  <Select
+                    value={formData.weightage.toString()}
                     onValueChange={(value) => setFormData({ ...formData, weightage: parseInt(value) })}
                     disabled={remainingWeightage === 0}
                   >
@@ -459,7 +512,10 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
                   className="bg-gradient-to-r from-primary to-primary/80"
                 >
                   <Send className="h-4 w-4 mr-2" />
-                  {creatingGoal ? "Publishing..." : "Publish Goal"}
+                  {creatingGoal
+                    ? (isSelfService ? "Proposing..." : "Publishing...")
+                    : (isSelfService ? "Propose Goal" : "Publish Goal")
+                  }
                 </Button>
               )}
             </div>

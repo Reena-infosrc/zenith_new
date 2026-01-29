@@ -160,3 +160,21 @@ async def ai_hr_policy_query(
             status_code=500,
             detail=f"Failed to answer HR policy query: {str(e)}"
         )
+@router.post("/suggest-goals")
+async def ai_suggest_goals(
+    employee_data: Dict[str, Any] = Body(..., embed=True),
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Generate AI-powered goal suggestions"""
+    try:
+        suggestions = await bedrock_service.generate_goal_suggestions(employee_data)
+        
+        return {
+            "employee_data": employee_data,
+            "suggestions": suggestions
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate goal suggestions: {str(e)}"
+        )

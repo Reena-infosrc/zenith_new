@@ -169,14 +169,30 @@ class BedrockService:
         
         try:
             response = await self.generate_response(prompt, system_prompt)
-            # Try to parse as JSON, fallback to default if parsing fails
+            # Try to extract JSON from the response (in case there's preamble or markdown)
+            json_str = response
+            if "```json" in response:
+                json_str = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                json_str = response.split("```")[1].split("```")[0].strip()
+            
             try:
-                goals = json.loads(response)
+                goals = json.loads(json_str)
                 if isinstance(goals, list):
                     return goals
+                elif isinstance(goals, dict) and "suggestions" in goals:
+                    return goals["suggestions"]
                 else:
                     return []
             except json.JSONDecodeError:
+                # If direct parsing fails, try to find anything that looks like a JSON array
+                import re
+                match = re.search(r'\[\s*\{.*\}\s*\]', json_str, re.DOTALL)
+                if match:
+                    try:
+                        return json.loads(match.group(0))
+                    except:
+                        pass
                 return []
         except Exception as e:
             print(f"Error generating goal suggestions: {e}")
