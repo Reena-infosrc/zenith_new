@@ -676,7 +676,10 @@ export function ManagerPerformanceView() {
 
           setInitialLoading(false);
           setLoadingMyGoals(false);
-          return;
+
+          // Continue to fetch fresh data in background to ensure we see new goals (stale-while-revalidate)
+          // We don't return here anymore, allowing the API calls below to proceed and update the state
+          // asking for fresh data
         }
 
         // If not cached, load from API
@@ -712,7 +715,8 @@ export function ManagerPerformanceView() {
 
           // Use batch endpoint for faster loading
           const teamEmployeeIds = reports.map(r => r.id);
-          const batchGoalsMap = await getBatchEmployeeGoals(teamEmployeeIds);
+          // Force refresh (pass true) to ensuring we get the latest goals including any pending approval
+          const batchGoalsMap = await getBatchEmployeeGoals(teamEmployeeIds, true);
 
           // Convert to the format expected by the component
           const teamGoalsMap = new Map<string, Goal[]>();

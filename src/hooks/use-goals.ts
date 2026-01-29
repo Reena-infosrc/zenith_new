@@ -78,7 +78,7 @@ export function useGoals() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Cache for employee goals to avoid duplicate API calls
   const goalsCache = useRef<Map<string, { data: Goal[]; timestamp: number }>>(new Map());
   const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache TTL
@@ -97,7 +97,7 @@ export function useGoals() {
           return cached.data;
         }
       }
-      
+
       // Check if there's already a pending request for this employee
       const pendingRequest = pendingRequests.current.get(employeeId);
       if (pendingRequest) {
@@ -105,28 +105,28 @@ export function useGoals() {
         return pendingRequest;
       }
     }
-    
+
     // Create the request promise
     const requestPromise = (async () => {
       try {
         setLoading(true);
         setError(null);
-        
+
         const response = await authenticatedFetch(`${API_BASE_URL}/goals/employee/${employeeId}`);
-        
+
         if (!response.ok) {
           throw new Error(`Failed to fetch goals: ${response.statusText}`);
         }
-        
+
         const data = await response.json();
         const goals = data || [];
-        
+
         // Cache the result
         goalsCache.current.set(employeeId, {
           data: goals,
           timestamp: Date.now()
         });
-        
+
         return goals;
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to fetch goals';
@@ -143,15 +143,16 @@ export function useGoals() {
         pendingRequests.current.delete(employeeId);
       }
     })();
-    
+
     // Store the pending request
     pendingRequests.current.set(employeeId, requestPromise);
-    
+
     return requestPromise;
   }, [toast]);
 
   // Get batch employee goals (optimized for loading multiple employees at once)
-  const getBatchEmployeeGoals = useCallback(async (employeeIds: string[]): Promise<Map<string, Goal[]>> => {
+  // Get batch employee goals (optimized for loading multiple employees at once)
+  const getBatchEmployeeGoals = useCallback(async (employeeIds: string[], forceRefresh: boolean = false): Promise<Map<string, Goal[]>> => {
     if (!employeeIds || employeeIds.length === 0) {
       return new Map();
     }
@@ -159,21 +160,24 @@ export function useGoals() {
     // Filter out employees we already have cached
     const uncachedIds: string[] = [];
     const cachedResults = new Map<string, Goal[]>();
-    
+
     for (const employeeId of employeeIds) {
-      const cached = goalsCache.current.get(employeeId);
-      if (cached) {
-        const now = Date.now();
-        const isExpired = (now - cached.timestamp) > CACHE_TTL;
-        if (!isExpired) {
-          cachedResults.set(employeeId, cached.data);
-          continue;
+      // Skip cache check if forceRefresh is true
+      if (!forceRefresh) {
+        const cached = goalsCache.current.get(employeeId);
+        if (cached) {
+          const now = Date.now();
+          const isExpired = (now - cached.timestamp) > CACHE_TTL;
+          if (!isExpired) {
+            cachedResults.set(employeeId, cached.data);
+            continue;
+          }
         }
       }
       uncachedIds.push(employeeId);
     }
 
-    // If all are cached, return immediately
+    // If all are cached and no force refresh, return immediately
     if (uncachedIds.length === 0) {
       return cachedResults;
     }
@@ -181,16 +185,16 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Call batch endpoint
       const employeeIdsParam = uncachedIds.join(',');
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/batch?employeeIds=${encodeURIComponent(employeeIdsParam)}`);
-      
+
       if (!response.ok) {
         // If batch endpoint fails (404 or other error), fallback to individual calls
         console.warn('Batch endpoint failed, falling back to individual calls');
         const fallbackResults = new Map(cachedResults);
-        
+
         // Fetch goals individually in parallel
         const individualPromises = uncachedIds.map(async (employeeId) => {
           try {
@@ -201,42 +205,42 @@ export function useGoals() {
             return { employeeId, goals: [] };
           }
         });
-        
+
         const individualResults = await Promise.all(individualPromises);
         individualResults.forEach(({ employeeId, goals }) => {
           fallbackResults.set(employeeId, goals);
         });
-        
+
         return fallbackResults;
       }
-      
+
       const data = await response.json();
       const batchResults = data || {};
-      
+
       // Cache all results and combine with cached results
       const resultMap = new Map(cachedResults);
-      
+
       for (const employeeId of uncachedIds) {
         const goals = batchResults[employeeId] || [];
-        
+
         // Cache the result
         goalsCache.current.set(employeeId, {
           data: goals,
           timestamp: Date.now()
         });
-        
+
         resultMap.set(employeeId, goals);
       }
-      
+
       return resultMap;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch batch goals';
       console.error('Batch goals fetch error:', err);
-      
+
       // Fallback to individual calls if batch completely fails
       console.warn('Falling back to individual goal fetches');
       const fallbackResults = new Map(cachedResults);
-      
+
       try {
         const individualPromises = uncachedIds.map(async (employeeId) => {
           try {
@@ -247,7 +251,7 @@ export function useGoals() {
             return { employeeId, goals: [] };
           }
         });
-        
+
         const individualResults = await Promise.all(individualPromises);
         individualResults.forEach(({ employeeId, goals }) => {
           fallbackResults.set(employeeId, goals);
@@ -261,7 +265,7 @@ export function useGoals() {
           variant: "destructive"
         });
       }
-      
+
       return fallbackResults;
     } finally {
       setLoading(false);
@@ -273,16 +277,16 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/${goalId}`);
-      
+
       if (!response.ok) {
         if (response.status === 404) {
           return null;
         }
         throw new Error(`Failed to fetch goal: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
       return data;
     } catch (err) {
@@ -304,7 +308,7 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/`, {
         method: 'POST',
         headers: {
@@ -312,19 +316,19 @@ export function useGoals() {
         },
         body: JSON.stringify(goal),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
         throw new Error(errorData.detail || `Failed to create goal: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Invalidate cache for this employee
       if (data.employeeId) {
         goalsCache.current.delete(data.employeeId);
       }
-      
+
       toast({
         title: "Success",
         description: "Goal created successfully",
@@ -349,7 +353,7 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/${goalId}`, {
         method: 'PUT',
         headers: {
@@ -357,19 +361,19 @@ export function useGoals() {
         },
         body: JSON.stringify(updates),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
         throw new Error(errorData.detail || `Failed to update goal: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Invalidate cache for this employee
       if (data.employeeId) {
         goalsCache.current.delete(data.employeeId);
       }
-      
+
       toast({
         title: "Success",
         description: "Goal updated successfully",
@@ -394,16 +398,16 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/${goalId}`, {
         method: 'DELETE',
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
         throw new Error(errorData.detail || `Failed to delete goal: ${response.statusText}`);
       }
-      
+
       toast({
         title: "Success",
         description: "Goal deleted successfully",
@@ -428,10 +432,10 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Get the goal first to get employeeId for cache invalidation
       const goal = await getGoal(goalId);
-      
+
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/${goalId}/milestones`, {
         method: 'POST',
         headers: {
@@ -439,19 +443,19 @@ export function useGoals() {
         },
         body: JSON.stringify(milestone),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
         throw new Error(errorData.detail || `Failed to create milestone: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Invalidate cache for this employee
       if (goal && goal.employeeId) {
         goalsCache.current.delete(goal.employeeId);
       }
-      
+
       toast({
         title: "Success",
         description: "Milestone created successfully",
@@ -476,10 +480,10 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Get the goal first to get employeeId for cache invalidation
       const goal = await getGoal(goalId);
-      
+
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/${goalId}/milestones/${milestoneId}`, {
         method: 'PUT',
         headers: {
@@ -487,19 +491,19 @@ export function useGoals() {
         },
         body: JSON.stringify(updates),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
         throw new Error(errorData.detail || `Failed to update milestone: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Invalidate cache for this employee
       if (goal && goal.employeeId) {
         goalsCache.current.delete(goal.employeeId);
       }
-      
+
       toast({
         title: "Success",
         description: "Milestone updated successfully",
@@ -524,24 +528,24 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Get the goal first to get employeeId for cache invalidation
       const goal = await getGoal(goalId);
-      
+
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/${goalId}/milestones/${milestoneId}`, {
         method: 'DELETE',
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
         throw new Error(errorData.detail || `Failed to delete milestone: ${response.statusText}`);
       }
-      
+
       // Invalidate cache for this employee
       if (goal && goal.employeeId) {
         goalsCache.current.delete(goal.employeeId);
       }
-      
+
       toast({
         title: "Success",
         description: "Milestone deleted successfully",
@@ -566,13 +570,13 @@ export function useGoals() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authenticatedFetch(`${API_BASE_URL}/goals/${goalId}/milestones`);
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch milestones: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
       return data || [];
     } catch (err) {
