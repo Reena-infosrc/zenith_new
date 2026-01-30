@@ -377,12 +377,29 @@ export default function Directory() {
 
                     {/* Account Section */}
                     {Object.keys(accounts).length > 0 && (
+                      
                       <>
                         <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b z-10">
                           Account
                         </div>
                         <div className="max-h-64 overflow-y-auto overflow-x-hidden">
                           {Object.entries(accounts).map(([parentAccount, subAccounts]) => {
+                            // If there is only one sub-account, show it as a single item without expansion
+                            if (subAccounts.length === 1) {
+                              const account = subAccounts[0];
+                              return (
+                                <DropdownMenuItem 
+                                  key={account}
+                                  onClick={() => toggleFilter(`Account: ${account}`)}
+                                  className="px-4 py-1.5 text-sm cursor-pointer focus:bg-accent transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {account}
+                                  </div>
+                                </DropdownMenuItem>
+                              );
+                            }
+
                             const isExpanded = expandedAccount === parentAccount;
                             return (
                               <div key={parentAccount} className="mb-0">

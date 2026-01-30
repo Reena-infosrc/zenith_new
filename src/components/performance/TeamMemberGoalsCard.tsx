@@ -325,14 +325,21 @@ export function TeamMemberGoalsCard({
             <div
               className="absolute inset-0 rounded-full"
               style={{
-                background: `conic-gradient(var(--primary) ${goals.length ? Math.max(Math.round(goals.reduce((sum, g) => sum + g.completion, 0) / goals.length), 0) : 0}%, hsl(var(--muted)) 0)`
+                background: `conic-gradient(var(--primary) ${(() => {
+                  if (!goals.length) return 0;
+                  const totalWeight = goals.reduce((sum, g) => sum + (g.weightage || 0), 0);
+                  return Math.min(Math.round(totalWeight), 100);
+                })()
+                  }%, hsl(var(--muted)) 0)`
               }}
             />
             <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-background">
               <span className="text-xs font-semibold">
-                {goals.length
-                  ? Math.round(goals.reduce((sum, g) => sum + g.completion, 0) / goals.length)
-                  : 0}%
+                {(() => {
+                  if (!goals.length) return 0;
+                  const totalWeight = goals.reduce((sum, g) => sum + (g.weightage || 0), 0);
+                  return Math.round(totalWeight);
+                })()}%
               </span>
             </div>
           </div>
