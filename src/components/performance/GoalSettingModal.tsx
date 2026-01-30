@@ -127,6 +127,94 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
     setShowSuggestions(true);
 
     try {
+      // Fetch self-assessment skills and context to augment profile
+      let combinedSkills = [...(employee.skills || [])];
+      let performanceAreas: any = {};
+
+      try {
+        const cyclesResponse = await authenticatedFetch(`${API_BASE_URL}/reviews/cycles`);
+        if (cyclesResponse.ok) {
+          const cycles = await cyclesResponse.json();
+          const filteredCycles = cycles.filter((c: any) => c.status !== 'draft');
+          let selectedCycle = filteredCycles.find((c: any) => c.status === 'open' || c.status === 'active');
+          if (!selectedCycle && filteredCycles.length > 0) {
+            selectedCycle = filteredCycles.sort((a: any, b: any) => b.year.localeCompare(a.year))[0];
+          }
+
+          if (selectedCycle) {
+            const [reviewResponse, managerReviewResponse] = await Promise.all([
+              authenticatedFetch(
+                `${API_BASE_URL}/reviews?employeeId=${employee.id}&cycleYear=${selectedCycle.year}&reviewType=self`
+              ),
+              authenticatedFetch(
+                `${API_BASE_URL}/reviews?employeeId=${employee.id}&cycleYear=${selectedCycle.year}&reviewType=manager`
+              )
+            ]);
+
+            if (reviewResponse.ok) {
+              const reviews = await reviewResponse.json();
+              if (Array.isArray(reviews) && reviews.length > 0) {
+                const review = reviews.find((r: any) => !r.isDraft && r.submittedAt) || reviews.find((r: any) => r.isDraft) || reviews[0];
+
+                // 1. Extract skills from tools/technologies section
+                if (review?.metadata?.toolsAndTechnologies) {
+                  const tools = review.metadata.toolsAndTechnologies;
+                  const assessmentTools = tools
+                    .filter((t: any) => t.tool) // Filter valid tools
+                    .map((t: any) => {
+                      const ratingMap: Record<number, string> = { 1: 'Beginner', 2: 'Intermediate', 3: 'Advanced' };
+                      const level = ratingMap[t.rating] || 'Unrated';
+                      return `${t.tool} (Proficiency: ${t.rating}/3 - ${level})`;
+                    });
+
+                  if (assessmentTools.length > 0) {
+                    combinedSkills = [...new Set([...combinedSkills, ...assessmentTools])];
+                  }
+                }
+
+                // 2. Extract qualitative data for performance areas (challenges, improvements)
+                if (review?.content) {
+                  const content = typeof review.content === 'string' ? JSON.parse(review.content) : review.content;
+
+                  if (content.challengesAndSolutions) {
+                    performanceAreas.challenges = content.challengesAndSolutions;
+                  }
+                  if (content.areasNeedingImprovement) {
+                    performanceAreas.improvements = content.areasNeedingImprovement;
+                  }
+                  if (content.significantAccomplishments) {
+                    performanceAreas.strengths = content.significantAccomplishments;
+                  }
+                  if (content.beyondRoleContributions) {
+                    performanceAreas.contributions = content.beyondRoleContributions;
+                  }
+                }
+              }
+
+              // 3. Process Manager Review for additional improvement context
+              if (managerReviewResponse.ok) {
+                const managerReviews = await managerReviewResponse.json();
+                if (Array.isArray(managerReviews) && managerReviews.length > 0) {
+                  // Get latest manager review (submitted or draft)
+                  const managerReview = managerReviews.find((r: any) => !r.isDraft && r.submittedAt) || managerReviews[0];
+
+                  if (managerReview?.content) {
+                    const mgrContent = typeof managerReview.content === 'string' ? JSON.parse(managerReview.content) : managerReview.content;
+
+                    if (mgrContent.areasNeedingImprovement) {
+                      // Append manager improvements to the list
+                      performanceAreas.manager_improvements = mgrContent.areasNeedingImprovement;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch assessment context for AI, proceeding with basic profile", err);
+      }
+
       const response = await authenticatedFetch(`${API_BASE_URL}/ai/suggest-goals`, {
         method: 'POST',
         headers: {
@@ -137,9 +225,9 @@ export function GoalSettingModal({ employee, open, onClose, onAISuggestions }: G
             name: employee.name,
             position: employee.position,
             department: employee.department,
-            skills: employee.skills,
+            skills: combinedSkills, // Use combined skills
             yearsOfExperience: employee.yearsOfExperience,
-            performance_areas: {} // Can be populated if available
+            performance_areas: performanceAreas // Use populated performance areas
           }
         }),
       });

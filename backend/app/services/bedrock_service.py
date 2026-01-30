@@ -149,20 +149,56 @@ class BedrockService:
     
     async def generate_goal_suggestions(self, employee_data: Dict[str, Any]) -> List[Dict[str, str]]:
         """Generate AI-powered goal suggestions for employees"""
-        system_prompt = """You are an HR goal-setting assistant. 
-        Generate relevant, achievable goal suggestions based on employee role, department, and performance data. 
-        Focus on professional development and career growth."""
+        system_prompt = """You are an expert HR Talent Development Specialist and Performance Coach. 
+        Your task is to generate highly personalized, actionable, and growth-oriented SMART goals based on an employee's profile.
+        
+        Your primary objective is to accelerate the employee's professional growth and career progression.
+        
+        Analyze the provided context (Role, Experience, Skills, and Reviews) to identify the most impactful opportunities for their development.
+        
+        Guidelines for Suggestions:
+        1. **Seniority Check (CRITICAL)**: Check 'Position' and 'Years of Experience'. 
+           - **Freshers (0-1 year)**: Focus strictly on *Foundation*, *Onboarding*, *Code Quality*, *Unit Testing*, and *Learning the Stack*. Do NOT suggest complex architecture or mentorship.
+           - **Juniors (1-3 years)**: Focus on *Execution*, *Independence*, *Debugging*, and *Feature Delivery*.
+           - **Seniors (3+ years)**: Focus on *Architecture*, *Mentorship*, *Process Improvement*, and *Strategic Impact*.
+        
+        2. **Strong Skills (Real-World Application)**: 
+           - For skills rated "Advanced" or "Intermediate", suggest **Real-World Business Use Cases**. 
+           - Avoid generic "toy projects" (e.g., "Build a CRUD app"). 
+           - Instead, suggest solving a **specific business problem** (e.g., "Optimize API latency by implementing caching", "Automate the deployment pipeline", "Refactor legacy module X for scalability").
+        
+        3. **Weak Skills (Targeted Improvement)**: 
+           - For skills rated "Beginner" or gaps identified, suggest specific **upskilling** or **certifications**.
+           - Connect the learning to a goal (e.g., "Learn Docker *to enable* containerized local development").
+        
+        4. **Holistic Success**: Suggest certifications where impactful (e.g., AWS, Azure) and soft skills relevant to their role level.
+        """
         
         prompt = f"""
-        Employee: {employee_data.get('name', 'Employee')}
+        Employee Context:
+        Name: {employee_data.get('name', 'Employee')}
         Position: {employee_data.get('position', 'Not specified')}
         Department: {employee_data.get('department', 'Not specified')}
-        Skills: {json.dumps(employee_data.get('skills', []))}
-        Performance Areas: {json.dumps(employee_data.get('performance_areas', {}))}
+        Years of Experience: {employee_data.get('yearsOfExperience', 'Not specified')}
         
-        Generate 3-5 relevant goal suggestions in JSON format:
+        Skills & Proficiency Levels: 
+        {json.dumps(employee_data.get('skills', []))}
+        (Note: 1=Beginner, 2=Intermediate, 3=Advanced)
+        
+        Performance Context (Strengths/Weaknesses): 
+        {json.dumps(employee_data.get('performance_areas', {}))}
+        
+        Based on the above, generate 3-5 high-quality professional goals. 
+        Each goal must be specific and directly relevant to their reported skills and seniority.
+        
+        Respond ONLY with a valid JSON array of objects. Format:
         [
-            {{"title": "Goal Title", "description": "Goal Description", "category": "category_name"}},
+            {{
+                "title": "Actionable Goal Title", 
+                "description": "Detailed description following SMART criteria", 
+                "category": "One of: Business/Project Goals, Functional/Behavioral Competencies, Innovation/Initiatives/Collaboration",
+                "reasoning": "Brief explanation of why this fits their current level (e.g., 'Since you are Advanced in React, this goal focuses on architecture...')"
+            }},
             ...
         ]
         """
