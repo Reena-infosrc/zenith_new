@@ -1,12 +1,12 @@
-import { 
-  Calendar, 
-  Users, 
-  UserPlus, 
-  BarChart2, 
-  Layout, 
-  DollarSign, 
-  BookOpen, 
-  TrendingUp, 
+import {
+  Calendar,
+  Users,
+  UserPlus,
+  BarChart2,
+  Layout,
+  DollarSign,
+  BookOpen,
+  TrendingUp,
   HelpCircle,
   Star,
   Folders
@@ -54,8 +54,8 @@ const ModuleButton = ({ icon, label, active, to, onClick, disabled }: ModuleButt
     "border border-transparent",
     "hover:border-primary/20 hover:shadow-md hover:shadow-primary/5",
     "hover:translate-x-1",
-    active 
-      ? "bg-gradient-to-r from-primary/15 to-primary/5 border-primary/30 shadow-lg shadow-primary/10 text-foreground font-semibold" 
+    active
+      ? "bg-gradient-to-r from-primary/15 to-primary/5 border-primary/30 shadow-lg shadow-primary/10 text-foreground font-semibold"
       : "hover:bg-gradient-to-r hover:from-accent/30 hover:to-accent/10",
     disabled && "opacity-40 cursor-not-allowed hover:translate-x-0"
   );
@@ -117,7 +117,7 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
     if (module.adminOnly && !isAdmin) {
       return false;
     }
-    
+
     if (!module.featureFlag) return true; // Always show modules without feature flags
     return !isHidden(module.featureFlag);
   }), [modules, isHidden, isAdmin]);
@@ -133,7 +133,7 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-4 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
             <div className="space-y-1">
               {modules.map((module) => (
-                <ModuleButton 
+                <ModuleButton
                   key={module.name}
                   icon={module.icon}
                   label={module.name}
@@ -145,9 +145,9 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
               ))}
             </div>
           </div>
-          
-         {/* Animated Logo - Switchable via config */}
-        {/* <div className="flex-shrink-0 px-4 py-4 flex items-center justify-center" style={{
+
+          {/* Animated Logo - Switchable via config */}
+          {/* <div className="flex-shrink-0 px-4 py-4 flex items-center justify-center" style={{
           position: 'sticky',
           bottom: '80px', 
           zIndex: 10
@@ -160,14 +160,14 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
             )}
           </div>
         </div> */}
-        
-        <div className="px-4 py-3 flex justify-center">
-          <h1 className="text-xl font-bold text-gradient-primary">
-            Zenith
-          </h1>
-        </div>
-          
-          <div className="flex-shrink-0 px-4 py-4 mt-auto border-t border-border/50 bg-gradient-to-t from-background/95 to-transparent backdrop-blur-sm" style={{ 
+
+          <div className="px-4 py-3 flex justify-center">
+            <h1 className="text-xl font-bold text-gradient-primary">
+              Zenith
+            </h1>
+          </div>
+
+          <div className="flex-shrink-0 px-4 py-4 mt-auto border-t border-border/50 bg-gradient-to-t from-background/95 to-transparent backdrop-blur-sm" style={{
             position: 'sticky',
             bottom: 0,
             zIndex: 10
@@ -193,17 +193,29 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
     <div className="h-full flex flex-col w-64 relative">
       {/* Glass morphism overlay effect */}
       <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/98 to-background/95 backdrop-blur-xl border-r border-border/50" />
-      
+
       {/* Content container */}
       <div className="relative z-10 flex flex-col h-full">
         {/* Spacer for better top spacing */}
-        <div className="h-2" />
-        
+        {/* Logo Section */}
+        <div className="flex items-center justify-center pt-4 pb-2 pr-3">
+          <img
+            src="/LOGO.svg"
+            alt="Zenith Logo"
+            className="w-auto h-8 max-w-[80%] block dark:hidden"
+          />
+          <img
+            src="/LOGO1.png"
+            alt="Zenith Logo"
+            className="w-auto h-8 max-w-[80%] hidden dark:block"
+          />
+        </div>
+
         {/* Scrollable menu items */}
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-4 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
           <div className="space-y-1">
             {visibleModules.map((module) => (
-              <ModuleButton 
+              <ModuleButton
                 key={module.name}
                 icon={module.icon}
                 label={module.name}
@@ -215,8 +227,8 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
             ))}
           </div>
         </div>
-        
-      {/* Animated Logo - Switchable via config */}
+
+        {/* Animated Logo - Switchable via config */}
         {/* <div className="flex-shrink-0 px-4 py-4 flex items-center justify-center" style={{
           position: 'sticky',
           bottom: '80px', 
@@ -230,15 +242,15 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
             )}
           </div>
         </div> */}
-        
+
         <div className="px-4 py-3 flex justify-center mb-3">
           <h1 className="text-2xl font-bold text-gradient-primary">
             Zenith
           </h1>
         </div>
-        
+
         {/* Version Info at Bottom - Fixed at bottom */}
-        <div className="flex-shrink-0 px-4 py-4 mt-auto border-t border-border/50 bg-gradient-to-t from-background/95 to-transparent backdrop-blur-sm" style={{ 
+        <div className="flex-shrink-0 px-4 py-4 mt-auto border-t border-border/50 bg-gradient-to-t from-background/95 to-transparent backdrop-blur-sm" style={{
           position: 'sticky',
           bottom: 0,
           zIndex: 10

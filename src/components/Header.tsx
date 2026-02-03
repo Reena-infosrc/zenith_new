@@ -26,18 +26,18 @@ export function Header({ onMenuToggle }: HeaderProps) {
   const navigate = useNavigate();
   const { isEnabled, isHidden } = useFeatureFlags();
   const { instance, accounts } = useMsal();
-  
+
   // Get current user information from MSAL
   const currentAccount = accounts?.[0];
   const username = currentAccount?.name || "User";
   const userEmail = currentAccount?.username || "user@example.com";
-  
+
   // Add scroll listener to change header appearance when scrolled
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 10);
     };
-    
+
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
@@ -46,10 +46,10 @@ export function Header({ onMenuToggle }: HeaderProps) {
     try {
       // Set flag to prevent auto-login after logout
       sessionStorage.setItem('user_logged_out', 'true');
-      
+
       // Clear app auth state
       localStorage.removeItem('auth_token');
-      
+
       // Clear MSAL session and redirect to logout
       await instance.logoutRedirect({
         account: currentAccount || undefined,
@@ -63,39 +63,38 @@ export function Header({ onMenuToggle }: HeaderProps) {
   };
 
   return (
-    <header className={`fixed top-0 left-0 right-0 z-30 w-full transition-all duration-300 ${
-      scrolled ? 'bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm shadow-sm' : 'bg-transparent'
-    }`}>
-      <div className="container px-0 h-16 flex items-center justify-between">
-        <div className="flex items-center">
+    <header className={`fixed top-0 left-0 right-0 z-30 w-full transition-all duration-300 ${scrolled ? 'bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm shadow-sm' : 'bg-transparent'
+      }`}>
+      <div className="w-full px-4 h-16 flex items-center">
+        <div className="flex items-center w-56">
           <Button variant="ghost" size="icon" onClick={onMenuToggle} className="mr-2 lg:hidden">
             <MenuIcon className="w-5 h-5" />
           </Button>
-          
-         <div className="flex flex-col items-center justify-center h-full ml-5 gap-2 mt-3">
-            <img
-              src="/LOGO.svg"
-              alt="Info Services Logo"
-              className="w-auto h-7"
-            />
-          </div>
+
+
         </div>
-        
-        <div className="hidden md:flex flex-1 max-w-md mx-4">
+
+        {/* <div className="hidden md:flex flex-1 max-w-md mx-4">
           <SearchDropdown />
-        </div>
-        
-        <div className="flex items-center space-x-3">
+        </div> */}
+         <div className="flex-1 flex justify-start pl-[4%]">
+    <div className="hidden md:block w-full max-w-md">
+      <SearchDropdown />
+    </div>
+  </div>
+
+        {/* <div className="flex items-center space-x-3"> */}
+          <div className="flex items-center gap-3 w-56 justify-end">
           {/* Admin Portal positioned before notifications - controlled by feature flag */}
           {!isHidden('admin_portal') && (
             <AdminPortal disabled={!isEnabled('admin_portal')} />
           )}
-          
+
           {/* Notifications - controlled by feature flag */}
           {!isHidden('notifications') && (
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className={`relative ${!isEnabled('notifications') ? 'opacity-50 cursor-not-allowed' : ''}`}
               disabled={!isEnabled('notifications')}
             >
@@ -103,9 +102,9 @@ export function Header({ onMenuToggle }: HeaderProps) {
               <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full"></span>
             </Button>
           )}
-          
+
           <ModeToggle />
-          
+
           {/* User Profile Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -116,9 +115,9 @@ export function Header({ onMenuToggle }: HeaderProps) {
                 <span className="text-sm font-medium hidden sm:inline">{username}</span>
               </Button>
             </DropdownMenuTrigger>
-            
-            <DropdownMenuContent 
-              align="end" 
+
+            <DropdownMenuContent
+              align="end"
               className="min-w-56 max-w-80 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 shadow-lg"
               sideOffset={8}
             >
@@ -131,10 +130,10 @@ export function Header({ onMenuToggle }: HeaderProps) {
                   <p className="text-xs text-muted-foreground break-all leading-relaxed">{userEmail}</p>
                 </div>
               </DropdownMenuLabel>
-              
+
               <DropdownMenuSeparator />
-              
-              <DropdownMenuItem 
+
+              <DropdownMenuItem
                 onClick={handleSignOut}
                 className="flex items-center gap-2 p-3 hover:bg-accent/30 transition-colors cursor-pointer text-red-600 dark:text-red-400"
               >

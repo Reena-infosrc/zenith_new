@@ -19,7 +19,7 @@ export default function Recruitment() {
       {/* Main Layout */}
       <div className="flex min-h-[calc(100vh-4rem)]">
         {/* Left Sidebar - Always Fixed */}
-        <aside className={`fixed inset-y-0 left-0 z-20 w-64 sidebar-glass transform transition-transform duration-300 ease-in-out pt-16 flex flex-col ${
+        <aside className={`fixed inset-y-0 left-0 z-40 w-56 sidebar-glass transform transition-transform duration-300 ease-in-out flex flex-col ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } lg:translate-x-0`}>
           <SidebarContent 
@@ -37,7 +37,7 @@ export default function Recruitment() {
         )}
         
         {/* Main Content - Account for fixed sidebar and header */}
-        <main className="flex-1 transition-all duration-300 lg:ml-64 pt-16">
+        <main className="flex-1 transition-all duration-300 lg:ml-56 pt-16">
           <div className="container px-4 py-6">
             {/* Welcome Section */}
             <section className="mb-8">
