@@ -289,7 +289,7 @@ export default function Performance() {
         )}
         
         {/* Main Content - Account for fixed sidebar and header */}
-        <main className="flex-1 transition-all duration-300 lg:ml-56 pt-16">
+        <main className="flex-1 transition-all duration-300 lg:ml-60 pt-16">
           <div className="container px-6 py-8">
             {/* Welcome Section - Hidden for Admin View */}
             {viewMode !== 'admin' && (

@@ -36,7 +36,7 @@ export default function Compensation() {
         )}
         
         {/* Main Content - Account for fixed sidebar and header */}
-        <main className="flex-1 transition-all duration-300 lg:ml-56 pt-16">
+        <main className="flex-1 transition-all duration-300 lg:ml-60 pt-16">
           <div className="container px-4 py-6">
             <CompensationModule />
           </div>

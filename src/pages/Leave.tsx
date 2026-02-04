@@ -42,7 +42,7 @@ export default function Leave() {
         )}
         
         {/* Main Content - Account for fixed sidebar and header */}
-        <main className="flex-1 lg:ml-56 pt-16">
+        <main className="flex-1 lg:ml-64 pt-16">
           <div className="container px-4 py-6">
             <div className="flex justify-between items-center mb-6">
               <div>

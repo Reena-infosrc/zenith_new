@@ -70,22 +70,16 @@ export function Header({ onMenuToggle }: HeaderProps) {
           <Button variant="ghost" size="icon" onClick={onMenuToggle} className="mr-2 lg:hidden">
             <MenuIcon className="w-5 h-5" />
           </Button>
-
-
         </div>
 
-        {/* <div className="hidden md:flex flex-1 max-w-md mx-4">
-          <SearchDropdown />
-        </div> */}
-         <div className="flex-1 flex justify-start pl-[4%]">
-    <div className="hidden md:block w-full max-w-md">
-      <SearchDropdown />
-    </div>
-  </div>
+        <div className="flex-1 flex justify-start pl-[4%]">
+          <div className="hidden md:block w-full max-w-md">
+            <SearchDropdown />
+          </div>
+        </div>
 
-        {/* <div className="flex items-center space-x-3"> */}
-          <div className="flex items-center gap-3 w-56 justify-end">
-          {/* Admin Portal positioned before notifications - controlled by feature flag */}
+        {/* Admin Portal positioned before notifications - controlled by feature flag */}
+        <div className="flex items-center gap-3 w-56 justify-end">
           {!isHidden('admin_portal') && (
             <AdminPortal disabled={!isEnabled('admin_portal')} />
           )}
