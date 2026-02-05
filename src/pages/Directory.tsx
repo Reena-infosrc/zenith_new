@@ -58,8 +58,8 @@ export default function Directory() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [hierarchyViewMode, setHierarchyViewMode] = useState<HierarchyViewMode>("levels");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<string>("");
-  const [sortOrder, setSortOrder] = useState<string>("asc");
+  const [sortBy, setSortBy] = useState<string>("date_of_joining");
+  const [sortOrder, setSortOrder] = useState<string>("desc");
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -120,9 +120,9 @@ export default function Directory() {
       // Toggle order if same field
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
-      // Set new field with ascending order
+      // Set new field with default order (desc for dates, asc for others)
       setSortBy(field);
-      setSortOrder("asc");
+      setSortOrder(field === "date_of_joining" ? "desc" : "asc");
     }
   };
 
@@ -256,10 +256,28 @@ export default function Directory() {
         aValue = a.employeeId?.toLowerCase() || "";
         bValue = b.employeeId?.toLowerCase() || "";
         break;
-      case "date_of_joining":
-        aValue = new Date(a.dateOfJoining || "").getTime();
-        bValue = new Date(b.dateOfJoining || "").getTime();
+      case "date_of_joining": {
+        const dateA = a.dateOfJoining ? new Date(a.dateOfJoining) : null;
+        const dateB = b.dateOfJoining ? new Date(b.dateOfJoining) : null;
+
+        const isValidA = dateA && !isNaN(dateA.getTime());
+        const isValidB = dateB && !isNaN(dateB.getTime());
+
+        if (!isValidA && !isValidB) return a.name.localeCompare(b.name);
+        if (!isValidA) return 1; // a is invalid, move to bottom
+        if (!isValidB) return -1; // b is invalid, move to bottom
+
+        const timeA = (dateA as Date).getTime();
+        const timeB = (dateB as Date).getTime();
+
+        if (timeA === timeB) {
+          return a.name.localeCompare(b.name);
+        }
+
+        aValue = timeA;
+        bValue = timeB;
         break;
+      }
       default:
         return 0;
     }
@@ -377,7 +395,7 @@ export default function Directory() {
 
                     {/* Account Section */}
                     {Object.keys(accounts).length > 0 && (
-                      
+
                       <>
                         <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b z-10">
                           Account
@@ -388,7 +406,7 @@ export default function Directory() {
                             if (subAccounts.length === 1) {
                               const account = subAccounts[0];
                               return (
-                                <DropdownMenuItem 
+                                <DropdownMenuItem
                                   key={account}
                                   onClick={() => toggleFilter(`Account: ${account}`)}
                                   className="px-4 py-1.5 text-sm cursor-pointer focus:bg-accent transition-colors"

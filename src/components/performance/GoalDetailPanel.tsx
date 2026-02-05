@@ -390,7 +390,7 @@ export function GoalDetailPanel({
       setError(null);
       hasAnnouncedRef.current = false;
 
-      let isActive = true;
+      const isActive = true;
       (async () => {
         try {
           const result = await getGoal(goalToLoad);
