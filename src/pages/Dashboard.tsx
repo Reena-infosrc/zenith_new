@@ -30,6 +30,7 @@ import { API_BASE_URL } from "@/config/api";
 interface Employee {
   id: string;
   employeeId?: string;
+  employee_id?: string;
   name: string;
   position: string;
   department: string;
@@ -142,7 +143,7 @@ export default function Dashboard() {
       // Check cache first
       const cachedData = apiCache.get(CACHE_KEYS.DASHBOARD);
       if (cachedData) {
-        setDashboardData(cachedData);
+        setDashboardData(cachedData as DashboardData);
         setLoading(false);
         return;
       }
@@ -574,11 +575,20 @@ export default function Dashboard() {
       const monthKey = targetDate.toISOString().slice(0, 7); // YYYY-MM format
       const monthName = targetDate.toLocaleDateString('en-US', { month: 'short' });
       
-      const monthData: { month: string; monthName: string; month_number: number; employees: Employee[] } = {
+      const monthData: { 
+        month: string; 
+        monthName: string; 
+        month_number: number; 
+        employees: Employee[]
+        total: number;
+        [key: string]: any; 
+
+      } = {
         month: monthKey,
         monthName: monthName,
         month_number: targetDate.getMonth() + 1,
-        total: 0
+        total: 0,
+        employees: []
       };
       
       // Calculate hires for each category in this month
@@ -688,7 +698,7 @@ export default function Dashboard() {
     return Object.entries(distribution).map(([name, value]) => ({ name, value }));
   };
 
-  const handleChartClick = (data: { activePayload?: Array<{ payload: Record<string, unknown> }> }) => {
+  const handleChartClick = (data: any) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const clickedData = data.activePayload[0].payload;
       
