@@ -20,7 +20,7 @@ import {
   Download,
   ArrowLeft
 } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart, Legend } from 'recharts';
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { useToast } from "@/hooks/use-toast";
 import { consolidateRemoteLocations } from "@/lib/utils";
@@ -1263,8 +1263,8 @@ export default function Dashboard() {
                             data={prepareChartData(filteredData.by_employee_status)}
                             cx="50%"
                             cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            // labelLine={false}
+                            // label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                             outerRadius={80}
                             fill="#8884d8"
                             dataKey="value"
@@ -1274,6 +1274,16 @@ export default function Dashboard() {
                             ))}
                           </Pie>
                           <Tooltip />
+                          <Legend
+                              verticalAlign="bottom"
+                              align="center"
+                              formatter={(value, entry: any) => {
+                                const chartData = prepareChartData(filteredData.by_employee_status);
+                                const total = chartData.reduce((acc, item) => acc + item.value, 0);
+                                const percentage = total > 0 ? ((entry.payload.value / total) * 100).toFixed(0) : 0;
+                                return <span className="text-xs font-medium">{value} ({entry.payload.value}, {percentage}%)</span>;
+                              }}
+                            />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
@@ -1295,8 +1305,8 @@ export default function Dashboard() {
                             data={prepareChartData(filteredData.by_gender)}
                             cx="50%"
                             cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            // labelLine={false}
+                            // label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                             outerRadius={80}
                             fill="#8884d8"
                             dataKey="value"
@@ -1306,6 +1316,16 @@ export default function Dashboard() {
                             ))}
                           </Pie>
                           <Tooltip />
+                          <Legend
+                              verticalAlign="bottom"
+                              align="center"
+                              formatter={(value, entry: any) => {
+                                const chartData = prepareChartData(filteredData.by_employee_status);
+                                const total = chartData.reduce((acc, item) => acc + item.value, 0);
+                                const percentage = total > 0 ? ((entry.payload.value / total) * 100).toFixed(0) : 0;
+                                return <span className="text-xs font-medium">{value} ({entry.payload.value}, {percentage}%)</span>;
+                              }}
+                            />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
@@ -1327,8 +1347,8 @@ export default function Dashboard() {
                             data={prepareChartData(filteredData.by_status)}
                             cx="50%"
                             cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            // labelLine={false}
+                            // label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                             outerRadius={80}
                             fill="#8884d8"
                             dataKey="value"
@@ -1338,6 +1358,16 @@ export default function Dashboard() {
                             ))}
                           </Pie>
                           <Tooltip />
+                          <Legend
+                              verticalAlign="bottom"
+                              align="center"
+                              formatter={(value, entry: any) => {
+                                const chartData = prepareChartData(filteredData.by_employee_status);
+                                const total = chartData.reduce((acc, item) => acc + item.value, 0);
+                                const percentage = total > 0 ? ((entry.payload.value / total) * 100).toFixed(0) : 0;
+                                return <span className="text-xs font-medium">{value} ({entry.payload.value}, {percentage}%)</span>;
+                              }}
+                            />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
