@@ -17,15 +17,15 @@ RUN apt-get update && \
         git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency file first (for caching)
+# Copy dependency file first (layer 2: invalidates only on requirements.txt change)
 COPY requirements.txt .
 
-# Create virtual environment and install dependencies
+# Create virtual environment and install Python dependencies (layer 3: pip packages cached)
 RUN python -m venv /opt/venv && \
     /opt/venv/bin/pip install --upgrade pip wheel setuptools && \
     /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (this will invalidate cache when code changes)
+# Copy application code (layer 4: changes frequently, cache invalidated only for this layer)
 COPY . .
 
 # Verify the application code is copied correctly (for debugging)

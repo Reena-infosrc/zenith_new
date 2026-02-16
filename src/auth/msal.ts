@@ -2,8 +2,8 @@ import { PublicClientApplication, type Configuration } from "@azure/msal-browser
 
 export const msalConfig: Configuration = {
   auth: {
-    clientId: "84857ef6-8b76-45f8-8be1-877af61283fc",
-    authority: "https://login.microsoftonline.com/97c30056-8614-4cfa-a2a6-8f3f9e29de81",
+    clientId: import.meta.env.VITE_MSAL_CLIENT_ID as string,
+    authority: `https://login.microsoftonline.com/${import.meta.env.VITE_MSAL_TENANT_ID as string}`,
     redirectUri: window.location.origin,
   },
   cache: {

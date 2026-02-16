@@ -106,7 +106,12 @@ async def check_admin_status(email: str):
         is_admin = False
         if response.get("Items"):
             admin_data = parse_dynamodb_item(response["Items"][0])
-            is_admin = admin_data.get("is_active", True)
+            # Handle is_active: convert string "false"/"true" to boolean if needed
+            is_active_value = admin_data.get("is_active", True)
+            if isinstance(is_active_value, str):
+                is_admin = is_active_value.lower() == "true"
+            else:
+                is_admin = bool(is_active_value)
         
         return {
             "is_admin": is_admin,

@@ -1,20 +1,47 @@
-name: Zenith HR Pulse CI/CD
+name: Zenith HR Pulse – Deploy
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
+      - staging
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        include:
+          - branch: staging
+            stage: staging
+            env_file: .env.dev
+            ecr_repo_secret: ECR_REPO_STAGING
+            api_base_secret: ZENITH_API_BASE_STAGING
+            s3_bucket_secret: S3_BUCKET_STAGING
+            cloudfront_secret: CLOUDFRONT_DISTRIBUTION_ID_STAGING
+            ecr_account_secret: ECR_ACCOUNT_STAGING
+          - branch: main
+            stage: prod
+            env_file: .env.prod
+            ecr_repo_secret: ECR_REPO_PROD
+            api_base_secret: ZENITH_API_BASE_PROD
+            s3_bucket_secret: S3_BUCKET_PROD
+            cloudfront_secret: CLOUDFRONT_DISTRIBUTION_ID_PROD
+            ecr_account_secret: ECR_ACCOUNT_PROD
+
+    if: |
+      (github.ref == 'refs/heads/staging' && matrix.branch == 'staging') ||
+      (github.ref == 'refs/heads/main' && matrix.branch == 'main')
+
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
+      STAGE: ${{ matrix.stage }}
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      # ---------- Configure AWS ----------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -22,179 +49,120 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # ---------- Backend: Docker Build & Push ----------
-      - name: Log in to Amazon ECR
-        env:
-          ECR_ACCOUNT: ${{ secrets.ECR_ACCOUNT }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-        run: |
-          aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS --password-stdin $ECR_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-      - name: Ensure ECR repo exists
-        env:
-          ECR_REPO_NAME: ${{ secrets.ECR_REPO }}
-          ECR_ACCOUNT: ${{ secrets.ECR_ACCOUNT }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+      - name: Install Serverless Framework
+        run: npm install -g serverless
+
+      - name: Check if serverless.yml changed
         run: |
-          REPO="${ECR_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
-          if ! aws ecr describe-repositories --repository-names "${ECR_REPO_NAME}" --region $AWS_REGION >/dev/null 2>&1; then
-            echo "Creating ECR repo ${ECR_REPO_NAME}"
-            aws ecr create-repository --repository-name "${ECR_REPO_NAME}" --region $AWS_REGION || true
+          if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q 'backend/serverless.yml' || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "DEPLOY_SERVERLESS=true" >> $GITHUB_ENV
           else
-            echo "ECR repo exists"
+            echo "DEPLOY_SERVERLESS=false" >> $GITHUB_ENV
           fi
-          echo "IMAGE_URI=${REPO}" >> $GITHUB_ENV
 
-      - name: Build & Push Backend Docker Image
+      - name: Check and create ECR repository
         env:
-          IMAGE_URI: ${{ env.IMAGE_URI }}
-          ECR_REPO: ${{ secrets.ECR_REPO }}
+          ECR_ACCOUNT: ${{ secrets[matrix.ecr_account_secret] }}
+          ECR_REPO: ${{ secrets[matrix.ecr_repo_secret] }}
         run: |
-          IMAGE_TAG=${IMAGE_URI}:${GITHUB_SHA::7}
-          echo "Building Docker image: ${IMAGE_URI}:latest and ${IMAGE_TAG}"
+          REPO_EXISTS=$(aws ecr describe-repositories --repository-names $ECR_REPO --region $AWS_REGION 2>/dev/null | grep -c "repositoryArn" || echo 0)
           
-          # Use BuildKit for better caching and build performance
-          # --no-cache flag ensures fresh dependencies are installed
+          if [ "$REPO_EXISTS" = "0" ]; then
+            echo "ECR repository does not exist. Creating: $ECR_REPO"
+            aws ecr create-repository \
+              --repository-name $ECR_REPO \
+              --region $AWS_REGION \
+              --image-scanning-configuration scanOnPush=true \
+              --encryption-configuration encryptionType=AES
+            echo "ECR repository created successfully"
+          else
+            echo "ECR repository already exists: $ECR_REPO"
+          fi
+
+      - name: Build and push Docker image
+        env:
+          ECR_ACCOUNT: ${{ secrets[matrix.ecr_account_secret] }}
+          ECR_REPO: ${{ secrets[matrix.ecr_repo_secret] }}
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+          
+          cd backend
+          IMAGE_TAG="${{ matrix.stage }}-latest"
+          IMAGE_URI="$ECR_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG"
+          
+          echo "Building Docker image with BuildKit..."
           DOCKER_BUILDKIT=1 docker build \
             --no-cache \
             -t ${IMAGE_URI}:latest \
-            -t ${IMAGE_TAG} \
-            ./backend
+            -t ${IMAGE_URI} \
+            .
           
           echo "Pushing images..."
           docker push ${IMAGE_URI}:latest
-          docker push ${IMAGE_TAG}
+          docker push ${IMAGE_URI}
           
-          echo "✅ Docker image build and push completed successfully"
-          echo "📦 Verifying files and dependencies in image..."
-          docker run --rm ${IMAGE_URI}:latest ls -la /app/app/routers/admin_auth.py || echo "⚠️ admin_auth.py not found in image"
-          docker run --rm ${IMAGE_URI}:latest python -c "from jose import jwt as jose_jwt; print('✅ python-jose installed')" || echo "⚠️ python-jose not installed"
-          docker run --rm ${IMAGE_URI}:latest grep -A 5 "def exchange_msal_token" /app/app/routers/auth.py || echo "⚠️ msal-token endpoint not found"
+          echo "ECR_IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-      # ---------- Check if CloudFormation template changed ----------
-      - name: Check if CloudFormation template changed
-        id: template_changed
+      - name: Load environment variables
         run: |
-          git fetch origin zenith-deployment-changes --depth=1 || true
-          if git diff --name-only origin/zenith-deployment-changes...HEAD | grep -q '^backend/serverless.yml$'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
+          cd backend
+          if [ "${{ matrix.stage }}" = "staging" ]; then
+            cat .env.dev >> $GITHUB_ENV
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
+            cat .env.prod >> $GITHUB_ENV
           fi
 
-      - name: Deploy CloudFormation Stack (only when template changed)
-        if: steps.template_changed.outputs.changed == 'true'
-        env:
-          STAGE: dev
-          JWT_SECRET: ${{ secrets.ZENITH_JWT_SECRET }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+      - name: Deploy with Serverless Framework (if serverless.yml changed)
+        if: env.DEPLOY_SERVERLESS == 'true'
         run: |
-          STACK_NAME="ZenithHrPulse-${STAGE}"
-          TEMPLATE_FILE="./backend/serverless.yml"
-
-          echo "Deploying CloudFormation stack: $STACK_NAME using $TEMPLATE_FILE"
-          aws cloudformation deploy \
-            --stack-name "$STACK_NAME" \
-            --template-file "$TEMPLATE_FILE" \
-            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --parameter-overrides Stage=${STAGE} JWTSecret=${JWT_SECRET} \
-            --region $AWS_REGION
-
-      # ---------- Force stop running tasks and redeploy ----------
-       # ---------- Register new task definition and update ECS service ----------
-      - name: Register new task definition and update ECS service
+          cd backend
+          serverless deploy --stage $STAGE
         env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          CLUSTER_NAME: ${{ secrets.ECS_CLUSTER_NAME }}
-          SERVICE_NAME: ${{ secrets.ECS_SERVICE_NAME }}
-          IMAGE_URI: ${{ env.IMAGE_URI }}
+          ECR_IMAGE_URI: ${{ env.ECR_IMAGE_URI }}
+          ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+
+      - name: Force ECS service deployment (if only image changed)
+        if: env.DEPLOY_SERVERLESS == 'false'
         run: |
-          set -e
-          IMAGE_TAG=${GITHUB_SHA::7}
-          NEW_IMAGE="${IMAGE_URI}:${IMAGE_TAG}"
-          echo "🔄 Updating ECS service with new image: $NEW_IMAGE"
-
-          # Get current task definition
-          CURRENT_TASK_DEF=$(aws ecs describe-services \
-            --cluster "$CLUSTER_NAME" \
-            --services "$SERVICE_NAME" \
-            --region $AWS_REGION \
-            --query 'services[0].taskDefinition' --output text)
-          echo "📋 Current task definition: $CURRENT_TASK_DEF"
-
-          # Get current task definition details
-          aws ecs describe-task-definition --task-definition "$CURRENT_TASK_DEF" \
-            --region $AWS_REGION --query 'taskDefinition' > /tmp/current-taskdef.json
-
-          # Remove fields that shouldn't be in new task definition
-          jq 'del(.status, .revision, .taskDefinitionArn, .compatibilities, .registeredAt, .registeredBy, .requiresAttributes, .placementConstraints)' \
-            /tmp/current-taskdef.json > /tmp/tmpl.json
-
-          # Update container image
-          jq --arg img "$NEW_IMAGE" '.containerDefinitions[0].image = $img' \
-            /tmp/tmpl.json > /tmp/new-taskdef.json
-
-          # Register new task definition
-          echo "📝 Registering new task definition..."
-          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
-            --cli-input-json file:///tmp/new-taskdef.json \
-            --region $AWS_REGION \
-            --query 'taskDefinition.taskDefinitionArn' --output text)
-          echo "✅ Registered new task definition: $NEW_TASK_DEF_ARN"
-
-          # Update service to use the new task definition
-          echo "🚀 Updating ECS service to use new task definition..."
+          CLUSTER_NAME="zenith-hr-pulse-${{ matrix.stage }}"
+          SERVICE_NAME="zenith-hr-pulse-${{ matrix.stage }}-service"
+          
           aws ecs update-service \
-            --cluster "$CLUSTER_NAME" \
-            --service "$SERVICE_NAME" \
-            --task-definition "$NEW_TASK_DEF_ARN" \
+            --cluster $CLUSTER_NAME \
+            --service $SERVICE_NAME \
             --force-new-deployment \
             --region $AWS_REGION
-
-          # Wait for service to stabilize
-          echo "⏳ Waiting for service to stabilize..."
-          aws ecs wait services-stable \
-            --cluster "$CLUSTER_NAME" \
-            --services "$SERVICE_NAME" \
-            --region $AWS_REGION
-          
-          echo "✅ ECS service deployment completed successfully!"
-          echo "🎉 Service is now running image: $NEW_IMAGE"
-
-      # ---------- Frontend Build & Deploy ----------
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json  
 
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Lint frontend
-        run: |
-          echo "Running ESLint..."
-          npm run lint --silent || echo "Lint warnings detected, continuing deployment."
-
       - name: Build frontend
         env:
-          VITE_API_BASE: ${{ secrets.ZENITH_API_BASE }}
+          VITE_API_BASE: ${{ secrets[matrix.api_base_secret] }}
+          VITE_MSAL_CLIENT_ID: ${{ secrets.REACT_APP_CLIENT_ID }}
+          VITE_MSAL_TENANT_ID: ${{ secrets.REACT_APP_APP_ID }}
         run: npm run build
 
-      - name: Sync frontend to S3
+      - name: Deploy frontend to S3
         env:
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_BUCKET: ${{ secrets[matrix.s3_bucket_secret] }}
         run: |
-          echo "Syncing frontend to S3 bucket: $S3_BUCKET"
-          aws s3 sync ./dist s3://$S3_BUCKET --delete --cache-control max-age=31536000,public --exclude index.html
-          aws s3 cp ./dist/index.html s3://$S3_BUCKET/index.html --cache-control max-age=0,no-cache,no-store,must-revalidate --content-type text/html
+          aws s3 sync dist s3://$S3_BUCKET \
+            --delete \
+            --cache-control max-age=31536000,public \
+            --exclude index.html
+          aws s3 cp dist/index.html s3://$S3_BUCKET/index.html \
+            --cache-control max-age=0,no-cache,no-store,must-revalidate \
+            --content-type text/html
 
-      - name: Invalidate CloudFront
+      - name: Invalidate CloudFront cache
         env:
-          CLOUDFRONT_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
-        if: env.CLOUDFRONT_ID != ''
-        run: |
-          echo "Invalidating CloudFront cache..."
-          aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_ID --paths "/index.html"
+          DISTRIBUTION_ID: ${{ secrets[matrix.cloudfront_secret] }}
+        run: aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/index.html"

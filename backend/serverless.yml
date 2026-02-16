@@ -1,272 +1,921 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: Zenith HR Pulse Infrastructure
+service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
-Parameters:
-  Stage:
-    Type: String
-    Default: dev
-    AllowedValues:
-      - dev
-      - prod
-    Description: Deployment stage (dev or prod)
-  VpcCidr:
-    Type: String
-    Default: 10.0.0.0/16
-    Description: CIDR block for the VPC
-  JWTSecret:
-    Type: String
-    NoEcho: true
-    Default: YourSuperSecureJWTKeyHere123!
-    Description: JWT secret key for the backend
+useDotenv: true
 
-Conditions:
-  IsProd: !Equals [!Ref Stage, prod]
+custom:
+  ecrImageUri: ${env:ECR_IMAGE_URI}
+  acmCertificateArn: ${env:ACM_CERTIFICATE_ARN}
+  awsAccountId: ${env:AWS_ACCOUNT_ID}
+  
+  # S3 Buckets
+  s3PhotosBucket: ${env:S3_BUCKET_PHOTOS}
+  s3DocumentsBucket: ${env:S3_BUCKET_DOCUMENTS}
+  s3DomainBucket: ${env:S3_BUCKET_DOMAIN}
+  
+  # DynamoDB Tables
+  dynamoDbTables:
+    employees: ${env:DYNAMODB_TABLE_EMPLOYEES}
+    users: ${env:DYNAMODB_TABLE_USERS}
+    admin: ${env:DYNAMODB_TABLE_ADMIN}
+    review: ${env:DYNAMODB_TABLE_REVIEW}
+    reviewDraft: ${env:DYNAMODB_TABLE_REVIEW_DRAFT}
+    clientSatisfaction: ${env:DYNAMODB_TABLE_CLIENT_SATISFACTION}
+    clients: ${env:DYNAMODB_TABLE_CLIENTS}
+    competencies: ${env:DYNAMODB_TABLE_COMPETENCIES}
+    cycle: ${env:DYNAMODB_TABLE_CYCLE}
+    engagementActivities: ${env:DYNAMODB_TABLE_ENGAGEMENT_ACTIVITIES}
+    resourceMappings: ${env:DYNAMODB_TABLE_RESOURCE_MAPPINGS}
+    revenueForecasts: ${env:DYNAMODB_TABLE_REVENUE_FORECASTS}
 
-Resources:
-  # VPC
-  ZenithHrPulseVPC:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: !Ref VpcCidr
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: !If [IsProd, ZenithHrPulseVPC, !Sub 'ZenithHrPulseVPC-${Stage}']
+plugins:
+  - serverless-dotenv-plugin
 
-  # Public Subnets
-  ZenithHrPulsePublicSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref ZenithHrPulseVPC
-      CidrBlock: 10.0.0.0/24
-      AvailabilityZone: !Select [0, !GetAZs '']
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !If [IsProd, ZenithHrPulseSubnet1, !Sub 'ZenithHrPulseSubnet1-${Stage}']
+provider:
+  name: aws
+  region: ${env:AWS_REGION, 'us-east-1'}
+  stage: ${opt:stage, 'prod'}
+  httpApi:
+    metrics: true
+  environment:
+    STAGE: ${self:provider.stage}
+    ENVIRONMENT: ${env:ENVIRONMENT, 'production'}
 
-  ZenithHrPulsePublicSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref ZenithHrPulseVPC
-      CidrBlock: 10.0.1.0/24
-      AvailabilityZone: !Select [1, !GetAZs '']
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !If [IsProd, ZenithHrPulseSubnet2, !Sub 'ZenithHrPulseSubnet2-${Stage}']
+  iam:
+    role:
+      statements:
+        # DynamoDB Permissions - Environment-specific tables
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Scan
+            - dynamodb:Query
+            - dynamodb:BatchWriteItem
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.employees}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.employees}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.admin}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.admin}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.review}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.review}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.reviewDraft}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.reviewDraft}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.clientSatisfaction}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.clientSatisfaction}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.clients}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.clients}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.competencies}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.competencies}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.cycle}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.engagementActivities}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.engagementActivities}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.resourceMappings}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.resourceMappings}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.revenueForecasts}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.revenueForecasts}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.users}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.users}/index/*
 
-  # Internet Gateway
-  ZenithHrPulseInternetGateway:
-    Type: AWS::EC2::InternetGateway
+        # S3 Permissions - Environment-specific buckets
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+            - s3:ListBucket
+          Resource:
+            - arn:aws:s3:::${self:custom.s3PhotosBucket}
+            - arn:aws:s3:::${self:custom.s3PhotosBucket}/*
+            - arn:aws:s3:::${self:custom.s3DocumentsBucket}
+            - arn:aws:s3:::${self:custom.s3DocumentsBucket}/*
+            - arn:aws:s3:::${self:custom.s3DomainBucket}
+            - arn:aws:s3:::${self:custom.s3DomainBucket}/*
 
-  ZenithHrPulseVPCGatewayAttachment:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref ZenithHrPulseVPC
-      InternetGatewayId: !Ref ZenithHrPulseInternetGateway
+        # AWS Bedrock Permissions
+        - Effect: Allow
+          Action:
+            - bedrock:InvokeModel
+          Resource: arn:aws:bedrock:${self:provider.region}::foundation-model/*
 
-  # Route Table
-  ZenithHrPulsePublicRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref ZenithHrPulseVPC
 
-  ZenithHrPulsePublicRoute:
-    Type: AWS::EC2::Route
-    DependsOn: ZenithHrPulseVPCGatewayAttachment
-    Properties:
-      RouteTableId: !Ref ZenithHrPulsePublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref ZenithHrPulseInternetGateway
+resources:
+  Resources:
+    ZenithHrPulseVPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: 10.0.0.0/16
+        EnableDnsSupport: true
+        EnableDnsHostnames: true
 
-  ZenithHrPulseSubnet1RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref ZenithHrPulsePublicSubnet1
-      RouteTableId: !Ref ZenithHrPulsePublicRouteTable
+    PublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
+        CidrBlock: 10.0.0.0/24
+        AvailabilityZone: !Select
+          - 0
+          - !GetAZs ""
+        MapPublicIpOnLaunch: true
 
-  ZenithHrPulseSubnet2RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref ZenithHrPulsePublicSubnet2
-      RouteTableId: !Ref ZenithHrPulsePublicRouteTable
+    PublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
+        CidrBlock: 10.0.1.0/24
+        AvailabilityZone: !Select
+          - 1
+          - !GetAZs ""
+        MapPublicIpOnLaunch: true
 
-  # Security Group
-  ZenithHrPulseSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow HTTP and backend communication
-      VpcId: !Ref ZenithHrPulseVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 5000
-          ToPort: 5000
-          CidrIp: !Ref VpcCidr
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
 
-  # ECS Cluster
-  ZenithHrPulseECSCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      ClusterName: !If [IsProd, ZenithHrPulseCluster, !Sub 'ZenithHrPulseCluster-${Stage}']
+    AttachGateway:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
+        InternetGatewayId: !Ref InternetGateway
 
-  # ECS Task Execution Role
-  ZenithHrPulseExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-      Policies:
-        - PolicyName: ECSPermissions
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                  - dynamodb:*
-                  - s3:*
-                  - bedrock:*
-                Resource: '*'
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
 
-  # CloudWatch Log Group
-  ZenithHrPulseLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !If [IsProd, /ecs/zenith-hr-pulse, !Sub '/ecs/zenith-hr-pulse-${Stage}']
-      RetentionInDays: 7
+    PublicRoute:
+      Type: AWS::EC2::Route
+      DependsOn: AttachGateway
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref InternetGateway
 
-  # Application Load Balancer
-  ZenithHrPulseALB:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Subnets:
-        - !Ref ZenithHrPulsePublicSubnet1
-        - !Ref ZenithHrPulsePublicSubnet2
-      SecurityGroups:
-        - !Ref ZenithHrPulseSecurityGroup
-      Type: application
+    PublicSubnet1RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnet1
+        RouteTableId: !Ref PublicRouteTable
 
-  ZenithHrPulseTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      VpcId: !Ref ZenithHrPulseVPC
-      Port: 5000
-      Protocol: HTTP
-      TargetType: ip
-      HealthCheckPath: /health
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 10
-      HealthyThresholdCount: 3
-      UnhealthyThresholdCount: 3
-      Matcher:
-        HttpCode: '200'
+    PublicSubnet2RouteTableAssociation:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnet2
+        RouteTableId: !Ref PublicRouteTable
 
-  # ALB Listener
-  ZenithHrPulseListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref ZenithHrPulseALB
-      Port: 80
-      Protocol: HTTP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref ZenithHrPulseTargetGroup
 
-  # Fargate Task Definition
-  ZenithHrPulseTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !If [IsProd, zenith-hr-pulse-task, !Sub 'zenith-hr-pulse-task-${Stage}']
-      Cpu: '512'  # Aligned with Resume Evaluator
-      Memory: '1024'  # Aligned with Resume Evaluator
-      NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      ExecutionRoleArn: !GetAtt ZenithHrPulseExecutionRole.Arn
-      TaskRoleArn: !GetAtt ZenithHrPulseExecutionRole.Arn
-      ContainerDefinitions:
-        - Name: zenith-hr-pulse-api
-          Image: 339713066436.dkr.ecr.us-east-1.amazonaws.com/serverless-ig-zenith-hr-pulse-dev:latest
-          PortMappings:
-            - ContainerPort: 5000
-          Command:
-            - "gunicorn"
-            - "-w"
-            - "4"
-            - "-k"
-            - "uvicorn.workers.UvicornWorker"
-            - "app.main:app"
-            - "-b"
-            - "0.0.0.0:5000"
-            - "--timeout"
-            - "120"
-          Environment:
-            - Name: AWS_REGION
-              Value: us-east-1
-            - Name: AWS_DEFAULT_REGION
-              Value: us-east-1
-            - Name: JWT_SECRET
-              Value: !Ref JWTSecret
-            - Name: ROOT_PATH
-              Value: !If [IsProd, /api, !Sub '/${Stage}']
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !If [IsProd, /ecs/zenith-hr-pulse, !Sub '/ecs/zenith-hr-pulse-${Stage}']
-              awslogs-region: us-east-1
-              awslogs-stream-prefix: api
+      
 
-  # ECS Service
-  ZenithHrPulseECSService:
-    Type: AWS::ECS::Service
-    DependsOn: [ZenithHrPulseECSCluster, ZenithHrPulseTargetGroup, ZenithHrPulseListener]
-    Properties:
-      ServiceName: !If [IsProd, ZenithHrPulseService, !Sub 'ZenithHrPulseService-${Stage}']
-      Cluster: !Ref ZenithHrPulseECSCluster
-      DesiredCount: 1
-      LaunchType: FARGATE
-      TaskDefinition: !Ref ZenithHrPulseTaskDefinition
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: ENABLED
-          Subnets:
-            - !Ref ZenithHrPulsePublicSubnet1
-            - !Ref ZenithHrPulsePublicSubnet2
-          SecurityGroups:
-            - !Ref ZenithHrPulseSecurityGroup
-      LoadBalancers:
-        - ContainerName: zenith-hr-pulse-api
-          ContainerPort: 5000
-          TargetGroupArn: !Ref ZenithHrPulseTargetGroup
+   
+    # SECTION 2: SECURITY GROUP
+    
 
-Outputs:
-  ECSClusterName:
-    Value: !Ref ZenithHrPulseECSCluster
-    Description: Name of the ECS cluster
-  ServiceName:
-    Value: !Ref ZenithHrPulseECSService
-    Description: Name of the ECS service
-  ALBEndpoint:
-    Value: !GetAtt ZenithHrPulseALB.DNSName
-    Description: DNS name of the Application Load Balancer
-  Stage:
-    Value: !Ref Stage
-    Description: Deployment stage for this stack
+    ZenithSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow ALB and ECS traffic
+        VpcId: !Ref ZenithHrPulseVPC
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+          - IpProtocol: tcp
+            FromPort: 5000
+            ToPort: 5000
+            CidrIp: 10.0.0.0/16
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+
+
+
+    # SECTION 3: ECS CLUSTER
+   
+
+    ZenithCluster:
+      Type: AWS::ECS::Cluster
+      Properties:
+        ClusterName: zenith-hr-pulse-${self:provider.stage}
+
+    TaskExecutionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: ecs-tasks.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+        Policies:
+          - PolicyName: ECSAppPermissions
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - dynamodb:*
+                    - s3:*
+                    - bedrock:*
+                  Resource: "*"
+
+    ECSLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /ecs/zenith-hr-pulse-${self:provider.stage}
+        RetentionInDays: 7
+
+    
+    # SECTION 4: LOAD BALANCER
+    
+
+    ZenithALB:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Properties:
+        Type: application
+        Subnets:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        SecurityGroups:
+          - !Ref ZenithSecurityGroup
+
+    ZenithTargetGroup:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
+        Port: 5000
+        Protocol: HTTP
+        TargetType: ip
+        HealthCheckEnabled: true
+        HealthCheckPath: /health
+        HealthCheckIntervalSeconds: 30
+        HealthCheckTimeoutSeconds: 10
+        HealthyThresholdCount: 2
+        UnhealthyThresholdCount: 5
+        Matcher:
+          HttpCode: 200-399
+
+        
+    ZenithListener:
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+        LoadBalancerArn: !Ref ZenithALB
+        Port: 80
+        Protocol: HTTP
+        DefaultActions:
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              StatusCode: HTTP_301
+
+# HTTPS listener with ACM certificate
+    ZenithHttpsListener:
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+        LoadBalancerArn: !Ref ZenithALB
+        Port: 443
+        Protocol: HTTPS
+        Certificates:
+          - CertificateArn: ${self:custom.acmCertificateArn}
+        DefaultActions:
+          - Type: forward
+            TargetGroupArn: !Ref ZenithTargetGroup
+
+
+    
+    # SECTION 5: ECS TASK & SERVICE
+    
+
+    ZenithTaskDefinition:
+      Type: AWS::ECS::TaskDefinition
+      Properties:
+        Family: zenith-hr-pulse-${self:provider.stage}
+        Cpu: "512"
+        Memory: "1024"
+        NetworkMode: awsvpc
+        RequiresCompatibilities:
+          - FARGATE
+        ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+        TaskRoleArn: !GetAtt TaskExecutionRole.Arn
+        ContainerDefinitions:
+          - Name: api
+            Image: ${self:custom.ecrImageUri}
+            PortMappings:
+              - ContainerPort: 5000
+            Environment:
+              - Name: AWS_REGION
+                Value: ${self:provider.region}
+              - Name: STAGE
+                Value: ${self:provider.stage}
+              - Name: ENVIRONMENT
+                Value: ${env:ENVIRONMENT, 'production'}
+              - Name: DYNAMODB_TABLE_EMPLOYEES
+                Value: zenith-hr-employees-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_USERS
+                Value: zenith-hr-users-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_ADMIN
+                Value: zenith-hr-admin-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_REVIEW
+                Value: zenith-hr-review-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_REVIEW_DRAFT
+                Value: zenith-hr-review-draft-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_CLIENT_SATISFACTION
+                Value: zenith-hr-client-satisfaction-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_CLIENTS
+                Value: zenith-hr-clients-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_COMPETENCIES
+                Value: zenith-hr-competencies-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_CYCLE
+                Value: zenith-hr-cycle-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_ENGAGEMENT_ACTIVITIES
+                Value: zenith-hr-engagement-activities-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_RESOURCE_MAPPINGS
+                Value: zenith-hr-resource-mappings-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_REVENUE_FORECASTS
+                Value: zenith-hr-revenue-forecasts-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_GOALS
+                Value: zenith-hr-goals-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_FEEDBACK
+                Value: zenith-hr-feedback-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_RECRUITMENT
+                Value: zenith-hr-recruitment-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_FEATURES
+                Value: zenith-hr-feature-flags-${self:provider.stage}
+              - Name: S3_BUCKET_PHOTOS
+                Value: zenith-hr-pulse-photos-${self:provider.stage}
+              - Name: S3_BUCKET_DOCUMENTS
+                Value: zenith-hr-documents-${self:provider.stage}
+              - Name: S3_REGION
+                Value: us-east-1
+              - Name: S3_PHOTOS_PREFIX
+                Value: profile-photos/
+            LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: /ecs/zenith-hr-pulse-${self:provider.stage}
+                awslogs-region: us-east-1
+                awslogs-stream-prefix: api
+
+    # SECTION 6: DYNAMODB
+    ZenithHrAdmin:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-admin-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: created_at
+            AttributeType: S
+          - AttributeName: email  
+            AttributeType: S
+          - AttributeName: employee_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: CreatedAtIndex
+            KeySchema:
+              - AttributeName: created_at
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: EmailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: EmployeeIdIndex  
+            KeySchema:  
+              - AttributeName: employee_id
+                KeyType: HASH   
+            Projection:     
+              ProjectionType: ALL
+
+          
+            
+           
+
+    ZenithHrEmployees:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-employees-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: department
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+          - AttributeName: employee_id
+            AttributeType: S
+          # - AttributeName: id
+          #   AttributeType: S
+    
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: DepartmentIndex
+            KeySchema:
+              - AttributeName: department
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: EmailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: EmployeeIdIndex  
+            KeySchema:    
+              - AttributeName: employee_id
+                KeyType: HASH   
+            Projection:
+              ProjectionType: ALL
+          - IndexName: Id-Index
+            KeySchema:
+              - AttributeName: id
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrReview:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-review-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: employeeId
+            AttributeType: S
+          - AttributeName: entityType
+            AttributeType: S
+          - AttributeName: reviewerId
+            AttributeType: S
+          - AttributeName: reviewId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: EmployeeIndex
+            KeySchema:
+              - AttributeName: employeeId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName:  EntityTypeIndex
+            KeySchema:
+              - AttributeName: entityType
+                KeyType: HASH
+            Projection:
+               ProjectionType: ALL
+          - IndexName: ReviewerIndex
+            KeySchema:        
+              - AttributeName: reviewerId
+                KeyType: HASH     
+            Projection: 
+              ProjectionType: ALL
+          - IndexName: ReviewIndex      
+            KeySchema:    
+              - AttributeName: reviewId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrClientSatisfaction:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-client-satisfaction-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: Client_Id
+            AttributeType: S
+          - AttributeName: created_by
+            AttributeType: S
+          - AttributeName: survey_date
+            AttributeType: S 
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: ClientIndex
+            KeySchema:
+              - AttributeName: Client_Id
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: CreatedByIndex
+            KeySchema:
+              - AttributeName: created_by
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: SurveyDateIndex  
+            KeySchema:  
+              - AttributeName: survey_date
+                KeyType: HASH   
+            Projection:     
+              ProjectionType: ALL
+
+    ZenithHrClients:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-clients-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: account_manager_id
+            AttributeType: S
+          - AttributeName: industry
+            AttributeType: S
+          - AttributeName: current_stage
+            AttributeType: S
+
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: AccountManagerIndex
+            KeySchema:
+              - AttributeName: account_manager_id
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: IndustryIndex    
+            KeySchema:
+              - AttributeName: industry
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: CurrentStageIndex  
+            KeySchema:    
+              - AttributeName: current_stage
+                KeyType: HASH               
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrCompetencies:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-competencies-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: is_active
+            AttributeType: S
+          - AttributeName: category
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: ActiveIndex
+            KeySchema:
+              - AttributeName: is_active
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: CategoryIndex    
+            KeySchema:
+              - AttributeName: category
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrCycle:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-cycle-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: year
+            AttributeType: S
+        KeySchema:
+          - AttributeName: year
+            KeyType: HASH
+
+    ZenithHrEngagementActivities:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-engagement-activities-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: category
+            AttributeType: S
+          - AttributeName: is_active
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: CategoryIndex
+            KeySchema:
+              - AttributeName: category
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ActiveIndex  
+            KeySchema:    
+              - AttributeName: is_active
+                KeyType: HASH   
+            Projection:
+              ProjectionType: ALL 
+
+    ZenithHrResourceMappings:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-resource-mappings-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: resource_type
+            AttributeType: S
+          - AttributeName: entity_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: ResourceTypeIndex
+            KeySchema:
+              - AttributeName: resource_type
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: EntityIdIndex  
+            KeySchema:    
+              - AttributeName: entity_id
+                KeyType: HASH 
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrRevenueForecasts:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-revenue-forecasts-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: account
+            AttributeType: S
+          - AttributeName: year
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: AccountIndex
+            KeySchema:
+              - AttributeName: account
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: YearIndex  
+            KeySchema:  
+              - AttributeName: year
+                KeyType: HASH   
+            Projection:
+              ProjectionType: ALL
+
+    
+
+    ZenithHrReviewDraft:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-review-draft-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: employeeId
+            AttributeType: S
+          - AttributeName: reviewerId
+            AttributeType: S
+          - AttributeName: reviewId
+            AttributeType: S
+          - AttributeName: reviewerType
+            AttributeType: S
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: EmployeeIndex
+            KeySchema:
+              - AttributeName: employeeId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReviewerIndex
+            KeySchema:
+              - AttributeName: reviewerId
+                KeyType: HASH   
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReviewIndex      
+            KeySchema:
+              - AttributeName: reviewId
+                KeyType: HASH   
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReviewerTypeIndex      
+            KeySchema:  
+              - AttributeName: reviewerType
+                KeyType: HASH     
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrUsers:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-users-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+          - AttributeName: email
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: EmailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrFeatureFlags:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-feature-flags-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: name
+            AttributeType: S
+          # - AttributeName: is_active
+          #   AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: NameIndex
+            KeySchema:
+              - AttributeName: name
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          # - IndexName: ActiveIndex  
+          #   KeySchema:    
+          #     - AttributeName: is_active
+          #       KeyType: HASH   
+          #   Projection:
+          #     ProjectionType: ALL
+
+    # SECTION 7: S3 BUCKETS (BACKEND ONLY)
+    
+    ZenithHrPulsePhotosBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.s3PhotosBucket}
+        # VersioningConfiguration:
+        #   Status: Enabled
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
+
+    ZenithHrAppsDomainBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.s3DomainBucket}
+        # VersioningConfiguration:
+        #   Status: Enabled
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: error.html
+
+    # CloudFront Origin Access Identity for secure S3 access
+    CloudFrontOAI:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: Access identity for Zenith frontend CloudFront
+
+    # Bucket policy to allow CloudFront OAI to read objects
+    ZenithAppsDomainBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref ZenithHrAppsDomainBucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: AllowCloudFrontGetObject
+              Effect: Allow
+              Principal:
+                CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+              Action: s3:GetObject
+              Resource: !Sub arn:aws:s3:::${self:custom.s3DomainBucket}/*
+
+    # CloudFront distribution for frontend (uses same ACM certificate)
+    ZenithCloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          DefaultRootObject: index.html
+          Origins:
+            - Id: ZenithAppsDomainOrigin
+              DomainName: !GetAtt ZenithHrAppsDomainBucket.DomainName
+              S3OriginConfig:
+                OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+          DefaultCacheBehavior:
+            TargetOriginId: ZenithAppsDomainOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+            MinTTL: 0
+          ViewerCertificate:
+            AcmCertificateArn: ${self:custom.acmCertificateArn}
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          Aliases:
+            - ${self:custom.s3DomainBucket}
+          CustomErrorResponses:
+            - ErrorCode: 403
+              ResponsePagePath: /index.html
+              ResponseCode: 200
+
+
+
+    ZenithService:
+      Type: AWS::ECS::Service
+      DependsOn:
+        - ZenithListener
+        - ZenithHttpsListener
+      Properties:
+        HealthCheckGracePeriodSeconds: 180
+        Cluster: !Ref ZenithCluster
+        LaunchType: FARGATE
+        DesiredCount: 1
+        TaskDefinition: !Ref ZenithTaskDefinition
+        NetworkConfiguration:
+          AwsvpcConfiguration:
+            AssignPublicIp: ENABLED
+            Subnets:
+              - !Ref PublicSubnet1
+              - !Ref PublicSubnet2
+            SecurityGroups:
+              - !Ref ZenithSecurityGroup
+        LoadBalancers:
+          - ContainerName: api
+            ContainerPort: 5000
+            TargetGroupArn: !Ref ZenithTargetGroup
+
+  Outputs:
+    ALBEndpoint:
+      Value: !GetAtt ZenithALB.DNSName
+      Description: "URL of the Application Load Balancer"
