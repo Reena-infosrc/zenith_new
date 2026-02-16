@@ -115,9 +115,9 @@ jobs:
         run: |
           cd backend
           if [ "${{ matrix.stage }}" = "staging" ]; then
-            cat .env.staging >> $GITHUB_ENV
+            grep -v '^#' .env.staging | grep -v '^$' >> $GITHUB_ENV
           else
-            cat .env.prod >> $GITHUB_ENV
+            grep -v '^#' .env.prod | grep -v '^$' >> $GITHUB_ENV
           fi
 
       - name: Deploy with Serverless Framework (if serverless.yml changed)
