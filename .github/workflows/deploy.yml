@@ -115,9 +115,9 @@ jobs:
         run: |
           cd backend
           if [ "${{ matrix.stage }}" = "staging" ]; then
-            grep -v '^#' .env.staging | grep -v '^$' >> $GITHUB_ENV
+            grep -E '^[A-Za-z0-9_]+=' .env.staging >> $GITHUB_ENV
           else
-            grep -v '^#' .env.prod | grep -v '^$' >> $GITHUB_ENV
+            grep -E '^[A-Za-z0-9_]+=' .env.prod >> $GITHUB_ENV
           fi
 
       - name: Deploy with Serverless Framework (if serverless.yml changed)
@@ -134,9 +134,6 @@ jobs:
       - name: Force ECS service deployment (if only image changed)
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'false'
         run: |
-          ECS_CLUSTER_NAME="zenith-hr-pulse-${{ matrix.stage }}"
-          ECS_SERVICE_NAME="zenith-hr-pulse-${{ matrix.stage }}"
-          
           aws ecs update-service \
             --cluster $ECS_CLUSTER_NAME \
             --service $ECS_SERVICE_NAME \
