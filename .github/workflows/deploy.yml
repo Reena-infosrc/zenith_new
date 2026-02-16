@@ -135,7 +135,7 @@ jobs:
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'false'
         run: |
           ECS_CLUSTER_NAME="zenith-hr-pulse-${{ matrix.stage }}"
-          ECS_SERVICE_NAME="zenith-hr-pulse-${{ matrix.stage }}-service"
+          ECS_SERVICE_NAME="zenith-hr-pulse-${{ matrix.stage }}"
           
           aws ecs update-service \
             --cluster $ECS_CLUSTER_NAME \
