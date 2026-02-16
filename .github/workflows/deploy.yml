@@ -97,18 +97,15 @@ jobs:
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
           
           cd backend
-          IMAGE_TAG="latest"
-          IMAGE_URI="$ECR_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG"
+          IMAGE_URI="$ECR_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest"
           
           echo "Building Docker image with BuildKit..."
           DOCKER_BUILDKIT=1 docker build \
             --no-cache \
-            -t ${IMAGE_URI}:latest \
             -t ${IMAGE_URI} \
             .
           
           echo "Pushing images..."
-          docker push ${IMAGE_URI}:latest
           docker push ${IMAGE_URI}
           
           echo "ECR_IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
