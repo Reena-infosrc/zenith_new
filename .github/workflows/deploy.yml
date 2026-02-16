@@ -30,9 +30,7 @@ jobs:
             cloudfront_secret: CLOUDFRONT_DISTRIBUTION_ID_PROD
             ecr_account_secret: ECR_ACCOUNT_PROD
 
-    if: |
-      (github.ref == 'refs/heads/staging' && matrix.branch == 'staging') ||
-      (github.ref == 'refs/heads/main' && matrix.branch == 'main')
+
 
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -40,9 +38,11 @@ jobs:
 
     steps:
       - name: Checkout repository
+        if: matrix.branch == github.ref_name
         uses: actions/checkout@v3
 
       - name: Configure AWS credentials
+        if: matrix.branch == github.ref_name
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -50,14 +50,17 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup Node.js
+        if: matrix.branch == github.ref_name
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Install Serverless Framework
+        if: matrix.branch == github.ref_name
         run: npm install -g serverless
 
       - name: Check if serverless.yml changed
+        if: matrix.branch == github.ref_name
         run: |
           if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q 'backend/serverless.yml' || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             echo "DEPLOY_SERVERLESS=true" >> $GITHUB_ENV
@@ -66,6 +69,7 @@ jobs:
           fi
 
       - name: Check and create ECR repository
+        if: matrix.branch == github.ref_name
         env:
           ECR_ACCOUNT: ${{ secrets[matrix.ecr_account_secret] }}
           ECR_REPO: ${{ secrets[matrix.ecr_repo_secret] }}
@@ -85,6 +89,7 @@ jobs:
           fi
 
       - name: Build and push Docker image
+        if: matrix.branch == github.ref_name
         env:
           ECR_ACCOUNT: ${{ secrets[matrix.ecr_account_secret] }}
           ECR_REPO: ${{ secrets[matrix.ecr_repo_secret] }}
@@ -109,6 +114,7 @@ jobs:
           echo "ECR_IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
       - name: Load environment variables
+        if: matrix.branch == github.ref_name
         run: |
           cd backend
           if [ "${{ matrix.stage }}" = "staging" ]; then
@@ -118,7 +124,7 @@ jobs:
           fi
 
       - name: Deploy with Serverless Framework (if serverless.yml changed)
-        if: env.DEPLOY_SERVERLESS == 'true'
+        if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
         run: |
           cd backend
           serverless deploy --stage $STAGE
@@ -129,7 +135,7 @@ jobs:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
 
       - name: Force ECS service deployment (if only image changed)
-        if: env.DEPLOY_SERVERLESS == 'false'
+        if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'false'
         run: |
           CLUSTER_NAME="zenith-hr-pulse-${{ matrix.stage }}"
           SERVICE_NAME="zenith-hr-pulse-${{ matrix.stage }}-service"
@@ -141,9 +147,11 @@ jobs:
             --region $AWS_REGION
 
       - name: Install frontend dependencies
+        if: matrix.branch == github.ref_name
         run: npm ci --legacy-peer-deps
 
       - name: Build frontend
+        if: matrix.branch == github.ref_name
         env:
           VITE_API_BASE: ${{ secrets[matrix.api_base_secret] }}
           VITE_MSAL_CLIENT_ID: ${{ secrets.REACT_APP_CLIENT_ID }}
@@ -151,6 +159,7 @@ jobs:
         run: npm run build
 
       - name: Deploy frontend to S3
+        if: matrix.branch == github.ref_name
         env:
           S3_BUCKET: ${{ secrets[matrix.s3_bucket_secret] }}
         run: |
@@ -163,6 +172,7 @@ jobs:
             --content-type text/html
 
       - name: Invalidate CloudFront cache
+        if: matrix.branch == github.ref_name
         env:
           DISTRIBUTION_ID: ${{ secrets[matrix.cloudfront_secret] }}
         run: aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/index.html"
