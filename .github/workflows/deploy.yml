@@ -134,12 +134,12 @@ jobs:
       - name: Force ECS service deployment (if only image changed)
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'false'
         run: |
-          CLUSTER_NAME="zenith-hr-pulse-${{ matrix.stage }}"
-          SERVICE_NAME="zenith-hr-pulse-${{ matrix.stage }}-service"
+          ECS_CLUSTER_NAME="zenith-hr-pulse-${{ matrix.stage }}"
+          ECS_SERVICE_NAME="zenith-hr-pulse-${{ matrix.stage }}-service"
           
           aws ecs update-service \
-            --cluster $CLUSTER_NAME \
-            --service $SERVICE_NAME \
+            --cluster $ECS_CLUSTER_NAME \
+            --service $ECS_SERVICE_NAME \
             --force-new-deployment \
             --region $AWS_REGION
 
