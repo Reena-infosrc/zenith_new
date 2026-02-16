@@ -93,11 +93,14 @@ export function ImportEmployees({ isOpen, onClose }: ImportEmployeesProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      {/* <DialogContent className="sm:max-w-md"> */}
+        <DialogContent className="sm:max-w-md max-h-[100vh] overflow-hidden">
+
         <DialogHeader>
           <DialogTitle>Import Employees</DialogTitle>
         </DialogHeader>
         
+        <div className="overflow-y-auto max-h-[80vh] pr-2">
         <Tabs defaultValue="csv" value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="csv">CSV/Excel File</TabsTrigger>
@@ -222,6 +225,7 @@ export function ImportEmployees({ isOpen, onClose }: ImportEmployeesProps) {
             </div>
           </TabsContent>
         </Tabs>
+        </div>
       </DialogContent>
     </Dialog>
   );

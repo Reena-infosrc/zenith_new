@@ -20,7 +20,7 @@ import {
   Download,
   ArrowLeft
 } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart, Legend } from 'recharts';
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { useToast } from "@/hooks/use-toast";
 import { consolidateRemoteLocations } from "@/lib/utils";
@@ -30,6 +30,7 @@ import { API_BASE_URL } from "@/config/api";
 interface Employee {
   id: string;
   employeeId?: string;
+  employee_id?: string;
   name: string;
   position: string;
   department: string;
@@ -142,7 +143,7 @@ export default function Dashboard() {
       // Check cache first
       const cachedData = apiCache.get(CACHE_KEYS.DASHBOARD);
       if (cachedData) {
-        setDashboardData(cachedData);
+        setDashboardData(cachedData as DashboardData);
         setLoading(false);
         return;
       }
@@ -574,11 +575,20 @@ export default function Dashboard() {
       const monthKey = targetDate.toISOString().slice(0, 7); // YYYY-MM format
       const monthName = targetDate.toLocaleDateString('en-US', { month: 'short' });
       
-      const monthData: { month: string; monthName: string; month_number: number; employees: Employee[] } = {
+      const monthData: { 
+        month: string; 
+        monthName: string; 
+        month_number: number; 
+        employees: Employee[]
+        total: number;
+        [key: string]: any; 
+
+      } = {
         month: monthKey,
         monthName: monthName,
         month_number: targetDate.getMonth() + 1,
-        total: 0
+        total: 0,
+        employees: []
       };
       
       // Calculate hires for each category in this month
@@ -688,7 +698,7 @@ export default function Dashboard() {
     return Object.entries(distribution).map(([name, value]) => ({ name, value }));
   };
 
-  const handleChartClick = (data: { activePayload?: Array<{ payload: Record<string, unknown> }> }) => {
+  const handleChartClick = (data: any) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const clickedData = data.activePayload[0].payload;
       
@@ -1193,149 +1203,227 @@ export default function Dashboard() {
             const filteredData = getFilteredDashboardData();
             if (!filteredData) return null;
             
+             // ================= Prepare Data Once =================
+            const accountData = filteredData.by_account
+              ? prepareChartData(filteredData.by_account)
+              : [];
+
+            const locationData = filteredData.by_location
+              ? prepareChartData(filteredData.by_location)
+              : [];
+
+            const employeeStatusData = filteredData.by_employee_status
+              ? prepareChartData(filteredData.by_employee_status)
+              : [];
+
+            const genderData = filteredData.by_gender
+              ? prepareChartData(filteredData.by_gender)
+              : [];
+
+            const statusData = filteredData.by_status
+              ? prepareChartData(filteredData.by_status)
+              : [];
+
+            // ================= Reusable Legend Formatter =================
+            const renderLegend =
+              (data: any[]) =>
+                (value: string, entry: any) => {
+                  const total = data.reduce((sum, item) => sum + item.value, 0);
+                  const percentage =
+                    total > 0
+                      ? ((entry.payload.value / total) * 100).toFixed(0)
+                      : 0;
+
+                  return (
+                    <span className="text-sm font-medium">
+                      {value} ({entry.payload.value}, {percentage}%)
+                    </span>
+                  );
+                };
+
             return (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                {/* Account Distribution */}
-                {filteredData.by_account && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>By Account</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={prepareChartData(filteredData.by_account)}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
-                          <YAxis />
-                          <Tooltip />
-                          <Bar dataKey="value" fill="#8884d8" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-                )}
+              <div className="space-y-8 mb-8">
 
-                {/* Location Distribution */}
-                {filteredData.by_location && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>By Location</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={prepareChartData(filteredData.by_location)}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
-                          <YAxis />
-                          <Tooltip />
-                          <Bar dataKey="value" fill="#82ca9d" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-                )}
+                {/* ================= ROW 1 (2 Columns) ================= */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-                {/* Employment Status */}
-                {filteredData.by_employee_status && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>By Employment Status</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={prepareChartData(filteredData.by_employee_status)}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                            outerRadius={80}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {prepareChartData(filteredData.by_employee_status).map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-                )}
+                  {/* By Account */}
+                  {accountData.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>By Account</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-80">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={accountData}
+                              margin={{ top: 10, right: 10, left: 0, bottom: 20 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis
+                                dataKey="name"
+                                angle={-45}
+                                textAnchor="end"
+                                height={100}
+                                interval={0}
+                                tick={{ fontSize: 11 }}
+                              />
+                              <YAxis tick={{ fontSize: 11 }} />
+                              <Tooltip />
+                              <Bar dataKey="value" fill="#8884d8" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {/* By Gender */}
-                {filteredData.by_gender && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>By Gender</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={prepareChartData(filteredData.by_gender)}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                            outerRadius={80}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {prepareChartData(filteredData.by_gender).map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-                )}
+                  {/* By Location */}
+                  {locationData.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>By Location</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-80">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={locationData}
+                              margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis
+                                dataKey="name"
+                                angle={-45}
+                                textAnchor="end"
+                                height={100}
+                                interval={0}
+                                tick={{ fontSize: 11 }}
+                              />
+                              <YAxis tick={{ fontSize: 11 }} />
+                              <Tooltip />
+                              <Bar dataKey="value" fill="#82ca9d" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {/* By Status */}
-                {filteredData.by_status && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>By Status</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-64">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={prepareChartData(filteredData.by_status)}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                            outerRadius={80}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {prepareChartData(filteredData.by_status).map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-                )}
+                </div>
+
+
+                {/* ================= ROW 2 (3 Columns) ================= */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                  {/* Employment Status */}
+                  {employeeStatusData.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>By Employment Status</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-80">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={employeeStatusData}
+                                cx="50%"
+                                cy="45%"
+                                outerRadius={75}
+                                dataKey="value"
+                              >
+                                {employeeStatusData.map((entry, index) => (
+                                  <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip />
+                              <Legend
+                                verticalAlign="bottom"
+                                align="center"
+                                formatter={renderLegend(employeeStatusData)}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Gender */}
+                  {genderData.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>By Gender</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-80">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={genderData}
+                                cx="50%"
+                                cy="45%"
+                                outerRadius={75}
+                                dataKey="value"
+                              >
+                                {genderData.map((entry, index) => (
+                                  <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip />
+                              <Legend
+                                verticalAlign="bottom"
+                                align="center"
+                                formatter={renderLegend(genderData)}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Status */}
+                  {statusData.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>By Status</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-80">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={statusData}
+                                cx="50%"
+                                cy="45%"
+                                outerRadius={75}
+                                dataKey="value"
+                              >
+                                {statusData.map((entry, index) => (
+                                  <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip />
+                              <Legend
+                                verticalAlign="bottom"
+                                align="center"
+                                formatter={renderLegend(statusData)}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                </div>
+
               </div>
             );
+
           })()}
 
           {/* Employee Modal */}
