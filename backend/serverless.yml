@@ -41,7 +41,6 @@ provider:
   iam:
     role:
       statements:
-        # DynamoDB Permissions - Environment-specific tables
         - Effect: Allow
           Action:
             - dynamodb:PutItem
@@ -76,7 +75,6 @@ provider:
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.users}
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.users}/index/*
 
-        # S3 Permissions - Environment-specific buckets
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -91,7 +89,6 @@ provider:
             - arn:aws:s3:::${self:custom.s3DomainBucket}
             - arn:aws:s3:::${self:custom.s3DomainBucket}/*
 
-        # AWS Bedrock Permissions
         - Effect: Allow
           Action:
             - bedrock:InvokeModel
