@@ -776,8 +776,9 @@ resources:
             AttributeType: S
           - AttributeName: fromEmployeeId
             AttributeType: S
-          - AttributeName: toEmployeeId 
+          - AttributeName: toEmployeeId
             AttributeType: S
+        KeySchema:
           - AttributeName: id
             KeyType: HASH
         GlobalSecondaryIndexes:
