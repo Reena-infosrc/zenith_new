@@ -59,7 +59,7 @@ jobs:
 
       - name: Install Serverless Framework
         if: matrix.branch == github.ref_name
-        run: npm install -g serverless
+        run: npm install -g serverless@3
 
       - name: Check if serverless.yml changed
         if: matrix.branch == github.ref_name
