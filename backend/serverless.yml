@@ -774,11 +774,10 @@ resources:
         AttributeDefinitions:
           - AttributeName: id
             AttributeType: S
-          - AttributeName: account
+          - AttributeName: fromEmployeeId
             AttributeType: S
-          - AttributeName: year
+          - AttributeName: toEmployeeId 
             AttributeType: S
-        KeySchema:
           - AttributeName: id
             KeyType: HASH
         GlobalSecondaryIndexes:
