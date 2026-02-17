@@ -7,12 +7,10 @@ custom:
   acmCertificateArn: ${env:ACM_CERTIFICATE_ARN}
   awsAccountId: ${env:AWS_ACCOUNT_ID}
   
-  # S3 Buckets
   s3PhotosBucket: ${env:S3_BUCKET_PHOTOS}
   s3DocumentsBucket: ${env:S3_BUCKET_DOCUMENTS}
   s3DomainBucket: ${env:S3_BUCKET_DOMAIN}
   
-  # DynamoDB Tables
   dynamoDbTables:
     employees: ${env:DYNAMODB_TABLE_EMPLOYEES}
     users: ${env:DYNAMODB_TABLE_USERS}

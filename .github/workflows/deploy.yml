@@ -40,6 +40,8 @@ jobs:
       - name: Checkout repository
         if: matrix.branch == github.ref_name
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
 
       - name: Configure AWS credentials
         if: matrix.branch == github.ref_name
@@ -62,10 +64,15 @@ jobs:
       - name: Check if serverless.yml changed
         if: matrix.branch == github.ref_name
         run: |
-          if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q 'backend/serverless.yml' || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          # Check if backend/serverless.yml changed
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git log -1 --name-only --pretty="")
+          
+          if echo "$CHANGED_FILES" | grep -q 'backend/serverless.yml' || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             echo "DEPLOY_SERVERLESS=true" >> $GITHUB_ENV
+            echo "Serverless config changed or manual trigger. DEPLOY_SERVERLESS=true"
           else
             echo "DEPLOY_SERVERLESS=false" >> $GITHUB_ENV
+            echo "No changes in backend/serverless.yml. DEPLOY_SERVERLESS=false"
           fi
 
       - name: Check and create ECR repository
