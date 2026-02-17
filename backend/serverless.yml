@@ -158,7 +158,6 @@ resources:
         SubnetId: !Ref PublicSubnet2
         RouteTableId: !Ref PublicRouteTable
    
-    # SECTION 2: SECURITY GROUP
     ZenithSecurityGroup:
       Type: AWS::EC2::SecurityGroup
       Properties:
@@ -178,7 +177,6 @@ resources:
             ToPort: 443
             CidrIp: 0.0.0.0/0
 
-    # SECTION 3: ECS CLUSTER
     ZenithCluster:
       Type: AWS::ECS::Cluster
       Properties:
@@ -214,7 +212,6 @@ resources:
         LogGroupName: /ecs/zenith-hr-pulse-${self:provider.stage}
         RetentionInDays: 7
    
-    # SECTION 4: LOAD BALANCER
     ZenithALB:
       Type: AWS::ElasticLoadBalancingV2::LoadBalancer
       Properties:
@@ -240,8 +237,7 @@ resources:
         UnhealthyThresholdCount: 5
         Matcher:
           HttpCode: 200-399
-
-        
+    
     ZenithListener:
       Type: AWS::ElasticLoadBalancingV2::Listener
       Properties:
@@ -255,7 +251,6 @@ resources:
               Port: "443"
               StatusCode: HTTP_301
 
-# HTTPS listener with ACM certificate
     ZenithHttpsListener:
       Type: AWS::ElasticLoadBalancingV2::Listener
       Properties:
@@ -268,7 +263,6 @@ resources:
           - Type: forward
             TargetGroupArn: !Ref ZenithTargetGroup
  
-    # SECTION 5: ECS TASK & SERVICE
     ZenithTaskDefinition:
       Type: AWS::ECS::TaskDefinition
       Properties:
@@ -339,7 +333,6 @@ resources:
                 awslogs-region: us-east-1
                 awslogs-stream-prefix: api
 
-    # SECTION 6: DYNAMODB
     ZenithHrAdmin:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -843,15 +836,11 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-
-    # SECTION 7: S3 BUCKETS (BACKEND ONLY)
     
     ZenithHrPulsePhotosBucket:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:custom.s3PhotosBucket}
-        # VersioningConfiguration:
-        #   Status: Enabled
         PublicAccessBlockConfiguration:
           BlockPublicAcls: true
           BlockPublicPolicy: true
@@ -862,20 +851,16 @@ resources:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:custom.s3DomainBucket}
-        # VersioningConfiguration:
-        #   Status: Enabled
         WebsiteConfiguration:
           IndexDocument: index.html
           ErrorDocument: error.html
 
-    # CloudFront Origin Access Identity for secure S3 access
     CloudFrontOAI:
       Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
       Properties:
         CloudFrontOriginAccessIdentityConfig:
           Comment: Access identity for Zenith frontend CloudFront
 
-    # Bucket policy to allow CloudFront OAI to read objects
     ZenithAppsDomainBucketPolicy:
       Type: AWS::S3::BucketPolicy
       Properties:
@@ -890,7 +875,6 @@ resources:
               Action: s3:GetObject
               Resource: !Sub arn:aws:s3:::${self:custom.s3DomainBucket}/*
 
-    # CloudFront distribution for frontend (uses same ACM certificate)
     ZenithCloudFrontDistribution:
       Type: AWS::CloudFront::Distribution
       Properties:
@@ -927,8 +911,6 @@ resources:
             - ErrorCode: 403
               ResponsePagePath: /index.html
               ResponseCode: 200
-
-
 
     ZenithService:
       Type: AWS::ECS::Service

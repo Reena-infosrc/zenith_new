@@ -131,6 +131,7 @@ jobs:
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
         run: |
           cd backend
+          serverless plugin install -n serverless-dotenv-plugin
           serverless deploy --stage $STAGE
         env:
           ECR_IMAGE_URI: ${{ env.ECR_IMAGE_URI }}
@@ -149,7 +150,7 @@ jobs:
 
       - name: Install frontend dependencies
         if: matrix.branch == github.ref_name
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Build frontend
         if: matrix.branch == github.ref_name
