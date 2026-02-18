@@ -2,8 +2,9 @@ service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 useDotenv: true
 
+
 custom:
-  ecrImageUri: ${env:ECR_IMAGE_URI}
+  ecrImageUri: ${env:ECR_IMAGE_URI, "${env:AWS_ACCOUNT_ID}.dkr.ecr.${self:provider.region}.amazonaws.com/${env:ECR_REPOSITORY}:latest"}
   acmCertificateArn: ${env:ACM_CERTIFICATE_ARN}
   awsAccountId: ${env:AWS_ACCOUNT_ID}
   
@@ -24,6 +25,12 @@ custom:
     engagementActivities: ${env:DYNAMODB_TABLE_ENGAGEMENT_ACTIVITIES}
     resourceMappings: ${env:DYNAMODB_TABLE_RESOURCE_MAPPINGS}
     revenueForecasts: ${env:DYNAMODB_TABLE_REVENUE_FORECASTS}
+
+  # VPC Configuration
+  vpcId: !Ref ZenithHrPulseVPC
+  publicSubnet1: !Ref PublicSubnet1
+  publicSubnet2: !Ref PublicSubnet2
+  zenithSecurityGroup: !Ref ZenithSecurityGroup
 
 plugins:
   - serverless-dotenv-plugin
@@ -66,6 +73,7 @@ provider:
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.competencies}
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.competencies}/index/*
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.cycle}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.cycle}/index/*
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.engagementActivities}
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.engagementActivities}/index/*
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.resourceMappings}
@@ -157,12 +165,12 @@ resources:
       Properties:
         SubnetId: !Ref PublicSubnet2
         RouteTableId: !Ref PublicRouteTable
-   
+
     ZenithSecurityGroup:
       Type: AWS::EC2::SecurityGroup
       Properties:
         GroupDescription: Allow ALB and ECS traffic
-        VpcId: !Ref ZenithHrPulseVPC
+        VpcId: ${self:custom.vpcId}
         SecurityGroupIngress:
           - IpProtocol: tcp
             FromPort: 80
@@ -217,15 +225,15 @@ resources:
       Properties:
         Type: application
         Subnets:
-          - !Ref PublicSubnet1
-          - !Ref PublicSubnet2
+          - ${self:custom.publicSubnet1}
+          - ${self:custom.publicSubnet2}
         SecurityGroups:
-          - !Ref ZenithSecurityGroup
+          - ${self:custom.zenithSecurityGroup}
 
     ZenithTargetGroup:
       Type: AWS::ElasticLoadBalancingV2::TargetGroup
       Properties:
-        VpcId: !Ref ZenithHrPulseVPC
+        VpcId: ${self:custom.vpcId}
         Port: 5000
         Protocol: HTTP
         TargetType: ip
@@ -927,10 +935,10 @@ resources:
           AwsvpcConfiguration:
             AssignPublicIp: ENABLED
             Subnets:
-              - !Ref PublicSubnet1
-              - !Ref PublicSubnet2
+              - ${self:custom.publicSubnet1}
+              - ${self:custom.publicSubnet2}
             SecurityGroups:
-              - !Ref ZenithSecurityGroup
+              - ${self:custom.zenithSecurityGroup}
         LoadBalancers:
           - ContainerName: api
             ContainerPort: 5000
