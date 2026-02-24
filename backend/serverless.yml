@@ -838,7 +838,7 @@ resources:
           - AttributeName: id
             KeyType: HASH
         GlobalSecondaryIndexes:
-          - IndexName: EmployeeIdIndex
+          - IndexName: EmployeeIndex
             KeySchema:
               - AttributeName: employeeId
                 KeyType: HASH
