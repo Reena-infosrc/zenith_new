@@ -17,7 +17,8 @@ from ..security import (
     authenticate_user, 
     create_access_token, 
     ACCESS_TOKEN_EXPIRE_MINUTES,
-    get_current_active_user
+    get_current_active_user,
+    jwks_validator
 )
 
 # Configure logging
@@ -90,26 +91,26 @@ async def refresh_access_token(current_user = Depends(get_current_active_user)):
 async def exchange_msal_token(msal_token: str = Body(..., embed=True)):
     """Exchange MSAL token for backend JWT token"""
     try:
-        logger.info(f"DEBUG: Received MSAL token")
+        logger.info("Received MSAL token for exchange")
         
-        # Extract user email from MSAL token (simplified approach)
-        # In production, you should validate the token with Microsoft Graph API
-        from jose import jwt as jose_jwt
-        
-        try:
-            # Decode the MSAL token without verification to get user info
-            # This is just for demo purposes - in production, validate with Microsoft
-            decoded_token = jose_jwt.get_unverified_claims(msal_token)
-            user_email = decoded_token.get("preferred_username") or decoded_token.get("email") or decoded_token.get("upn")
-            logger.info(f"DEBUG: Extracted user email from MSAL token: {user_email}")
-        except Exception as e:
-            logger.warning(f"DEBUG: Could not decode MSAL token: {e}")
-            user_email = None
-        
-        # If we can't extract email, use a fallback for now
+        import os
+        tenant_id = os.getenv("AZURE_MSAL_TENANT_ID")
+        client_id = os.getenv("AZURE_MSAL_CLIENT_ID")
+
+        if not tenant_id or not client_id:
+            logger.error("AZURE_MSAL_TENANT_ID or AZURE_MSAL_CLIENT_ID not configured")
+            raise HTTPException(status_code=500, detail="SSO Configuration error")
+
+        # Validate the token locally using JWKS
+        payload = jwks_validator.validate_token(msal_token, tenant_id, client_id)
+        if not payload:
+            logger.warning("Token validation failed")
+            raise HTTPException(status_code=401, detail="Invalid MSAL token")
+
+        user_email = payload.get("preferred_username") or payload.get("email") or payload.get("upn")
         if not user_email:
-            logger.warning("Could not extract email from MSAL token, using fallback")
-            user_email = "admin@example.com"
+            logger.error(f"Could not extract email from validated token payload: {payload}")
+            raise HTTPException(status_code=401, detail="Could not identify user from token")
         
         # Create a backend token for the actual user
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -118,6 +119,8 @@ async def exchange_msal_token(msal_token: str = Body(..., embed=True)):
         )
         logger.info(f"DEBUG: Created backend token for: {user_email}")
         return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error exchanging MSAL token: {str(e)}", exc_info=True)
         raise HTTPException(

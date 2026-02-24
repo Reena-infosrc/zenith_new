@@ -5,12 +5,88 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import logging
+import requests
+import time
+from jose import jwt, jwk, JWTError
 
 from .models import TokenData, MOCK_USERS
 from .config import config
 
 # Configure logger
 logger = logging.getLogger(__name__)
+
+class JWKSValidator:
+    _instance = None
+    _jwks_cache = {}
+    _last_fetched = 0
+    _cache_duration = 86400  # 24 hours
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(JWKSValidator, cls).__new__(cls)
+        return cls._instance
+
+    def _fetch_jwks(self, tenant_id: str):
+        current_time = time.time()
+        if tenant_id in self._jwks_cache and (current_time - self._last_fetched) < self._cache_duration:
+            return self._jwks_cache[tenant_id]
+
+        logger.info(f"Fetching JWKS for tenant: {tenant_id}")
+        url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            jwks = response.json()
+            self._jwks_cache[tenant_id] = jwks
+            self._last_fetched = current_time
+            return jwks
+        except Exception as e:
+            logger.error(f"Failed to fetch JWKS: {e}")
+            return self._jwks_cache.get(tenant_id)
+
+    def validate_token(self, token: str, tenant_id: str, client_id: str):
+        try:
+            # Get the key ID from the header
+            unverified_header = jwt.get_unverified_header(token)
+            kid = unverified_header.get("kid")
+            if not kid:
+                raise JWTError("Token header missing 'kid'")
+
+            # Fetch JWKS
+            jwks = self._fetch_jwks(tenant_id)
+            if not jwks:
+                raise JWTError("Could not retrieve JWKS")
+
+            # Find the correct public key
+            public_key = None
+            for key in jwks.get("keys", []):
+                if key.get("kid") == kid:
+                    public_key = jwk.construct(key)
+                    break
+
+            if not public_key:
+                raise JWTError(f"Public key for kid {kid} not found")
+
+            # Validate the token
+            # ID Tokens use Client ID as audience
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                audience=client_id,
+                issuer=f"https://login.microsoftonline.com/{tenant_id}/v2.0"
+            )
+            
+            logger.info("Successfully validated Microsoft token locally")
+            return payload
+        except JWTError as e:
+            logger.error(f"JWT Validation Error: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error during token validation: {e}")
+            return None
+
+jwks_validator = JWKSValidator()
 
 # Security configuration
 SECRET_KEY = config.get("security.secret_key", "your-secret-key-for-development")
