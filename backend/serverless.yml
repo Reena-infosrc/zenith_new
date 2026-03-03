@@ -838,12 +838,18 @@ resources:
           - AttributeName: id
             KeyType: HASH
         GlobalSecondaryIndexes:
-          - IndexName: EmployeeIndex
-            KeySchema:
-              - AttributeName: employeeId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
+          # - IndexName: EmployeeIdIndex
+          #   KeySchema:
+          #     - AttributeName: employeeId
+          #       KeyType: HASH
+          #   Projection:
+          #     ProjectionType: ALL
+          # - IndexName: EmployeeIndex
+          #   KeySchema:
+          #     - AttributeName: employeeId
+          #       KeyType: HASH
+          #   Projection:
+          #     ProjectionType: ALL
     
     ZenithHrPulsePhotosBucket:
       Type: AWS::S3::Bucket
