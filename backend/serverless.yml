@@ -2,16 +2,15 @@ service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 useDotenv: true
 
-
 custom:
   ecrImageUri: ${env:ECR_IMAGE_URI, "${env:AWS_ACCOUNT_ID}.dkr.ecr.${self:provider.region}.amazonaws.com/${env:ECR_REPOSITORY}:latest"}
   acmCertificateArn: ${env:ACM_CERTIFICATE_ARN}
   awsAccountId: ${env:AWS_ACCOUNT_ID}
-  
+
   s3PhotosBucket: ${env:S3_BUCKET_PHOTOS}
   s3DocumentsBucket: ${env:S3_BUCKET_DOCUMENTS}
   s3DomainBucket: ${env:S3_BUCKET_DOMAIN}
-  
+
   dynamoDbTables:
     employees: ${env:DYNAMODB_TABLE_EMPLOYEES}
     users: ${env:DYNAMODB_TABLE_USERS}
@@ -101,7 +100,6 @@ provider:
           Action:
             - bedrock:InvokeModel
           Resource: arn:aws:bedrock:${self:provider.region}::foundation-model/*
-
 
 resources:
   Resources:
@@ -219,7 +217,7 @@ resources:
       Properties:
         LogGroupName: /ecs/zenith-hr-pulse-${self:provider.stage}
         RetentionInDays: 7
-   
+
     ZenithALB:
       Type: AWS::ElasticLoadBalancingV2::LoadBalancer
       Properties:
@@ -245,7 +243,7 @@ resources:
         UnhealthyThresholdCount: 5
         Matcher:
           HttpCode: 200-399
-    
+
     ZenithListener:
       Type: AWS::ElasticLoadBalancingV2::Listener
       Properties:
@@ -270,7 +268,7 @@ resources:
         DefaultActions:
           - Type: forward
             TargetGroupArn: !Ref ZenithTargetGroup
- 
+
     ZenithTaskDefinition:
       Type: AWS::ECS::TaskDefinition
       Properties:
@@ -351,7 +349,7 @@ resources:
             AttributeType: S
           - AttributeName: created_at
             AttributeType: S
-          - AttributeName: email  
+          - AttributeName: email
             AttributeType: S
           - AttributeName: employee_id
             AttributeType: S
@@ -371,11 +369,11 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: EmployeeIdIndex  
-            KeySchema:  
+          - IndexName: EmployeeIdIndex
+            KeySchema:
               - AttributeName: employee_id
-                KeyType: HASH   
-            Projection:     
+                KeyType: HASH
+            Projection:
               ProjectionType: ALL
 
     ZenithHrEmployees:
@@ -408,10 +406,10 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: EmployeeIdIndex  
-            KeySchema:    
+          - IndexName: EmployeeIdIndex
+            KeySchema:
               - AttributeName: employee_id
-                KeyType: HASH   
+                KeyType: HASH
             Projection:
               ProjectionType: ALL
           - IndexName: Id-Index
@@ -439,6 +437,8 @@ resources:
             AttributeType: S
           - AttributeName: reviewId
             AttributeType: S
+          - AttributeName: reviewType
+            AttributeType: S
         KeySchema:
           - AttributeName: pk
             KeyType: HASH
@@ -451,20 +451,20 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName:  EntityTypeIndex
+          - IndexName: EntityTypeIndex
             KeySchema:
               - AttributeName: entityType
                 KeyType: HASH
             Projection:
-               ProjectionType: ALL
-          - IndexName: ReviewerIndex
-            KeySchema:        
-              - AttributeName: reviewerId
-                KeyType: HASH     
-            Projection: 
               ProjectionType: ALL
-          - IndexName: ReviewIndex      
-            KeySchema:    
+          - IndexName: ReviewerIndex
+            KeySchema:
+              - AttributeName: reviewerId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReviewIdIndex
+            KeySchema:
               - AttributeName: reviewId
                 KeyType: HASH
             Projection:
@@ -483,7 +483,7 @@ resources:
           - AttributeName: created_by
             AttributeType: S
           - AttributeName: survey_date
-            AttributeType: S 
+            AttributeType: S
         KeySchema:
           - AttributeName: id
             KeyType: HASH
@@ -500,11 +500,11 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: SurveyDateIndex  
-            KeySchema:  
+          - IndexName: SurveyDateIndex
+            KeySchema:
               - AttributeName: survey_date
-                KeyType: HASH   
-            Projection:     
+                KeyType: HASH
+            Projection:
               ProjectionType: ALL
 
     ZenithHrClients:
@@ -532,16 +532,16 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: IndustryIndex    
+          - IndexName: IndustryIndex
             KeySchema:
               - AttributeName: industry
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: CurrentStageIndex  
-            KeySchema:    
+          - IndexName: CurrentStageIndex
+            KeySchema:
               - AttributeName: current_stage
-                KeyType: HASH               
+                KeyType: HASH
             Projection:
               ProjectionType: ALL
 
@@ -567,7 +567,7 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: CategoryIndex    
+          - IndexName: CategoryIndex
             KeySchema:
               - AttributeName: category
                 KeyType: HASH
@@ -608,12 +608,12 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: ActiveIndex  
-            KeySchema:    
+          - IndexName: ActiveIndex
+            KeySchema:
               - AttributeName: is_active
-                KeyType: HASH   
+                KeyType: HASH
             Projection:
-              ProjectionType: ALL 
+              ProjectionType: ALL
 
     ZenithHrResourceMappings:
       Type: AWS::DynamoDB::Table
@@ -637,10 +637,10 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: EntityIdIndex  
-            KeySchema:    
+          - IndexName: EntityIdIndex
+            KeySchema:
               - AttributeName: entity_id
-                KeyType: HASH 
+                KeyType: HASH
             Projection:
               ProjectionType: ALL
 
@@ -666,61 +666,61 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: YearIndex  
-            KeySchema:  
+          - IndexName: YearIndex
+            KeySchema:
               - AttributeName: year
-                KeyType: HASH   
+                KeyType: HASH
             Projection:
               ProjectionType: ALL
 
-    # ZenithHrReviewDraft:
-    #   Type: AWS::DynamoDB::Table
-    #   Properties:
-    #     TableName: zenith-hr-review-draft-${self:provider.stage}
-    #     BillingMode: PAY_PER_REQUEST
-    #     AttributeDefinitions:
-    #       - AttributeName: pk
-    #         AttributeType: S
-    #       - AttributeName: sk
-    #         AttributeType: S
-    #       - AttributeName: employeeId
-    #         AttributeType: S
-    #       - AttributeName: reviewerId
-    #         AttributeType: S
-    #       - AttributeName: reviewId
-    #         AttributeType: S
-    #       - AttributeName: reviewerType
-    #         AttributeType: S
-    #     KeySchema:
-    #       - AttributeName: pk
-    #         KeyType: HASH
-    #       - AttributeName: sk
-    #         KeyType: RANGE
-    #     GlobalSecondaryIndexes:
-    #       - IndexName: EmployeeIndex
-    #         KeySchema:
-    #           - AttributeName: employeeId
-    #             KeyType: HASH
-    #         Projection:
-    #           ProjectionType: ALL
-    #       - IndexName: ReviewerIndex
-    #         KeySchema:
-    #           - AttributeName: reviewerId
-    #             KeyType: HASH   
-    #         Projection:
-    #           ProjectionType: ALL
-    #       - IndexName: ReviewIndex      
-    #         KeySchema:
-    #           - AttributeName: reviewId
-    #             KeyType: HASH   
-    #         Projection:
-    #           ProjectionType: ALL
-    #       - IndexName: ReviewerTypeIndex      
-    #         KeySchema:  
-    #           - AttributeName: reviewerType
-    #             KeyType: HASH     
-    #         Projection:
-    #           ProjectionType: ALL
+    ZenithHrReviewDraft:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-review-draft-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: employeeId
+            AttributeType: S
+          - AttributeName: reviewerId
+            AttributeType: S
+          - AttributeName: reviewId
+            AttributeType: S
+          - AttributeName: reviewType
+            AttributeType: S
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: EmployeeIndex
+            KeySchema:
+              - AttributeName: employeeId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReviewerIndex
+            KeySchema:
+              - AttributeName: reviewerId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReviewIdIndex
+            KeySchema:
+              - AttributeName: reviewId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReviewTypeIndex
+            KeySchema:
+              - AttributeName: reviewType
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
 
     ZenithHrUsers:
       Type: AWS::DynamoDB::Table
@@ -767,10 +767,10 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: ActiveIndex  
-            KeySchema:    
+          - IndexName: ActiveIndex
+            KeySchema:
               - AttributeName: is_active
-                KeyType: HASH   
+                KeyType: HASH
             Projection:
               ProjectionType: ALL
 
@@ -796,10 +796,10 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: ToEmployeeIndex  
-            KeySchema:    
+          - IndexName: ToEmployeeIndex
+            KeySchema:
               - AttributeName: toEmployeeId
-                KeyType: HASH   
+                KeyType: HASH
             Projection:
               ProjectionType: ALL
 
@@ -844,7 +844,7 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-    
+
     ZenithHrPulsePhotosBucket:
       Type: AWS::S3::Bucket
       Properties:
