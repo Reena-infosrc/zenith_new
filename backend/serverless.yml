@@ -463,9 +463,15 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: ReviewIdIndex
+          - IndexName: ReviewIndex
             KeySchema:
               - AttributeName: reviewId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReviewTypeIndex
+            KeySchema:
+              - AttributeName: reviewType
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
@@ -709,7 +715,7 @@ resources:
                 KeyType: HASH
             Projection:
               ProjectionType: ALL
-          - IndexName: ReviewIdIndex
+          - IndexName: ReviewIndex
             KeySchema:
               - AttributeName: reviewId
                 KeyType: HASH
