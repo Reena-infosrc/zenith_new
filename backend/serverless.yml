@@ -832,8 +832,8 @@ resources:
         AttributeDefinitions:
           - AttributeName: id
             AttributeType: S
-          - AttributeName: employeeId
-            AttributeType: S
+          # - AttributeName: employeeId
+          #   AttributeType: S
         KeySchema:
           - AttributeName: id
             KeyType: HASH
