@@ -8,12 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { 
-  BarChart2, 
-  Users, 
-  MapPin, 
-  Building, 
-  UserCheck, 
+import {
+  BarChart2,
+  Users,
+  MapPin,
+  Building,
+  UserCheck,
   TrendingUp,
   Filter,
   Eye,
@@ -86,7 +86,7 @@ export default function Dashboard() {
   const [selectedDataPoint, setSelectedDataPoint] = useState<ChartDataPoint | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
-  
+
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const { toast } = useToast();
 
@@ -101,22 +101,22 @@ export default function Dashboard() {
         });
         return;
       }
-      
+
       // Helper function to get employee name by ID (for manager field)
       const getManagerName = (employeeId: string) => {
         // Search in all dashboard employees, not just filtered ones
         const employee = dashboardData?.employees?.find(emp => emp.id === employeeId);
         return employee ? employee.name : "Unknown";
       };
-      
+
       // Generate filename with timestamp and context
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
       const context = selectedDataPoint?.month || "employees";
       const filename = `employees_${context.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.csv`;
-      
+
       // Use the comprehensive CSV export utility
       exportEmployeesToCSV(filteredEmployees, filename, getManagerName);
-      
+
       toast({
         title: "Export Successful",
         description: `${filteredEmployees.length} employees exported to CSV successfully.`,
@@ -139,7 +139,7 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      
+
       // Check cache first
       const cachedData = apiCache.get(CACHE_KEYS.DASHBOARD);
       if (cachedData) {
@@ -147,35 +147,57 @@ export default function Dashboard() {
         setLoading(false);
         return;
       }
-      
+
       const token = localStorage.getItem('auth_token');
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
-      
+
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      
+
       const response = await fetch(`${API_BASE_URL}/employees-dashboard/`, { headers });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Transform employee data to match frontend interface
       if (data.employees) {
-        data.employees = data.employees.map((emp: Employee) => ({
-          ...emp,
-          employeeId: emp.employee_id || emp.employeeId || "",
-          id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9)
-        }));
+        data.employees = data.employees.map((emp: Employee) => {
+          // Normalize account names specifically to fix duplicate entries
+          let normalizedAccount = emp.account;
+          if (normalizedAccount === "ADP- USA") {
+            normalizedAccount = "ADP - USA";
+          }
+
+          // Normalize location casing to fix duplicate entries like "india", "INDIA", "India"
+          let normalizedLocation = emp.location;
+          if (normalizedLocation) {
+            normalizedLocation = normalizedLocation.trim().split(/\s+/).map(word => {
+              if (word.toUpperCase() === 'USA') return 'USA';
+              if (word.toUpperCase() === 'US') return 'US';
+              if (word.toUpperCase() === 'UK') return 'UK';
+              // Title case other words
+              return word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : '';
+            }).join(' ');
+          }
+
+          return {
+            ...emp,
+            account: normalizedAccount,
+            location: normalizedLocation || emp.location,
+            employeeId: emp.employee_id || emp.employeeId || "",
+            id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9)
+          };
+        });
       }
-      
+
       setDashboardData(data);
-      
+
       // Cache the data
       apiCache.set(CACHE_KEYS.DASHBOARD, data, 5 * 60 * 1000); // Cache for 5 minutes
     } catch (err) {
@@ -190,47 +212,47 @@ export default function Dashboard() {
     if (selectedLocation === "all") {
       return employees;
     }
-    
+
     const filtered = employees.filter(emp => {
       const location = (emp.location?.toLowerCase() || "").trim();
-      
+
       if (selectedLocation === "india") {
         // India locations: Chennai, Hyderabad, Remote, or any location containing "india"
         // Also check for common Indian city names
         const indiaLocations = ["chennai", "hyderabad", "remote", "india"];
         const indiaKeywords = ["india", "chennai", "hyderabad", "bangalore", "mumbai", "delhi", "pune", "kolkata", "noida", "gurgaon"];
-        
+
         // Check if location matches any India city or contains India keywords
-        const matches = indiaLocations.includes(location) || 
-               indiaKeywords.some(keyword => location.includes(keyword)) ||
-               location.includes("india");
-        
+        const matches = indiaLocations.includes(location) ||
+          indiaKeywords.some(keyword => location.includes(keyword)) ||
+          location.includes("india");
+
         return matches;
       } else if (selectedLocation === "usa") {
         // USA locations: USA, US, United States, or any US state/city
         const usaLocations = ["usa", "us", "united states"];
         const usaKeywords = ["usa", "us", "united states", "texas", "georgia", "california", "new york", "new jersey", "michigan", "houston", "rochester", "springfield", "livonia", "cumming"];
-        
+
         // Check if location matches USA or contains USA keywords
         // Exclude India locations from USA
         const isIndiaLocation = ["chennai", "hyderabad", "remote", "india", "bangalore", "mumbai", "delhi"].some(keyword => location.includes(keyword));
         if (isIndiaLocation) return false;
-        
-        return usaLocations.includes(location) || 
-               usaKeywords.some(keyword => location.includes(keyword));
+
+        return usaLocations.includes(location) ||
+          usaKeywords.some(keyword => location.includes(keyword));
       }
       return true;
     });
-    
+
     return filtered;
   };
 
   // Get filtered dashboard data based on location
   const getFilteredDashboardData = (): DashboardData | null => {
     if (!dashboardData) return null;
-    
+
     const locationFilteredEmployees = getLocationFilteredEmployees(dashboardData.employees);
-    
+
     // Recalculate all analytics based on filtered employees
     const by_account: { [key: string]: number } = {};
     const by_location: { [key: string]: number } = {};
@@ -241,16 +263,16 @@ export default function Dashboard() {
     const by_department: { [key: string]: number } = {};
     const by_gender: { [key: string]: number } = {};
     const by_status: { [key: string]: number } = {};
-    
+
     locationFilteredEmployees.forEach(emp => {
       // Only count active employees
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return;
-      
+
       // Account
       const account = emp.account || "Unknown";
       by_account[account] = (by_account[account] || 0) + 1;
-      
+
       // Location
       const location = emp.location || "Unknown";
       const normalizedLocation = location.toLowerCase().trim();
@@ -259,49 +281,49 @@ export default function Dashboard() {
       } else {
         by_location[location] = (by_location[location] || 0) + 1;
       }
-      
+
       // Employee status
       const empStatusType = emp.employee_status || "Unknown";
       by_employee_status[empStatusType] = (by_employee_status[empStatusType] || 0) + 1;
-      
+
       // Employment category
       const category = emp.employment_category || "Unknown";
       by_employment_category[category] = (by_employment_category[category] || 0) + 1;
-      
+
       // Is leader
       const isLeader = emp.is_leader || "No";
       by_is_leader[isLeader] = (by_is_leader[isLeader] || 0) + 1;
-      
+
       // Expertise
       const expertise = emp.expertise || "Unknown";
       by_expertise[expertise] = (by_expertise[expertise] || 0) + 1;
-      
+
       // Department
       const department = emp.department || "Unknown";
       by_department[department] = (by_department[department] || 0) + 1;
-      
+
       // Gender
       const gender = emp.gender || "Unknown";
       by_gender[gender] = (by_gender[gender] || 0) + 1;
-      
+
       // Status
       by_status[empStatus] = (by_status[empStatus] || 0) + 1;
     });
-    
+
     // Calculate monthly headcount for filtered employees
     const monthly_headcount = [];
     const current_year = new Date().getFullYear();
     const now = new Date();
-    
+
     for (let i = 11; i >= 0; i--) {
       const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
-      
+
       let count = 0;
       for (const emp of locationFilteredEmployees) {
         const empStatus = emp.status || "active";
         if (empStatus === "inactive") continue;
-        
+
         const join_date_str = emp.date_of_joining || emp.created_at;
         if (join_date_str) {
           try {
@@ -314,14 +336,14 @@ export default function Dashboard() {
           }
         }
       }
-      
+
       monthly_headcount.push({
         month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
         count,
         month_number: targetDate.getMonth() + 1
       });
     }
-    
+
     return {
       total_employees: locationFilteredEmployees.filter(emp => (emp.status || "active") !== "inactive").length,
       monthly_headcount,
@@ -355,7 +377,7 @@ export default function Dashboard() {
     // Calculate monthly headcount data for multi-line chart
     const monthly_headcount = [];
     const current_year = new Date().getFullYear();
-    
+
     // Get all unique categories for the selected filter
     const categories = new Set<string>();
     filteredData.employees.forEach(emp => {
@@ -364,22 +386,22 @@ export default function Dashboard() {
         categories.add(fieldValue);
       }
     });
-    
+
     // If no filter selected or no categories, show total count
     if (selectedFilter === "all" || categories.size === 0) {
       const now = new Date();
-      
+
       // Generate data for the last 12 months
       for (let i = 11; i >= 0; i--) {
         const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
         const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
-        
+
         let count = 0;
         for (const emp of filteredData.employees) {
           const empStatus = emp.status || "active";
           if (empStatus === "inactive") continue;
-          
+
           const join_date_str = emp.date_of_joining || emp.created_at;
           if (join_date_str) {
             try {
@@ -392,7 +414,7 @@ export default function Dashboard() {
             }
           }
         }
-        
+
         monthly_headcount.push({
           month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
           count,
@@ -403,27 +425,27 @@ export default function Dashboard() {
     } else {
       // Generate data for each category - last 12 months
       const now = new Date();
-      
+
       for (let i = 11; i >= 0; i--) {
         const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
         const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
-        
+
         const monthData: { month: string; month_number: number; employees: Employee[] } = {
           month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
           month_number: targetDate.getMonth() + 1,
           employees: []
         };
-        
+
         // Calculate count for each category
         categories.forEach(category => {
           let count = 0;
           const categoryEmployees: Employee[] = [];
-          
+
           for (const emp of filteredData.employees) {
             const empStatus = emp.status || "active";
             if (empStatus === "inactive") continue;
-            
+
             const fieldValue = emp[selectedFilter as keyof Employee];
             if (fieldValue === category) {
               const join_date_str = emp.date_of_joining || emp.created_at;
@@ -441,11 +463,11 @@ export default function Dashboard() {
               }
             }
           }
-          
+
           monthData[category] = count;
           monthData[`${category}_employees`] = categoryEmployees;
         });
-        
+
         monthly_headcount.push(monthData);
       }
     }
@@ -460,20 +482,20 @@ export default function Dashboard() {
 
     const now = new Date();
     const monthlyData = [];
-    
+
     // Generate data for the last 12 months
     for (let i = 11; i >= 0; i--) {
       const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
       const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
-      
+
       const newJoiners = filteredData.employees.filter(emp => {
         const empStatus = emp.status || "active";
         if (empStatus === "inactive") return false;
-        
+
         const joinDateStr = emp.date_of_joining || emp.created_at;
         if (!joinDateStr) return false;
-        
+
         try {
           const joinDate = new Date(joinDateStr);
           return joinDate >= monthStart && joinDate <= monthEnd;
@@ -506,7 +528,7 @@ export default function Dashboard() {
     filteredData.employees.forEach(emp => {
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return;
-      
+
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
@@ -529,7 +551,7 @@ export default function Dashboard() {
   // Get colors for different lines
   const getLineColors = () => {
     const colors = [
-      '#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00', 
+      '#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00',
       '#ff00ff', '#00ffff', '#ffff00', '#ff0000', '#0000ff'
     ];
     return colors;
@@ -544,12 +566,12 @@ export default function Dashboard() {
 
     const current_year = new Date().getFullYear();
     const categories = new Set<string>();
-    
+
     // Get all unique categories for the selected filter
     filteredData.employees.forEach(emp => {
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return;
-      
+
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
@@ -568,20 +590,20 @@ export default function Dashboard() {
 
     const monthlyData = [];
     const now = new Date();
-    
+
     // Generate data for the last 12 months
     for (let i = 11; i >= 0; i--) {
       const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthKey = targetDate.toISOString().slice(0, 7); // YYYY-MM format
       const monthName = targetDate.toLocaleDateString('en-US', { month: 'short' });
-      
-      const monthData: { 
-        month: string; 
-        monthName: string; 
-        month_number: number; 
+
+      const monthData: {
+        month: string;
+        monthName: string;
+        month_number: number;
         employees: Employee[]
         total: number;
-        [key: string]: any; 
+        [key: string]: any;
 
       } = {
         month: monthKey,
@@ -590,18 +612,18 @@ export default function Dashboard() {
         total: 0,
         employees: []
       };
-      
+
       // Calculate hires for each category in this month
       categories.forEach(category => {
         let hires = 0;
         const categoryEmployees: Employee[] = [];
-        
+
         for (const emp of filteredData.employees) {
           const empStatus = emp.status || "active";
           if (empStatus === "inactive") continue;
-          
+
           const fieldValue = emp[selectedFilter as keyof Employee];
-          
+
           // Handle consolidated remote locations
           let matchesCategory = false;
           if (selectedFilter === "location" && category === "Remote") {
@@ -610,7 +632,7 @@ export default function Dashboard() {
           } else {
             matchesCategory = fieldValue === category;
           }
-          
+
           if (matchesCategory) {
             const join_date_str = emp.date_of_joining || emp.created_at;
             if (join_date_str) {
@@ -629,12 +651,12 @@ export default function Dashboard() {
             }
           }
         }
-        
+
         monthData[category] = hires;
         monthData[`${category}_employees`] = categoryEmployees;
         monthData.total += hires;
       });
-      
+
       monthlyData.push(monthData);
     }
 
@@ -659,7 +681,7 @@ export default function Dashboard() {
     return filteredData.employees.filter(emp => {
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return false;
-      
+
       const fieldValue = emp[selectedFilter as keyof Employee];
       return fieldValue && fieldValue !== "Unknown";
     });
@@ -678,7 +700,7 @@ export default function Dashboard() {
     filteredEmployees.forEach(emp => {
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return;
-      
+
       const fieldValue = emp[selectedFilter as keyof Employee];
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
@@ -701,7 +723,7 @@ export default function Dashboard() {
   const handleChartClick = (data: any) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const clickedData = data.activePayload[0].payload;
-      
+
       // Check if it's from the new joiners chart
       if (clickedData.monthShort && clickedData.newJoiners !== undefined) {
         // New joiners chart - show employees who joined in that month
@@ -722,7 +744,7 @@ export default function Dashboard() {
         // Monthly trend chart (not stacked column) - show employees for the clicked category
         const categoryName = data.activePayload[0].dataKey;
         const categoryEmployees = clickedData[`${categoryName}_employees`] || [];
-        
+
         setSelectedDataPoint({
           month: `${clickedData.month} - ${categoryName}`,
           count: clickedData[categoryName] || 0,
@@ -738,7 +760,7 @@ export default function Dashboard() {
           const fieldValue = emp[selectedFilter as keyof Employee];
           return fieldValue === categoryName;
         });
-        
+
         setSelectedDataPoint({
           month: `${getFilterLabel(selectedFilter)}: ${categoryName}`,
           count: clickedData.value,
@@ -756,7 +778,7 @@ export default function Dashboard() {
   const getFilterLabel = (filter: string) => {
     const labels: { [key: string]: string } = {
       account: "Account",
-      location: "Location", 
+      location: "Location",
       employee_status: "Work Type",
       employment_category: "Employment Category",
       is_leader: "Is Leader",
@@ -772,13 +794,13 @@ export default function Dashboard() {
     if (!data || typeof data !== 'object') {
       return [];
     }
-    
+
     // Consolidate remote locations for location charts
     const consolidatedData: { [key: string]: number } = {};
-    
+
     Object.entries(data).forEach(([name, value]) => {
       const normalizedName = name.toLowerCase().trim();
-      
+
       // Consolidate remote locations
       if (normalizedName.startsWith('remote -') || normalizedName === 'remote') {
         consolidatedData['Remote'] = (consolidatedData['Remote'] || 0) + value;
@@ -786,7 +808,7 @@ export default function Dashboard() {
         consolidatedData[name] = value;
       }
     });
-    
+
     return Object.entries(consolidatedData).map(([name, value]) => ({ name, value }));
   };
 
@@ -818,35 +840,34 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <Header onMenuToggle={toggleSidebar} />
-      
+
       {/* Main Layout */}
       <div className="flex min-h-[calc(100vh-4rem)]">
         {/* Left Sidebar - Always Fixed */}
-        <aside className={`fixed inset-y-0 left-0 z-40 w-64 sidebar-glass transform transition-transform duration-300 ease-in-out flex flex-col ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } lg:translate-x-0`}>
-          <SidebarContent 
-            activeModule={activeModule} 
-            onModuleChange={setActiveModule} 
+        <aside className={`fixed inset-y-0 left-0 z-40 w-64 sidebar-glass transform transition-transform duration-300 ease-in-out flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          } lg:translate-x-0`}>
+          <SidebarContent
+            activeModule={activeModule}
+            onModuleChange={setActiveModule}
           />
         </aside>
-        
+
         {/* Overlay */}
         {sidebarOpen && (
-          <div 
+          <div
             className="fixed inset-0 bg-black/20 z-10 lg:hidden"
             onClick={toggleSidebar}
           />
         )}
-        
+
         {/* Main Content - Account for fixed sidebar and header */}
         <main className="flex-1 p-6 lg:ml-64 pt-16">
           {/* Header Section */}
           <div className="mb-8">
             <div className="flex items-center gap-4 mb-4">
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => navigate('/directory')}
                 className="gap-2"
               >
@@ -856,7 +877,7 @@ export default function Dashboard() {
             </div>
             <h1 className="text-3xl font-bold mb-2">Employee Analytics Dashboard</h1>
             <p className="text-muted-foreground mb-4">Comprehensive insights into your workforce data</p>
-            
+
             {/* Location Filter Buttons */}
             <div className="flex items-center gap-3 mb-6">
               <span className="text-sm font-medium text-muted-foreground">Filter by Location:</span>
@@ -865,11 +886,10 @@ export default function Dashboard() {
                   variant={selectedLocation === "india" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setSelectedLocation("india")}
-                  className={`transition-all duration-200 ${
-                    selectedLocation === "india"
-                      ? "bg-primary text-primary-foreground shadow-md"
-                      : "hover:bg-accent hover:text-accent-foreground"
-                  }`}
+                  className={`transition-all duration-200 ${selectedLocation === "india"
+                    ? "bg-primary text-primary-foreground shadow-md"
+                    : "hover:bg-accent hover:text-accent-foreground"
+                    }`}
                 >
                   India
                 </Button>
@@ -877,11 +897,10 @@ export default function Dashboard() {
                   variant={selectedLocation === "usa" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setSelectedLocation("usa")}
-                  className={`transition-all duration-200 ${
-                    selectedLocation === "usa"
-                      ? "bg-primary text-primary-foreground shadow-md"
-                      : "hover:bg-accent hover:text-accent-foreground"
-                  }`}
+                  className={`transition-all duration-200 ${selectedLocation === "usa"
+                    ? "bg-primary text-primary-foreground shadow-md"
+                    : "hover:bg-accent hover:text-accent-foreground"
+                    }`}
                 >
                   USA
                 </Button>
@@ -889,11 +908,10 @@ export default function Dashboard() {
                   variant={selectedLocation === "all" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setSelectedLocation("all")}
-                  className={`transition-all duration-200 ${
-                    selectedLocation === "all"
-                      ? "bg-primary text-primary-foreground shadow-md"
-                      : "hover:bg-accent hover:text-accent-foreground"
-                  }`}
+                  className={`transition-all duration-200 ${selectedLocation === "all"
+                    ? "bg-primary text-primary-foreground shadow-md"
+                    : "hover:bg-accent hover:text-accent-foreground"
+                    }`}
                 >
                   All
                 </Button>
@@ -933,7 +951,7 @@ export default function Dashboard() {
           {(() => {
             const filteredData = getFilteredDashboardData();
             if (!filteredData) return null;
-            
+
             return (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <Card>
@@ -1010,8 +1028,8 @@ export default function Dashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={getMonthlyNewJoinersData()} onClick={handleChartClick}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="monthShort" 
+                      <XAxis
+                        dataKey="monthShort"
                         tick={{ fontSize: 12 }}
                         interval={0}
                         angle={-45}
@@ -1019,7 +1037,7 @@ export default function Dashboard() {
                         height={60}
                       />
                       <YAxis />
-                      <Tooltip 
+                      <Tooltip
                         content={({ active, payload, label }) => {
                           if (active && payload && payload[0]) {
                             const data = payload[0].payload;
@@ -1038,8 +1056,8 @@ export default function Dashboard() {
                           return null;
                         }}
                       />
-                      <Bar 
-                        dataKey="newJoiners" 
+                      <Bar
+                        dataKey="newJoiners"
                         fill="#0ea5e9"
                         radius={[4, 4, 0, 0]}
                         style={{ cursor: 'pointer' }}
@@ -1063,40 +1081,40 @@ export default function Dashboard() {
                   Click on any data point to view detailed employee information
                 </CardDescription>
               </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} onClick={handleChartClick}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip 
-                      content={({ active, payload, label }) => {
-                        if (active && payload && payload[0]) {
-                          return (
-                            <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
-                              <p className="font-medium">{`Month: ${label}`}</p>
-                              <p className="text-primary">{`Employees: ${payload[0].value}`}</p>
-                              <p className="text-xs text-muted-foreground">Click to view details</p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="count" 
-                      stroke="#8884d8" 
-                      strokeWidth={3}
-                      dot={{ fill: '#8884d8', strokeWidth: 2, r: 6 }}
-                      activeDot={{ r: 8, stroke: '#8884d8', strokeWidth: 2 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData} onClick={handleChartClick}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (active && payload && payload[0]) {
+                            return (
+                              <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
+                                <p className="font-medium">{`Month: ${label}`}</p>
+                                <p className="text-primary">{`Employees: ${payload[0].value}`}</p>
+                                <p className="text-xs text-muted-foreground">Click to view details</p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="count"
+                        stroke="#8884d8"
+                        strokeWidth={3}
+                        dot={{ fill: '#8884d8', strokeWidth: 2, r: 6 }}
+                        activeDot={{ r: 8, stroke: '#8884d8', strokeWidth: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Second Chart for Filtered Data */}
@@ -1146,12 +1164,12 @@ export default function Dashboard() {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" />
                       <YAxis />
-                      <Tooltip 
+                      <Tooltip
                         content={({ active, payload, label }) => {
                           if (active && payload && payload.length > 0) {
                             const data = payload[0]?.payload;
                             const monthTotal = data?.total || 0;
-                            
+
                             return (
                               <div className="bg-background border border-border rounded-lg p-3 shadow-lg">
                                 <p className="font-medium">{`Month: ${label}`}</p>
@@ -1179,7 +1197,7 @@ export default function Dashboard() {
                             const categoryName = category;
                             const monthData = data.payload;
                             const categoryEmployees = monthData[`${categoryName}_employees`] || [];
-                            
+
                             setSelectedDataPoint({
                               month: `${monthData.monthName} ${monthData.month} - ${categoryName}`,
                               count: monthData[categoryName] || 0,
@@ -1202,8 +1220,8 @@ export default function Dashboard() {
           {selectedFilter === "all" && (() => {
             const filteredData = getFilteredDashboardData();
             if (!filteredData) return null;
-            
-             // ================= Prepare Data Once =================
+
+            // ================= Prepare Data Once =================
             const accountData = filteredData.by_account
               ? prepareChartData(filteredData.by_account)
               : [];
@@ -1240,7 +1258,7 @@ export default function Dashboard() {
                     </span>
                   );
                 };
-
+ 
             return (
               <div className="space-y-8 mb-8">
 
@@ -1435,9 +1453,9 @@ export default function Dashboard() {
                     <Eye className="h-5 w-5" />
                     Employee Details - {selectedDataPoint?.month} {new Date().getFullYear()}
                   </DialogTitle>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={exportModalDataToCSV}
                     className="gap-2"
                   >
@@ -1455,7 +1473,7 @@ export default function Dashboard() {
                     Close
                   </Button>
                 </div>
-                
+
                 <div className="border rounded-lg">
                   <Table>
                     <TableHeader>

@@ -1,5 +1,5 @@
-
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Settings, Users, BarChart3, Shield, Database, ChevronDown, Flag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,19 +27,12 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
   const [showUserManagement, setShowUserManagement] = useState(false);
   const navigate = useNavigate();
 
-  // Prevent body scrolling when modal is open
+  // No body scroll lock — keeps sidebar accessible
   useEffect(() => {
-    if (showUserManagement) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    
-    // Cleanup on unmount
     return () => {
       document.body.style.overflow = 'unset';
     };
-  }, [showUserManagement]);
+  }, []);
 
   // Only render for admin users
   if (!isAdmin) return null;
@@ -93,11 +86,11 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
   const adminItemsWithFlags = adminItems.map(item => ({
     ...item,
     featureFlag: item.label === "Admin View" ? undefined :
-                  item.label === "Feature Flags" ? "feature_flag_management" :
-                  item.label === "User Management" ? "user_management" :
-                  item.label === "System Analytics" ? "system_analytics" :
-                  item.label === "Data Management" ? "data_management" :
-                  item.label === "Security Settings" ? "security_settings" : undefined
+      item.label === "Feature Flags" ? "feature_flag_management" :
+        item.label === "User Management" ? "user_management" :
+          item.label === "System Analytics" ? "system_analytics" :
+            item.label === "Data Management" ? "data_management" :
+              item.label === "Security Settings" ? "security_settings" : undefined
   }));
 
   // Filter items based on feature flags - only show items that are not hidden
@@ -110,15 +103,14 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
     <>
       <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
         <DropdownMenuTrigger asChild>
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={disabled}
-            className={`relative flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 group ${
-              disabled 
-                ? 'opacity-50 cursor-not-allowed' 
-                : 'hover:bg-accent/50'
-            }`}
+            className={`relative flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 group ${disabled
+              ? 'opacity-50 cursor-not-allowed'
+              : 'hover:bg-accent/50'
+              }`}
           >
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-full bg-gradient-hr-primary flex items-center justify-center">
@@ -132,9 +124,9 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
             <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
           </Button>
         </DropdownMenuTrigger>
-        
-        <DropdownMenuContent 
-          align="end" 
+
+        <DropdownMenuContent
+          align="end"
           className="w-80 p-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 shadow-lg animate-in fade-in-0 zoom-in-95"
           sideOffset={8}
         >
@@ -147,9 +139,9 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
               <p className="text-xs text-muted-foreground">System Management</p>
             </div>
           </DropdownMenuLabel>
-          
+
           <DropdownMenuSeparator className="my-2" />
-          
+
           <div className="space-y-1">
             {visibleAdminItems.map((item, index) => (
               <DropdownMenuItem
@@ -171,20 +163,24 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
               </DropdownMenuItem>
             ))}
           </div>
-          
+
           <DropdownMenuSeparator className="my-2" />
         </DropdownMenuContent>
       </DropdownMenu>
 
       {/* User Management Modal */}
-      {showUserManagement && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
-          <div className="bg-background rounded-lg shadow-lg max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      {showUserManagement && createPortal(
+        <div
+          className="fixed z-[100] bg-black/50 flex items-center justify-center p-4"
+          style={{ position: 'fixed', top: 0, left: 255, right: 0, bottom: 0 }}
+        >
+          <div className="bg-background rounded-lg shadow-lg max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col">
             <div className="flex-1 overflow-y-auto p-6">
               <UserManagement onClose={() => setShowUserManagement(false)} />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
