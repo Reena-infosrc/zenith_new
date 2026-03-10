@@ -151,9 +151,28 @@ jobs:
       - name: Force ECS service deployment (if only image changed)
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'false'
         run: |
+          set -euo pipefail
+          
+          # ECS service names created by CloudFormation can include a random suffix and may change if the stack is recreated.
+          # Resolve the current service name dynamically to avoid ServiceNotFoundException.
+          RESOLVED_SERVICE_ARN=$(aws ecs list-services \
+            --cluster "$ECS_CLUSTER_NAME" \
+            --region "$AWS_REGION" \
+            --query "serviceArns[?contains(@, \`${SERVICE_NAME}-${STAGE}-ZenithService\`)] | [0]" \
+            --output text)
+
+          if [ -z "$RESOLVED_SERVICE_ARN" ] || [ "$RESOLVED_SERVICE_ARN" = "None" ]; then
+            echo "ERROR: Could not resolve ECS service in cluster '$ECS_CLUSTER_NAME' with prefix '${SERVICE_NAME}-${STAGE}-ZenithService'."
+            echo "Hint: Verify AWS_REGION/account, and that the Serverless stack has created the ECS service."
+            exit 1
+          fi
+
+          RESOLVED_SERVICE_NAME="${RESOLVED_SERVICE_ARN##*/}"
+          echo "Resolved ECS service: $RESOLVED_SERVICE_NAME"
+
           aws ecs update-service \
             --cluster $ECS_CLUSTER_NAME \
-            --service $ECS_SERVICE_NAME \
+            --service $RESOLVED_SERVICE_NAME \
             --force-new-deployment \
             --region $AWS_REGION
 
