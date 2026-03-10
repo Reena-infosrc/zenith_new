@@ -292,6 +292,10 @@ resources:
                 Value: ${self:provider.stage}
               - Name: ENVIRONMENT
                 Value: ${env:ENVIRONMENT, 'production'}
+              - Name: AZURE_MSAL_CLIENT_ID
+                Value: ${env:AZURE_MSAL_CLIENT_ID, ''}
+              - Name: AZURE_MSAL_TENANT_ID
+                Value: ${env:AZURE_MSAL_TENANT_ID, ''}
               - Name: DYNAMODB_TABLE_EMPLOYEES
                 Value: zenith-hr-employees-${self:provider.stage}
               - Name: DYNAMODB_TABLE_USERS
