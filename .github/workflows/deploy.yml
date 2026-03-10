@@ -119,6 +119,9 @@ jobs:
 
       - name: Load environment variables
         if: matrix.branch == github.ref_name
+        env:
+          AZURE_MSAL_CLIENT_ID: ${{ secrets.AZURE_MSAL_CLIENT_ID }}
+          AZURE_MSAL_TENANT_ID: ${{ secrets.AZURE_MSAL_TENANT_ID }}
         run: |
           cd backend
           if [ "${{ matrix.stage }}" = "staging" ]; then
@@ -126,6 +129,10 @@ jobs:
           else
             grep -E '^[A-Za-z0-9_]+=' .env.prod >> $GITHUB_ENV
           fi
+          
+          # Ensure MSAL validation env vars are present for backend
+          echo "AZURE_MSAL_CLIENT_ID=${AZURE_MSAL_CLIENT_ID}" >> $GITHUB_ENV
+          echo "AZURE_MSAL_TENANT_ID=${AZURE_MSAL_TENANT_ID}" >> $GITHUB_ENV
 
       - name: Deploy with Serverless Framework (if serverless.yml changed)
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
@@ -138,6 +145,8 @@ jobs:
           ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          AZURE_MSAL_CLIENT_ID: ${{ secrets.AZURE_MSAL_CLIENT_ID }}
+          AZURE_MSAL_TENANT_ID: ${{ secrets.AZURE_MSAL_TENANT_ID }}
 
       - name: Force ECS service deployment (if only image changed)
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'false'
