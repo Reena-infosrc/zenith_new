@@ -157,7 +157,8 @@ jobs:
         env:
           VITE_API_BASE: ${{ secrets[matrix.api_base_secret] }}
           VITE_MSAL_CLIENT_ID: ${{ secrets.REACT_APP_CLIENT_ID }}
-          VITE_MSAL_TENANT_ID: ${{ secrets.REACT_APP_APP_ID }}
+          # Use tenant (directory) ID, not application ID - add REACT_APP_TENANT_ID in GitHub secrets
+          VITE_MSAL_TENANT_ID: ${{ secrets.REACT_APP_TENANT_ID }}
         run: npm run build
 
       - name: Deploy frontend to S3

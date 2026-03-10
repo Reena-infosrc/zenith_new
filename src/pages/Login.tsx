@@ -64,7 +64,11 @@ export default function Login() {
     };
   }, [navigate, flagsLoading, featureFlagStatus]);
 
-  const completeLoginWithToken = async (accessToken: string, clearTimeout?: () => void) => {
+  const completeLoginWithToken = async (
+    accessToken: string,
+    idToken: string,
+    clearTimeout?: () => void
+  ) => {
     // Clear the loading timeout if provided
     if (clearTimeout) {
       clearTimeout();
@@ -73,7 +77,7 @@ export default function Login() {
     // Set processing state to maintain loading UI during API calls
     setIsProcessingLogin(true);
     
-    // Fetch user profile from Microsoft Graph
+    // Fetch user profile from Microsoft Graph (use access token)
     const graphRes = await fetch("https://graph.microsoft.com/v1.0/me", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -86,15 +90,14 @@ export default function Login() {
     // First, clear any old/invalid tokens
     localStorage.removeItem('auth_token');
     
-    // Exchange MSAL token for backend token
+    // Exchange MSAL ID token for backend token (backend validates by audience=client_id; access token has audience=graph.microsoft.com)
     try {
-      
       const backendRes = await fetch(`${API_BASE_URL}/auth/msal-token`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ msal_token: accessToken }),
+        body: JSON.stringify({ msal_token: idToken }),
       });
       
       
@@ -310,7 +313,11 @@ export default function Login() {
       // Fallback to popup if redirect fails for some reason
       try {
         const loginResponse = await instance.loginPopup({ scopes: ["User.Read"] });
-        await completeLoginWithToken(loginResponse.accessToken, () => clearTimeout(loadingTimeout));
+        await completeLoginWithToken(
+          loginResponse.accessToken,
+          loginResponse.idToken,
+          () => clearTimeout(loadingTimeout)
+        );
       } catch (popupErr) {
         console.error("SSO login error:", popupErr);
         toast.error("Microsoft sign-in failed or was cancelled.");
@@ -346,7 +353,7 @@ export default function Login() {
           scopes: ["User.Read"],
           account: accounts[0],
         });
-        await completeLoginWithToken(result.accessToken);
+        await completeLoginWithToken(result.accessToken, result.idToken);
       } catch (silentErr) {
         // If silent fails, let user click button again
         setIsLoading(false);

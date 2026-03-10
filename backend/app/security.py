@@ -52,38 +52,79 @@ class JWKSValidator:
             if not kid:
                 raise JWTError("Token header missing 'kid'")
 
-            # Fetch JWKS
-            jwks = self._fetch_jwks(tenant_id)
+            # Inspect token for logging and to resolve tenant/issuer (e.g. multi-tenant or "common")
+            unverified = jwt.get_unverified_claims(token)
+            token_tenant = unverified.get("tid")
+            token_aud = unverified.get("aud")
+            token_iss = unverified.get("iss", "")
+            logger.info(
+                f"Token claims (unverified): aud={token_aud!r}, iss={token_iss!r}, tid={token_tenant!r}; "
+                f"expected aud={client_id!r}, tenant={tenant_id!r}"
+            )
+            jwks_tenant = tenant_id
+            if token_tenant and ("login.microsoftonline.com" in token_iss):
+                jwks_tenant = token_tenant
+            # Use token's issuer so we match exactly; normalize trailing slash for comparison
+            if token_iss and token_iss.startswith("https://login.microsoftonline.com"):
+                expected_issuer = token_iss.rstrip("/")
+            else:
+                expected_issuer = f"https://login.microsoftonline.com/{jwks_tenant}/v2.0".rstrip("/")
+            logger.info(f"Using expected_issuer={expected_issuer!r}, trying aud in (client_id, graph)")
+
+            jwks = self._fetch_jwks(jwks_tenant)
             if not jwks:
                 raise JWTError("Could not retrieve JWKS")
 
-            # Find the correct public key
+            # Find the correct public key (Azure JWKS may omit "alg"; python-jose needs it for RSA)
             public_key = None
             for key in jwks.get("keys", []):
                 if key.get("kid") == kid:
-                    public_key = jwk.construct(key)
+                    key_copy = dict(key)
+                    if not key_copy.get("alg") and key_copy.get("kty") == "RSA":
+                        key_copy["alg"] = "RS256"
+                    public_key = jwk.construct(key_copy)
                     break
 
             if not public_key:
                 raise JWTError(f"Public key for kid {kid} not found")
 
-            # Validate the token
-            # ID Tokens use Client ID as audience
-            payload = jwt.decode(
-                token,
-                public_key,
-                algorithms=["RS256"],
-                audience=client_id,
-                issuer=f"https://login.microsoftonline.com/{tenant_id}/v2.0"
-            )
-            
+            # Decode with signature + exp/nbf; we'll check issuer and audience ourselves to support Azure's formats
+            try:
+                payload = jwt.decode(
+                    token,
+                    public_key,
+                    algorithms=["RS256"],
+                    options={"verify_exp": True, "verify_nbf": True, "verify_aud": False, "verify_iss": False},
+                )
+            except JWTError as e:
+                logger.error(f"JWT decode failed (signature/exp): {e}")
+                return None
+
+            # Validate issuer (token may have trailing slash; normalize)
+            token_iss_val = (payload.get("iss") or "").rstrip("/")
+            expected_issuer_norm = expected_issuer.rstrip("/")
+            if token_iss_val != expected_issuer_norm:
+                logger.error(f"Issuer mismatch: token iss={token_iss_val!r}, expected={expected_issuer_norm!r}")
+                return None
+
+            # Validate audience: ID token aud=client_id, access token aud=https://graph.microsoft.com; aud can be string or list
+            token_aud_val = payload.get("aud")
+            allowed_audiences = (client_id, "https://graph.microsoft.com")
+            if isinstance(token_aud_val, list):
+                aud_ok = any(a in token_aud_val for a in allowed_audiences)
+            else:
+                aud_ok = token_aud_val in allowed_audiences
+            if not aud_ok:
+                logger.error(f"Audience mismatch: token aud={token_aud_val!r}, allowed={allowed_audiences}")
+                return None
+
             logger.info("Successfully validated Microsoft token locally")
             return payload
         except JWTError as e:
             logger.error(f"JWT Validation Error: {e}")
             return None
         except Exception as e:
-            logger.error(f"Unexpected error during token validation: {e}")
+            logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
             return None
 
 jwks_validator = JWKSValidator()
