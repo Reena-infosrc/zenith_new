@@ -1,5 +1,6 @@
 service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
+#using env files
 useDotenv: true
 
 custom:
