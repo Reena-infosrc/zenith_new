@@ -171,7 +171,7 @@ export default function Directory() {
         variant: "destructive",
       });
     }
-  };
+  }; 
 
   // Handle navigation to dashboard with loading state
   const handleNavigateToDashboard = () => {
@@ -232,6 +232,20 @@ export default function Directory() {
         return employee.account?.trim().toLowerCase() === filterValue;
       });
       if (!hasMatch) return false;
+    }
+
+    // Status filter (Hide inactive by default unless explicitly filtering for them)
+    // We check if "Status: InActive" is one of the active filters
+    const isEditingInactiveFilter = activeFilters.some(filter => filter === "Status: InActive");
+    const employeeStatus = (employee.status || 'active').toLowerCase();
+
+    // Only show inactive profiles IF explicitly filtering for them
+    // Otherwise, show only active ones.
+    if (employeeStatus === 'inactive') {
+        if (!isEditingInactiveFilter) return false;
+    } else {
+        // If it's an active profile and we are explicitly filtering for only inactive, hide it
+        if (isEditingInactiveFilter) return false;
     }
 
     return true;
@@ -457,6 +471,20 @@ export default function Directory() {
                       </>
                     )}
 
+                    {/* Status Section */}
+                    <>
+                      <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b z-10">
+                        Status
+                      </div>
+                      <div className="max-h-32 overflow-y-auto">
+                        <DropdownMenuItem
+                          onClick={() => toggleFilter(`Status: InActive`)}
+                          className="pl-4 py-1.5 text-sm cursor-pointer focus:bg-accent transition-colors"
+                        >
+                          InActive Profiles
+                        </DropdownMenuItem>
+                      </div>
+                    </>
                   </DropdownMenuContent>
                 </DropdownMenu>
 

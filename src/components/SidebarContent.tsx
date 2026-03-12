@@ -175,7 +175,7 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
             <div className="flex items-center justify-center">
               <div className="px-3 py-1.5 rounded-md bg-muted/30 border border-border/30 backdrop-blur-sm">
                 <p className="text-xs font-medium text-muted-foreground text-center whitespace-nowrap">
-                  v0.0.0
+                  v1.0.0
                 </p>
               </div>
             </div>
