@@ -674,7 +674,7 @@ export default function Directory() {
               ) : (
                 <>
                   {viewMode === "grid" && (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                    <>
                       {(() => {
                         const currentUserEmail = user?.email?.toLowerCase();
                         const currentUserEmployee = sortedAndFilteredEmployees.find(
@@ -685,16 +685,17 @@ export default function Directory() {
                         );
 
                         return (
-                          <>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 pt-3">
                             {currentUserEmployee && (
-                              <div className="col-span-2 sm:col-span-2 md:col-span-2 lg:col-span-2 xl:col-span-2">
-                                <div className="mb-2 text-xs font-semibold text-muted-foreground">
-                                  My Profile
+                              <div className="relative h-full transform transition-all hover:-translate-y-1">
+                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[10px] md:text-xs uppercase tracking-widest font-extrabold px-3 md:px-4 py-1 rounded-full z-10 shadow-md border-2 border-background whitespace-nowrap flex items-center gap-1.5 min-w-max">
+                                  <User className="w-3 h-3" /> 
+                                  <span>My Profile</span>
                                 </div>
                                 <EmployeeCard
                                   key={currentUserEmployee.id}
                                   {...currentUserEmployee}
-                                  className="ring-2 ring-primary shadow-lg"
+                                  className="ring-[3px] ring-indigo-500 ring-offset-2 shadow-xl shadow-indigo-500/10 h-full border-transparent"
                                 />
                               </div>
                             )}
@@ -705,12 +706,13 @@ export default function Directory() {
                                 <EmployeeCard
                                   key={employee.id}
                                   {...employee}
+                                  className="h-full"
                                 />
                               ))}
-                          </>
+                          </div>
                         );
                       })()}
-                    </div>
+                    </>
                   )}
 
                   {viewMode === "list" && (

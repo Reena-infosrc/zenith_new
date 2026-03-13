@@ -10,6 +10,8 @@ from datetime import timedelta, datetime
 import logging
 import traceback
 from decimal import Decimal
+import os
+from jose import jwt as jose_jwt
 
 from ..models import Token, UserLogin, MOCK_USERS
 from ..database_dynamodb import get_admins_table, parse_dynamodb_item, format_dynamodb_item, generate_id
@@ -89,27 +91,42 @@ async def refresh_access_token(current_user = Depends(get_current_active_user)):
 
 @router.post("/msal-token", response_model=Token)
 async def exchange_msal_token(msal_token: str = Body(..., embed=True)):
-    """Exchange MSAL token for backend JWT token"""
+    """Exchange MSAL token for backend JWT token.
+
+    In production: validate the MSAL token using JWKS and enforce issuer/audience.
+    In development (ENVIRONMENT=development): skip JWKS signature validation and
+    decode unverified claims so local logins work even without outbound access
+    to Microsoft JWKS. This should never be enabled in production.
+    """
     try:
         logger.info("Received MSAL token for exchange")
         
-        import os
         tenant_id = os.getenv("AZURE_MSAL_TENANT_ID")
         client_id = os.getenv("AZURE_MSAL_CLIENT_ID")
+        environment = os.getenv("ENVIRONMENT", "production").lower()
 
         if not tenant_id or not client_id:
             logger.error("AZURE_MSAL_TENANT_ID or AZURE_MSAL_CLIENT_ID not configured")
             raise HTTPException(status_code=500, detail="SSO Configuration error")
 
-        # Validate the token locally using JWKS
-        payload = jwks_validator.validate_token(msal_token, tenant_id, client_id)
-        if not payload:
-            logger.warning("Token validation failed")
-            raise HTTPException(status_code=401, detail="Invalid MSAL token")
+        if environment in ["development", "dev", "local"]:
+            # Local/dev: don't rely on JWKS; just read unverified claims
+            try:
+                logger.warning("ENVIRONMENT=development: using unverified MSAL token claims (no JWKS validation)")
+                payload = jose_jwt.get_unverified_claims(msal_token)
+            except Exception as e:
+                logger.error(f"Failed to decode unverified MSAL token claims: {e}")
+                raise HTTPException(status_code=401, detail="Invalid MSAL token")
+        else:
+            # Production/staging: validate via JWKS
+            payload = jwks_validator.validate_token(msal_token, tenant_id, client_id)
+            if not payload:
+                logger.warning("Token validation failed via JWKS validator")
+                raise HTTPException(status_code=401, detail="Invalid MSAL token")
 
         user_email = payload.get("preferred_username") or payload.get("email") or payload.get("upn")
         if not user_email:
-            logger.error(f"Could not extract email from validated token payload: {payload}")
+            logger.error(f"Could not extract email from token payload: {payload}")
             raise HTTPException(status_code=401, detail="Could not identify user from token")
         
         # Create a backend token for the actual user
