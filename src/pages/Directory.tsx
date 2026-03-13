@@ -58,8 +58,8 @@ export default function Directory() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [hierarchyViewMode, setHierarchyViewMode] = useState<HierarchyViewMode>("levels");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<string>("date_of_joining");
-  const [sortOrder, setSortOrder] = useState<string>("desc");
+  const [sortBy, setSortBy] = useState<string>("name");
+  const [sortOrder, setSortOrder] = useState<string>("asc");
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -70,7 +70,7 @@ export default function Directory() {
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const { toast } = useToast();
 
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   const {
     employees,
@@ -193,8 +193,11 @@ export default function Directory() {
   }, []); // Empty dependency array means this runs only once on mount
 
   // Filter employees based on active filters
-  // NOTE: Include inactive employees but they will be shown in disabled state
   const filteredEmployees = employees.filter(employee => {
+    // Hide inactive employees for non-admin users
+    if (!isAdmin && (employee.status || 'active') === 'inactive') {
+      return false;
+    }
     // Department filters
     if (activeFilters.some(filter => filter.startsWith("Department:"))) {
       const hasMatch = activeFilters.some(filter => {
@@ -671,16 +674,45 @@ export default function Directory() {
               ) : (
                 <>
                   {viewMode === "grid" && (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                      {sortedAndFilteredEmployees.map((employee) => {
-                        return (
-                          <EmployeeCard
-                            key={employee.id}
-                            {...employee}
-                          />
+                    <>
+                      {(() => {
+                        const currentUserEmail = user?.email?.toLowerCase();
+                        const currentUserEmployee = sortedAndFilteredEmployees.find(
+                          (emp) => emp.email && currentUserEmail && emp.email.toLowerCase() === currentUserEmail
                         );
-                      })}
-                    </div>
+                        const otherEmployees = sortedAndFilteredEmployees.filter(
+                          (emp) => !currentUserEmployee || emp.id !== currentUserEmployee.id
+                        );
+
+                        return (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 pt-3">
+                            {currentUserEmployee && (
+                              <div className="relative h-full transform transition-all hover:-translate-y-1">
+                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[10px] md:text-xs uppercase tracking-widest font-extrabold px-3 md:px-4 py-1 rounded-full z-10 shadow-md border-2 border-background whitespace-nowrap flex items-center gap-1.5 min-w-max">
+                                  <User className="w-3 h-3" /> 
+                                  <span>My Profile</span>
+                                </div>
+                                <EmployeeCard
+                                  key={currentUserEmployee.id}
+                                  {...currentUserEmployee}
+                                  className="ring-[3px] ring-indigo-500 ring-offset-2 shadow-xl shadow-indigo-500/10 h-full border-transparent"
+                                />
+                              </div>
+                            )}
+                            {otherEmployees
+                              .slice()
+                              .sort((a, b) => a.name.localeCompare(b.name))
+                              .map((employee) => (
+                                <EmployeeCard
+                                  key={employee.id}
+                                  {...employee}
+                                  className="h-full"
+                                />
+                              ))}
+                          </div>
+                        );
+                      })()}
+                    </>
                   )}
 
                   {viewMode === "list" && (

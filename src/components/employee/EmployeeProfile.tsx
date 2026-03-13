@@ -103,13 +103,14 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const { clients: dynamicClients, isLoading: clientsLoading } = useClients();
   const { employeeStatuses: dynamicEmployeeStatuses, isLoading: statusesLoading } = useEmployeeStatuses();
 
-  // Determine if current user can edit this profile
+  // Determine if current user can edit or view sensitive fields on this profile
   // Allow editing if:
   // 1. User is an admin, OR
   // 2. User's email matches the employee's email (case-insensitive)
   const isSelf = !!(user?.email && employee?.email && user.email.toLowerCase() === employee.email.toLowerCase());
   const canEditProfile = !isLoading && (isAdmin || isSelf);
   const canEditBasicInfo = !isLoading && isAdmin;
+  const canViewSensitiveFields = !isLoading && (isAdmin || isSelf);
 
   // Debug logging removed for security
 
@@ -704,7 +705,11 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     <Input
                       id="phone"
                       name="phone"
-                      value={profileData.phone || profileData.mobile || ''}
+                      value={
+                        canViewSensitiveFields
+                          ? (profileData.phone || profileData.mobile || '')
+                          : (profileData.phone || profileData.mobile ? 'Hidden for privacy' : '')
+                      }
                       disabled={true}
                       readOnly
                       className="bg-muted cursor-not-allowed"
@@ -928,15 +933,35 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                   {/* Date of Birth */}
                   <div className="space-y-2">
                     <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                    <Input
-                      id="dateOfBirth"
-                      name="dateOfBirth"
-                      type="date"
-                      value={profileData.dateOfBirth || ''}
-                      onChange={handleChange}
-                      disabled={!isEditing}
-                      className={!isEditing ? "bg-muted" : ""}
-                    />
+                    {canViewSensitiveFields ? (
+                      <Input
+                        id="dateOfBirth"
+                        name="dateOfBirth"
+                        type="date"
+                        value={profileData.dateOfBirth || ''}
+                        onChange={handleChange}
+                        disabled={!isEditing}
+                        className={!isEditing ? "bg-muted" : ""}
+                      />
+                    ) : (
+                      <Input
+                        id="dateOfBirth"
+                        name="dateOfBirth"
+                        type="text"
+                        value={(() => {
+                          if (!profileData.dateOfBirth) return '';
+                          const parts = profileData.dateOfBirth.split('-');
+                          if (parts.length === 3) {
+                            const [year, month, day] = parts;
+                            return `${day}-${month}-XXXX`;
+                          }
+                          return profileData.dateOfBirth;
+                        })()}
+                        disabled
+                        readOnly
+                        className="bg-muted cursor-not-allowed"
+                      />
+                    )}
                   </div>
 
                   {/* Date of Joining */}
