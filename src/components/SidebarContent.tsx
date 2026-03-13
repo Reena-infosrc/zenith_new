@@ -99,16 +99,16 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
   };
 
   const modules = useMemo(() => [
-    { name: 'Home', icon: <Layout size={20} />, to: '/home', featureFlag: 'home_module' },
-    { name: 'Directory', icon: <Users size={20} />, to: '/directory', featureFlag: 'directory_module' },
-    { name: 'Leave', icon: <Calendar size={20} />, to: '/leave', featureFlag: 'leave_module' },
-    { name: 'Recruitment', icon: <UserPlus size={20} />, to: '/recruitment', featureFlag: 'recruitment_module' },
-    { name: 'Performance', icon: <BarChart2 size={20} />, to: '/performance', featureFlag: 'performance_module' },
-    { name: 'Engagement', icon: <Star size={20} />, to: '/engagement', featureFlag: 'engagement_module' },
-    { name: 'Resource Hub', icon: <Folders size={20} />, to: '/resource-hub', featureFlag: 'resource_hub_module' },
-    { name: 'Compensation', icon: <DollarSign size={20} />, to: '/compensation', featureFlag: 'compensation_module' },
-    { name: 'Learning', icon: <BookOpen size={20} />, featureFlag: 'learning_module' },
-    { name: 'Helpdesk', icon: <HelpCircle size={20} />, featureFlag: 'helpdesk_module' },
+    { name: 'Home', icon: <Layout size={20} />, to: '/home', featureFlag: 'home_module', adminOnly: false },
+    { name: 'Directory', icon: <Users size={20} />, to: '/directory', featureFlag: 'directory_module', adminOnly: false },
+    { name: 'Leave', icon: <Calendar size={20} />, to: '/leave', featureFlag: 'leave_module', adminOnly: false },
+    { name: 'Recruitment', icon: <UserPlus size={20} />, to: '/recruitment', featureFlag: 'recruitment_module', adminOnly: false },
+    { name: 'Performance', icon: <BarChart2 size={20} />, to: '/performance', featureFlag: 'performance_module', adminOnly: false },
+    { name: 'Engagement', icon: <Star size={20} />, to: '/engagement', featureFlag: 'engagement_module', adminOnly: false },
+    { name: 'Resource Hub', icon: <Folders size={20} />, to: '/resource-hub', featureFlag: 'resource_hub_module', adminOnly: false },
+    { name: 'Compensation', icon: <DollarSign size={20} />, to: '/compensation', featureFlag: 'compensation_module', adminOnly: false },
+    { name: 'Learning', icon: <BookOpen size={20} />, featureFlag: 'learning_module', adminOnly: false },
+    { name: 'Helpdesk', icon: <HelpCircle size={20} />, featureFlag: 'helpdesk_module', adminOnly: false },
   ], []);
 
   // Filter modules based on feature flags and admin status
@@ -126,7 +126,7 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
   if (isLoading) {
     // Show all modules as disabled while loading to prevent layout shift
     return (
-      <div className="h-full flex flex-col w-64 relative">
+      <div className="h-full flex flex-col w-52 relative">
         <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/98 to-background/95 backdrop-blur-xl border-r border-border/50" />
         <div className="relative z-10 flex flex-col h-full">
           <div className="h-2" />
@@ -190,7 +190,7 @@ export function SidebarContent({ activeModule, onModuleChange }: SidebarContentP
   const gitCommit = typeof __GIT_COMMIT__ !== 'undefined' ? __GIT_COMMIT__ : 'dev';
 
   return (
-    <div className="h-full flex flex-col w-64 relative">
+    <div className="h-full flex flex-col w-52 relative">
       {/* Glass morphism overlay effect */}
       <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/98 to-background/95 backdrop-blur-xl border-r border-border/50" />
 

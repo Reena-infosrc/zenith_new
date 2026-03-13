@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { EmployeeProfile } from "./employee/EmployeeProfile";
+import { User } from "lucide-react";
 
 export type EmployeeCardProps = {
   id: string;
@@ -59,67 +60,79 @@ export function EmployeeCard(props: EmployeeCardProps) {
   return (
     <>
       <div className={cn(
-        "group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden",
-        isInactive && "opacity-50 grayscale cursor-not-allowed",
+        "group h-full [perspective:1000px] aspect-[1/1.5] min-h-[210px]",
+        isInactive && "opacity-60 grayscale pointer-events-none",
         props.className
       )}>
-        <div className="aspect-square overflow-hidden">
-          {props.photoUrl ? (
-            <img 
-              src={props.photoUrl} 
-              alt={props.name}
-              className={cn(
-                "w-full h-full object-cover transition-transform duration-300",
-                !isInactive && "group-hover:scale-105"
+        <div className="relative w-full h-full transition-all duration-[800ms] [transform-style:preserve-3d] group-hover:[transform:rotateY(180deg)]">
+          
+          {/* Front Face */}
+          <div className="absolute inset-0 [backface-visibility:hidden] bg-white dark:bg-gray-800 rounded-xl border border-border/50 overflow-hidden shadow-sm flex flex-col">
+            <div className="aspect-square overflow-hidden shrink-0 border-b border-border/10">
+              {props.photoUrl ? (
+                <img 
+                  src={props.photoUrl} 
+                  alt={props.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    const parent = target.parentElement;
+                    if (parent) {
+                      const color = getInitialsAvatar(props.name);
+                      parent.innerHTML = `
+                        <div class="${color} w-full h-full flex items-center justify-center text-white text-3xl font-bold">
+                          ${props.name.split(' ').map(part => part[0]).join('').toUpperCase()}
+                        </div>
+                      `;
+                    }
+                  }}
+                />
+              ) : (
+                <div className={`${getInitialsAvatar(props.name)} w-full h-full flex items-center justify-center text-white text-3xl font-bold`}>
+                  {props.name.split(' ').map(part => part[0]).join('').toUpperCase()}
+                </div>
               )}
-              onError={(e) => {
-                // If image fails to load, replace with initials avatar
-                const target = e.target as HTMLImageElement;
-                const parent = target.parentElement;
-                if (parent) {
-                  const color = getInitialsAvatar(props.name);
-                  parent.innerHTML = `
-                    <div class="${color} w-full h-full flex items-center justify-center text-white text-4xl font-bold">
-                      ${props.name.split(' ').map(part => part[0]).join('').toUpperCase()}
-                    </div>
-                  `;
-                }
-              }}
-            />
-          ) : (
-            <div className={`${getInitialsAvatar(props.name)} w-full h-full flex items-center justify-center text-white text-4xl font-bold`}>
-              {props.name.split(' ').map(part => part[0]).join('').toUpperCase()}
             </div>
-          )}
-        </div>
-        <div className="p-3 text-center">
-          <h3 className="font-medium text-sm">{props.name}</h3>
-          <p className="text-xs text-muted-foreground mt-1">{props.position}</p>
-          {props.employeeId && (
-            <p className="text-xs text-muted-foreground mt-1">ID: {props.employeeId}</p>
-          )}
-          {isInactive && (
-            <p className="text-xs text-muted-foreground mt-1 italic">(Inactive)</p>
-          )}
-        </div>
-        
-        {/* Hover Content - Only show for active employees */}
-        {!isInactive && (
-          <div className="absolute inset-0 bg-gradient-hr-primary text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-center items-center p-4 text-center">
-            <h3 className="font-bold">{props.name}</h3>
-            <p className="text-sm opacity-90">{props.position}</p>
-            <p className="text-sm opacity-90">{props.department}</p>
-            {props.employeeId && (
-              <p className="text-xs opacity-75">ID: {props.employeeId}</p>
-            )}
+
+            <div className="p-2 text-center flex-1 flex flex-col justify-center bg-gradient-to-b from-transparent to-accent/5">
+              <h3 className="font-bold text-[11px] leading-tight text-foreground line-clamp-1 px-1">{props.name}</h3>
+              <p className="text-[9px] text-muted-foreground mt-1 font-medium line-clamp-1 px-1">{props.position}</p>
+              {props.employeeId && (
+                <p className="text-[9.5px] text-muted-foreground/80 mt-1 font-mono font-bold tracking-tight">ID: {props.employeeId}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Back Face - Sky Blue Theme */}
+          <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] bg-gradient-to-br from-sky-400 to-sky-600 dark:from-sky-500 dark:to-sky-700 rounded-xl border border-sky-300 dark:border-sky-400/30 overflow-hidden flex flex-col items-center justify-between p-4 text-center text-white shadow-2xl shadow-sky-500/20">
+            <div className="w-full flex flex-col items-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 backdrop-blur-md flex items-center justify-center mb-2 shadow-inner">
+                <User className="w-4 h-4 text-white" />
+              </div>
+              
+              <h3 className="font-bold text-[10px] tracking-tight leading-tight mb-1">{props.name}</h3>
+              <p className="text-[8px] font-medium opacity-90 uppercase tracking-wider">{props.position}</p>
+              
+              <div className="w-full bg-white/10 backdrop-blur-sm rounded-lg py-2 my-2 border border-white/10">
+                <p className="text-[7px] uppercase tracking-[0.2em] font-bold opacity-70 mb-0.5">Employee ID</p>
+                <p className="text-sm font-black tracking-widest">{props.employeeId || 'N/A'}</p>
+              </div>
+
+              <p className="text-[9px] opacity-80 leading-snug px-1 line-clamp-1">{props.department}</p>
+            </div>
+
             <button 
-              className="mt-3 px-4 py-1 bg-white/20 hover:bg-white/30 rounded-full text-xs"
-              onClick={() => setShowProfile(true)}
+              className="w-full py-2 bg-white text-sky-600 text-[9px] font-black rounded-lg shadow-xl shadow-black/10 hover:bg-sky-50 active:scale-95 transition-all uppercase tracking-tighter"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowProfile(true);
+              }}
             >
-              View Profile
+              VIEW PROFILE
             </button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Employee Profile Dialog - Only show for active employees */}
