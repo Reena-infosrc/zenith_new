@@ -39,6 +39,9 @@ export interface Employee {
   status?: string;
   resignationDate?: string;
   reasonForResignation?: string;
+  emergencyContactName?: string;
+  emergencyContactRelationship?: string;
+  emergencyContactPhone?: string;
 }
 
 export function useEmployees() {
@@ -254,6 +257,7 @@ export function useEmployees() {
             email: emp.email || "",
             phone: emp.phone || "",
             mobile: emp.mobile || "",
+            emergencyContact: emp.emergency_contact || "",
             bio: emp.bio || "",
             projectStartDate: emp.project_start_date || "",
             projectEndDate: emp.project_end_date || "",
@@ -272,7 +276,10 @@ export function useEmployees() {
             isLeader: emp.is_leader || "",
             status: emp.status !== undefined && emp.status !== null && emp.status !== '' ? emp.status : 'active',
             resignationDate: emp.resignation_date || "",
-            reasonForResignation: emp.reason_for_resignation || ""
+            reasonForResignation: emp.reason_for_resignation || "",
+            emergencyContactName: emp.emergency_contact_name || "",
+            emergencyContactRelationship: emp.emergency_contact_relationship || "",
+            emergencyContactPhone: emp.emergency_contact_phone || ""
           };
         });
       
@@ -585,6 +592,10 @@ export function useEmployees() {
           email: formattedData.email,
           phone: formattedData.phone,
           mobile: formattedData.mobile,
+          emergency_contact_name: formattedData.emergencyContactName,
+          emergency_contact_relationship: formattedData.emergencyContactRelationship,
+          emergency_contact_phone: formattedData.emergencyContactPhone,
+          emergency_contact: formattedData.emergencyContact,
           bio: formattedData.bio,
           project_start_date: formattedData.projectStartDate,
           project_end_date: formattedData.projectEndDate,
@@ -641,6 +652,9 @@ export function useEmployees() {
         dateOfBirth: data.date_of_birth || "",
         dateOfJoining: data.date_of_joining || "",
         gender: data.gender || "",
+        emergencyContactName: data.emergency_contact_name || "",
+        emergencyContactRelationship: data.emergency_contact_relationship || "",
+        emergencyContactPhone: data.emergency_contact_phone || "",
         status: data.status !== undefined ? data.status : 'active',
         resignationDate: data.resignation_date || "",
         reasonForResignation: data.reason_for_resignation || ""
