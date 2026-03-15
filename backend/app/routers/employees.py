@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, status, Form
+from fastapi import APIRouter, HTTPException, Depends, Query, File, UploadFile, status, Form, Request
 from typing import List, Optional, Dict, Any
 from ..models.employee import EmployeeCreate, EmployeeUpdate, EmployeeInDB
 from ..database_dynamodb import get_employees_table, get_admins_table, parse_dynamodb_item, format_dynamodb_item, generate_id
@@ -759,9 +759,11 @@ async def create_employee(
         raise HTTPException(status_code=500, detail=f"Failed to create employee: {str(e)}")
 
 @router.put("/{employee_id}", response_model=EmployeeInDB)
-async def update_employee(employee_id: str, employee_update: EmployeeUpdate, current_user: dict = Depends(get_current_active_user)):
-    """Update an existing employee"""
+async def update_employee(employee_id: str, request: Request, current_user: dict = Depends(get_current_active_user)):
+    """Update an existing employee. Reads body once so emergency_contact_* are always persisted."""
     try:
+        raw_body = await request.json()
+        employee_update = EmployeeUpdate(**raw_body)
         table = await get_employees_table()
         
         # Get existing employee by primary key
@@ -817,6 +819,10 @@ async def update_employee(employee_id: str, employee_update: EmployeeUpdate, cur
         
         # Get update data (only fields that are being updated)
         update_data = employee_update.dict(exclude_unset=True)
+        # Always persist emergency contact fields from request body (so they are never dropped by older deploys or schema)
+        for key in ("emergency_contact_name", "emergency_contact_relationship", "emergency_contact_phone"):
+            if key in raw_body:
+                update_data[key] = raw_body[key] if raw_body[key] is not None else ""
         print(f"DEBUG: Update data: {update_data}")
         
         # Merge existing data with update data
