@@ -171,7 +171,7 @@ export default function Directory() {
         variant: "destructive",
       });
     }
-  }; 
+  };
 
   // Handle navigation to dashboard with loading state
   const handleNavigateToDashboard = () => {
@@ -245,10 +245,10 @@ export default function Directory() {
     // Only show inactive profiles IF explicitly filtering for them
     // Otherwise, show only active ones.
     if (employeeStatus === 'inactive') {
-        if (!isEditingInactiveFilter) return false;
+      if (!isEditingInactiveFilter) return false;
     } else {
-        // If it's an active profile and we are explicitly filtering for only inactive, hide it
-        if (isEditingInactiveFilter) return false;
+      // If it's an active profile and we are explicitly filtering for only inactive, hide it
+      if (isEditingInactiveFilter) return false;
     }
 
     return true;
@@ -474,20 +474,7 @@ export default function Directory() {
                       </>
                     )}
 
-                    {/* Status Section */}
-                    <>
-                      <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b z-10">
-                        Status
-                      </div>
-                      <div className="max-h-32 overflow-y-auto">
-                        <DropdownMenuItem
-                          onClick={() => toggleFilter(`Status: InActive`)}
-                          className="pl-4 py-1.5 text-sm cursor-pointer focus:bg-accent transition-colors"
-                        >
-                          InActive Profiles
-                        </DropdownMenuItem>
-                      </div>
-                    </>
+
                   </DropdownMenuContent>
                 </DropdownMenu>
 
@@ -583,6 +570,14 @@ export default function Directory() {
                     <Button variant="outline" className="gap-2" onClick={() => setShowImport(true)}>
                       <Upload className="h-4 w-4" />
                       Import
+                    </Button>
+                    <Button
+                      variant={activeFilters.includes("Status: InActive") ? "default" : "outline"}
+                      className="gap-2"
+                      onClick={() => toggleFilter("Status: InActive")}
+                    >
+                      <User className="h-4 w-4" />
+                      InActive Profiles
                     </Button>
                   </>
                 )}

@@ -16,6 +16,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useFeatureFlags } from "@/contexts/FeatureFlagsContext";
 import { useMsal } from "@azure/msal-react";
+import { useEmployees } from "@/hooks/use-employees";
 
 type HeaderProps = {
   onMenuToggle: () => void;
@@ -26,11 +27,16 @@ export function Header({ onMenuToggle }: HeaderProps) {
   const navigate = useNavigate();
   const { isEnabled, isHidden } = useFeatureFlags();
   const { instance, accounts } = useMsal();
+  const { employees } = useEmployees();
 
   // Get current user information from MSAL
   const currentAccount = accounts?.[0];
   const username = currentAccount?.name || "User";
   const userEmail = currentAccount?.username || "user@example.com";
+
+  // Find current employee by matching email
+  const currentEmployee = employees.find(emp => emp.email?.toLowerCase() === userEmail.toLowerCase());
+  const displayEmailOrId = currentEmployee?.employeeId ? currentEmployee.employeeId : userEmail;
 
   // Add scroll listener to change header appearance when scrolled
   useEffect(() => {
@@ -121,7 +127,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-sm truncate">{username}</p>
-                  <p className="text-xs text-muted-foreground break-all leading-relaxed">{userEmail}</p>
+                  <p className="text-xs text-muted-foreground break-all leading-relaxed">{displayEmailOrId}</p>
                 </div>
               </DropdownMenuLabel>
 
