@@ -171,7 +171,7 @@ export default function Directory() {
         variant: "destructive",
       });
     }
-  }; 
+  };
 
   // Handle navigation to dashboard with loading state
   const handleNavigateToDashboard = () => {
@@ -245,10 +245,10 @@ export default function Directory() {
     // Only show inactive profiles IF explicitly filtering for them
     // Otherwise, show only active ones.
     if (employeeStatus === 'inactive') {
-        if (!isEditingInactiveFilter) return false;
+      if (!isEditingInactiveFilter) return false;
     } else {
-        // If it's an active profile and we are explicitly filtering for only inactive, hide it
-        if (isEditingInactiveFilter) return false;
+      // If it's an active profile and we are explicitly filtering for only inactive, hide it
+      if (isEditingInactiveFilter) return false;
     }
 
     return true;
@@ -315,7 +315,7 @@ export default function Directory() {
       {/* Main Layout */}
       <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
         {/* Left Sidebar - Always Fixed */}
-        <aside className={`fixed inset-y-0 left-0 z-40 w-64 sidebar-glass transform transition-transform duration-300 ease-in-out flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        <aside className={`fixed inset-y-0 left-0 z-40 w-52 sidebar-glass transform transition-transform duration-300 ease-in-out flex flex-col ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } lg:translate-x-0`}>
           <SidebarContent
             activeModule={activeModule}
@@ -332,7 +332,7 @@ export default function Directory() {
         )}
 
         {/* Main Content - Account for fixed sidebar and header */}
-        <main className="flex-1 transition-all duration-300 lg:ml-64 pt-16 overflow-hidden max-w-full h-full">
+        <main className="flex-1 transition-all duration-300 lg:ml-52 pt-16 overflow-hidden max-w-full h-full">
           <div className="container px-6 py-8 h-full overflow-y-auto scrollbar-thin">
 
             {/* Filters and Actions */}
@@ -474,20 +474,7 @@ export default function Directory() {
                       </>
                     )}
 
-                    {/* Status Section */}
-                    <>
-                      <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b z-10">
-                        Status
-                      </div>
-                      <div className="max-h-32 overflow-y-auto">
-                        <DropdownMenuItem
-                          onClick={() => toggleFilter(`Status: InActive`)}
-                          className="pl-4 py-1.5 text-sm cursor-pointer focus:bg-accent transition-colors"
-                        >
-                          InActive Profiles
-                        </DropdownMenuItem>
-                      </div>
-                    </>
+
                   </DropdownMenuContent>
                 </DropdownMenu>
 
@@ -583,6 +570,14 @@ export default function Directory() {
                     <Button variant="outline" className="gap-2" onClick={() => setShowImport(true)}>
                       <Upload className="h-4 w-4" />
                       Import
+                    </Button>
+                    <Button
+                      variant={activeFilters.includes("Status: InActive") ? "default" : "outline"}
+                      className="gap-2"
+                      onClick={() => toggleFilter("Status: InActive")}
+                    >
+                      <User className="h-4 w-4" />
+                      InActive Profiles
                     </Button>
                   </>
                 )}
@@ -685,17 +680,17 @@ export default function Directory() {
                         );
 
                         return (
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 pt-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 3xl:grid-cols-12 gap-x-2.5 gap-y-6 pt-3">
                             {currentUserEmployee && (
-                              <div className="relative h-full transform transition-all hover:-translate-y-1">
-                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[10px] md:text-xs uppercase tracking-widest font-extrabold px-3 md:px-4 py-1 rounded-full z-10 shadow-md border-2 border-background whitespace-nowrap flex items-center gap-1.5 min-w-max">
-                                  <User className="w-3 h-3" /> 
-                                  <span>My Profile</span>
+                              <div className="relative h-full">
+                                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white text-[11px] uppercase tracking-wider font-black px-5 py-2 rounded-full z-10 shadow-2xl shadow-indigo-600/50 border border-white/30 whitespace-nowrap flex items-center gap-2 group/myprofile">
+                                  <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse shadow-[0_0_10px_rgba(255,255,255,0.8)]" />
+                                  <span>MY PROFILE</span>
                                 </div>
                                 <EmployeeCard
                                   key={currentUserEmployee.id}
                                   {...currentUserEmployee}
-                                  className="ring-[3px] ring-indigo-500 ring-offset-2 shadow-xl shadow-indigo-500/10 h-full border-transparent"
+                                  className="ring-[4px] ring-indigo-600 ring-offset-4 ring-offset-background shadow-2xl shadow-indigo-600/40 h-full border-transparent rounded-2xl"
                                 />
                               </div>
                             )}

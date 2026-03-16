@@ -57,6 +57,9 @@ interface EmployeeProfileProps {
     status?: string;
     resignationDate?: string;
     reasonForResignation?: string;
+    emergencyContactName?: string;
+    emergencyContactRelationship?: string;
+    emergencyContactPhone?: string;
   } | null;
 }
 
@@ -64,6 +67,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState(employee || {
     id: '',
+    employeeId: '',
     name: '',
     position: '',
     department: '',
@@ -87,7 +91,10 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     account: '',
     status: 'active',
     resignationDate: '',
-    reasonForResignation: ''
+    reasonForResignation: '',
+    emergencyContactName: '',
+    emergencyContactRelationship: '',
+    emergencyContactPhone: ''
   });
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -111,6 +118,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   const canEditProfile = !isLoading && (isAdmin || isSelf);
   const canEditBasicInfo = !isLoading && isAdmin;
   const canViewSensitiveFields = !isLoading && (isAdmin || isSelf);
+  const canViewEmergencyContact = !isLoading && (isAdmin || isSelf);
 
   // Debug logging removed for security
 
@@ -383,6 +391,9 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         email: profileData.email,
         phone: profileData.phone,
         mobile: profileData.mobile,
+        emergencyContactName: profileData.emergencyContactName,
+        emergencyContactRelationship: profileData.emergencyContactRelationship,
+        emergencyContactPhone: profileData.emergencyContactPhone,
         department: profileData.department,
         reporting_to: profileData.reporting_to,
         bio: profileData.bio,
@@ -1249,6 +1260,56 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                 )}
               </CardContent>
             </Card>
+
+            {/* Emergency Contact (admin + self) - at end of view details */}
+            {canViewEmergencyContact && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Phone className="h-5 w-5" />
+                    Emergency Contact
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="emergencyContactName">Name</Label>
+                      <Input
+                        id="emergencyContactName"
+                        name="emergencyContactName"
+                        value={profileData.emergencyContactName || ''}
+                        onChange={handleChange}
+                        disabled={!canEditProfile || !isEditing}
+                        className={!isEditing || !canEditProfile ? "bg-muted" : ""}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="emergencyContactRelationship">Relationship</Label>
+                      <Input
+                        id="emergencyContactRelationship"
+                        name="emergencyContactRelationship"
+                        value={profileData.emergencyContactRelationship || ''}
+                        onChange={handleChange}
+                        disabled={!canEditProfile || !isEditing}
+                        className={!isEditing || !canEditProfile ? "bg-muted" : ""}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="emergencyContactPhone">Phone Number</Label>
+                      <Input
+                        id="emergencyContactPhone"
+                        name="emergencyContactPhone"
+                        type="tel"
+                        value={profileData.emergencyContactPhone || ''}
+                        onChange={handleChange}
+                        disabled={!canEditProfile || !isEditing}
+                        className={!isEditing || !canEditProfile ? "bg-muted" : ""}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </DialogContent>

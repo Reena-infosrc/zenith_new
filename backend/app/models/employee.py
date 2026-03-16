@@ -17,6 +17,10 @@ class EmployeeBase(BaseModel):
     department: str
     phone: Optional[str] = None
     mobile: Optional[str] = None      # Mobile from CSV
+    # Emergency contact details (name, relationship, phone)
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
     
     # Additional fields from CSV
     employment_category: Optional[str] = None  # EmploymentCategory
@@ -64,6 +68,9 @@ class EmployeeUpdate(BaseModel):
     department: Optional[str] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
     
     # Additional fields
     employment_category: Optional[str] = None
