@@ -29,6 +29,8 @@ export interface Employee {
   expertise?: string;
   experienceYears?: number;
   location?: string;
+  /** Azure Entra usageLocation — ISO country code (e.g. IN, US) */
+  usageLocation?: string;
   account?: string;
   dateOfBirth?: string;
   dateOfJoining?: string;
@@ -267,6 +269,7 @@ export function useEmployees() {
             expertise: emp.expertise || "",
             experienceYears: emp.experience_years !== null ? emp.experience_years : undefined,
             location: emp.location || "",
+            usageLocation: (emp.usage_location as string) || "",
             account: emp.account || "",
             dateOfBirth: emp.date_of_birth || "",
             dateOfJoining: emp.date_of_joining || "",

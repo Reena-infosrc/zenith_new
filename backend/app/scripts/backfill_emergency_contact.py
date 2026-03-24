@@ -1,5 +1,4 @@
 import os
-import sys
 import boto3
 
 from boto3.dynamodb.conditions import Attr
@@ -12,36 +11,9 @@ dotenv_path = os.path.join(BASE_DIR, "..", "..", ".env")  # backend/.env
 load_dotenv(dotenv_path=dotenv_path)
 
 TABLE_NAME = os.getenv("DYNAMODB_TABLE_EMPLOYEES", "zenith-hr-employees-staging")
-REGION     = os.getenv("AWS_REGION", "us-east-1")
-ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID")
-SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+REGION = os.getenv("AWS_REGION", "us-east-1")
 
-print(f"[INFO] Using table  : {TABLE_NAME}")
-print(f"[INFO] Using region : {REGION}")
-print(f"[INFO] Access key   : {ACCESS_KEY[:8]}..." if ACCESS_KEY else "[ERROR] AWS_ACCESS_KEY_ID not set!")
-print(f"[INFO] Secret key   : {'set ✓' if SECRET_KEY else 'NOT SET ✗'}")
-
-# Verify credentials are valid before proceeding
-try:
-    sts = boto3.client(
-        "sts",
-        region_name=REGION,
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY,
-    )
-    identity = sts.get_caller_identity()
-    print(f"[INFO] Authenticated as: {identity['Arn']}")
-except Exception as e:
-    print(f"[ERROR] AWS credential check failed: {e}")
-    sys.exit(1)
-
-# Explicitly pass credentials to avoid any profile/env conflicts
-dynamodb = boto3.resource(
-    "dynamodb",
-    region_name=REGION,
-    aws_access_key_id=ACCESS_KEY,
-    aws_secret_access_key=SECRET_KEY,
-)
+dynamodb = boto3.resource("dynamodb", region_name=REGION)
 table = dynamodb.Table(TABLE_NAME)
 
 

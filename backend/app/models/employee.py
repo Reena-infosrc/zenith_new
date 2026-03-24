@@ -28,7 +28,9 @@ class EmployeeBase(BaseModel):
     employee_status: Optional[str] = None      # EmployeeStatus
     account: Optional[str] = None              # Account
     is_leader: Optional[str] = None            # IsLeader
-    location: Optional[str] = None             # Location
+    location: Optional[str] = None             # Location (often office/city from Azure officeLocation)
+    # Azure Entra Microsoft Graph usageLocation — ISO 3166 alpha-2 (e.g. IN, US). License / country assignment.
+    usage_location: Optional[str] = None
     date_of_birth: Optional[date] = None       # Dob
     date_of_joining: Optional[date] = None     # Doj
     
@@ -79,6 +81,7 @@ class EmployeeUpdate(BaseModel):
     account: Optional[str] = None
     is_leader: Optional[str] = None
     location: Optional[str] = None
+    usage_location: Optional[str] = None
     date_of_birth: Optional[date] = None
     date_of_joining: Optional[date] = None
     

@@ -110,7 +110,83 @@ export function formatLocation(location: string): string {
   }).join(', ');
 }
 
-export function groupLocationsByCountry(locations: string[]): Record<string, string[]> {
+/**
+ * Consolidated display label for an employee location (matches consolidateRemoteLocations rules).
+ */
+export function consolidatedEmployeeLocationLabel(location: string | undefined): string {
+  if (!location) return '';
+  const normalizedLocation = location.trim().toLowerCase();
+  if (normalizedLocation.startsWith('remote -') || normalizedLocation === 'remote') {
+    return 'Remote';
+  }
+  return formatLocation(location);
+}
+
+/**
+ * Azure Entra `usageLocation` is ISO 3166 alpha-2 (e.g. IN, US).
+ */
+export function isoUsageCountry(usageLocation: string | undefined | null): 'IN' | 'US' | null {
+  if (!usageLocation || typeof usageLocation !== 'string') return null;
+  const u = usageLocation.trim().toUpperCase();
+  if (u === 'IN') return 'IN';
+  if (u === 'US') return 'US';
+  return null;
+}
+
+/**
+ * India headcount / filters: prefer Entra usageLocation IN; otherwise infer from city/office text.
+ */
+export function isIndiaEmployeeByLocation(
+  location: string | undefined | null,
+  usageLocation: string | undefined | null
+): boolean {
+  const iso = isoUsageCountry(usageLocation);
+  if (iso === 'IN') return true;
+  if (iso === 'US') return false;
+
+  const loc = (location || '').toLowerCase().trim();
+  const indiaLocations = ['chennai', 'hyderabad', 'remote', 'india'];
+  const indiaKeywords = [
+    'india', 'chennai', 'hyderabad', 'bangalore', 'bengaluru', 'mumbai', 'delhi', 'pune', 'kolkata', 'noida', 'gurgaon',
+  ];
+  return (
+    indiaLocations.includes(loc) ||
+    indiaKeywords.some((keyword) => loc.includes(keyword)) ||
+    loc.includes('india')
+  );
+}
+
+/**
+ * USA headcount / filters: prefer Entra usageLocation US; otherwise infer from office text (exclude India signals).
+ */
+export function isUSAEmployeeByLocation(
+  location: string | undefined | null,
+  usageLocation: string | undefined | null
+): boolean {
+  const iso = isoUsageCountry(usageLocation);
+  if (iso === 'US') return true;
+  if (iso === 'IN') return false;
+
+  const loc = (location || '').toLowerCase().trim();
+  const isIndiaLocation = ['chennai', 'hyderabad', 'remote', 'india', 'bangalore', 'bengaluru', 'mumbai', 'delhi'].some(
+    (keyword) => loc.includes(keyword)
+  );
+  if (isIndiaLocation) return false;
+
+  if (loc === 'usa' || loc === 'us' || loc === 'u.s.' || loc === 'u.s.a.') return true;
+  if (loc.includes('united states')) return true;
+
+  const usaKeywords = [
+    'texas', 'georgia', 'california', 'new york', 'new jersey', 'michigan',
+    'houston', 'rochester', 'springfield', 'livonia', 'cumming',
+  ];
+  return usaKeywords.some((keyword) => loc.includes(keyword));
+}
+
+export function groupLocationsByCountry(
+  locations: string[],
+  employees?: { location?: string; usageLocation?: string }[]
+): Record<string, string[]> {
   const indiaKeywords = ['bangalore', 'bengaluru', 'chennai', 'hyderabad', 'firozabad', 'mumbai', 'delhi', 'new delhi', 'pune', 'nagpur', 'india', 'noida', 'gurgaon', 'kolkata', 'indore'];
 
   // Added common US state codes and major cities to ensure proper grouping
@@ -134,8 +210,36 @@ export function groupLocationsByCountry(locations: string[]): Record<string, str
     const normalizedLocation = formatLocation(location);
     const lowerLocation = location.toLowerCase();
 
+    // If Entra usageLocation is present for any employee with this consolidated label, trust ISO over city text.
+    let isoHint: 'IN' | 'US' | null = null;
+    if (employees && employees.length > 0) {
+      const match = employees.find(
+        (e) => consolidatedEmployeeLocationLabel(e.location) === normalizedLocation
+      );
+      isoHint = isoUsageCountry(match?.usageLocation ?? null);
+    }
+
+    if (isoHint === 'IN') {
+      if (!grouped['INDIA'].includes(normalizedLocation)) {
+        grouped['INDIA'].push(normalizedLocation);
+      }
+      return;
+    }
+    if (isoHint === 'US') {
+      if (!grouped['USA'].includes(normalizedLocation)) {
+        grouped['USA'].push(normalizedLocation);
+      }
+      return;
+    }
+
     // Check if location belongs to India
     if (indiaKeywords.some(keyword => lowerLocation.includes(keyword.toLowerCase()))) {
+      if (!grouped['INDIA'].includes(normalizedLocation)) {
+        grouped['INDIA'].push(normalizedLocation);
+      }
+    }
+    // "Remote" without ISO hint: align with dashboard India filter (India org remote workers).
+    else if (lowerLocation === 'remote') {
       if (!grouped['INDIA'].includes(normalizedLocation)) {
         grouped['INDIA'].push(normalizedLocation);
       }

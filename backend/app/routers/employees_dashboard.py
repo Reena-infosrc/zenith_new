@@ -16,7 +16,7 @@ router = APIRouter(
 _dashboard_cache = {
     "data": None,
     "timestamp": 0,
-    "ttl": 120  # 2 minutes
+    "ttl": 60  # 1 minute
 }
 
 @router.get("/")
@@ -179,7 +179,7 @@ async def get_employees_dashboard(current_user: dict = Depends(get_current_activ
             "by_department": by_department,
             "by_gender": by_gender,
             "by_status": by_status,
-            "employees": employees  # Include full employee data for filtering
+            "employees": active_employees  # Only send active employees to avoid double-filter confusion
         }
         
         # Update cache

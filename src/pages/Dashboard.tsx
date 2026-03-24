@@ -23,7 +23,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart, Legend } from 'recharts';
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { useToast } from "@/hooks/use-toast";
-import { consolidateRemoteLocations } from "@/lib/utils";
+import { consolidateRemoteLocations, isIndiaEmployeeByLocation, isUSAEmployeeByLocation } from "@/lib/utils";
 import { exportEmployeesToCSV } from "@/utils/csvExport";
 import { API_BASE_URL } from "@/config/api";
 
@@ -43,6 +43,8 @@ interface Employee {
   account: string;
   is_leader: string;
   location: string;
+  /** Azure Entra usageLocation (ISO 3166 alpha-2), when synced */
+  usage_location?: string;
   date_of_birth: string;
   date_of_joining: string;
   photo_url: string;
@@ -82,7 +84,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
   const [filterValue, setFilterValue] = useState<string>("all");
-  const [selectedLocation, setSelectedLocation] = useState<string>("india"); // India, USA, All
+  const [selectedLocation, setSelectedLocation] = useState<string>("all"); // India, USA, All
   const [selectedDataPoint, setSelectedDataPoint] = useState<ChartDataPoint | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
@@ -140,13 +142,8 @@ export default function Dashboard() {
     try {
       setLoading(true);
 
-      // Check cache first
-      const cachedData = apiCache.get(CACHE_KEYS.DASHBOARD);
-      if (cachedData) {
-        setDashboardData(cachedData as DashboardData);
-        setLoading(false);
-        return;
-      }
+      // Always bust the dashboard cache on mount so navigating back shows fresh data
+      apiCache.delete(CACHE_KEYS.DASHBOARD);
 
       const token = localStorage.getItem('auth_token');
       const headers: HeadersInit = {
@@ -214,32 +211,11 @@ export default function Dashboard() {
     }
 
     const filtered = employees.filter(emp => {
-      const location = (emp.location?.toLowerCase() || "").trim();
-
       if (selectedLocation === "india") {
-        // India locations: Chennai, Hyderabad, Remote, or any location containing "india"
-        // Also check for common Indian city names
-        const indiaLocations = ["chennai", "hyderabad", "remote", "india"];
-        const indiaKeywords = ["india", "chennai", "hyderabad", "bangalore", "mumbai", "delhi", "pune", "kolkata", "noida", "gurgaon"];
-
-        // Check if location matches any India city or contains India keywords
-        const matches = indiaLocations.includes(location) ||
-          indiaKeywords.some(keyword => location.includes(keyword)) ||
-          location.includes("india");
-
-        return matches;
-      } else if (selectedLocation === "usa") {
-        // USA locations: USA, US, United States, or any US state/city
-        const usaLocations = ["usa", "us", "united states"];
-        const usaKeywords = ["usa", "us", "united states", "texas", "georgia", "california", "new york", "new jersey", "michigan", "houston", "rochester", "springfield", "livonia", "cumming"];
-
-        // Check if location matches USA or contains USA keywords
-        // Exclude India locations from USA
-        const isIndiaLocation = ["chennai", "hyderabad", "remote", "india", "bangalore", "mumbai", "delhi"].some(keyword => location.includes(keyword));
-        if (isIndiaLocation) return false;
-
-        return usaLocations.includes(location) ||
-          usaKeywords.some(keyword => location.includes(keyword));
+        return isIndiaEmployeeByLocation(emp.location, emp.usage_location);
+      }
+      if (selectedLocation === "usa") {
+        return isUSAEmployeeByLocation(emp.location, emp.usage_location);
       }
       return true;
     });

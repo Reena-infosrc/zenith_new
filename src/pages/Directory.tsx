@@ -96,7 +96,10 @@ export default function Directory() {
   const groupedLocations = useMemo(() => {
     const rawLocations = [...new Set(employees.map(emp => emp.location).filter(Boolean))];
     const consolidated = consolidateRemoteLocations(rawLocations);
-    return groupLocationsByCountry(consolidated);
+    return groupLocationsByCountry(
+      consolidated,
+      employees.map((e) => ({ location: e.location, usageLocation: e.usageLocation }))
+    );
   }, [employees]);
 
   const accounts = useMemo(() => {

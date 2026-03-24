@@ -106,6 +106,17 @@ class APICache {
     return true;
   }
 
+  delete(key: string): void {
+    this.cache.delete(key);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(`${this.STORAGE_PREFIX}${key}`);
+      } catch (e) {
+        console.warn('Failed to remove cache entry from localStorage');
+      }
+    }
+  }
+
   clear(): void {
     this.cache.clear();
     if (typeof window !== 'undefined') {
