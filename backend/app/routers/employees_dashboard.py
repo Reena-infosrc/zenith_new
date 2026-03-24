@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List
 import datetime
 import time
@@ -20,13 +20,19 @@ _dashboard_cache = {
 }
 
 @router.get("/")
-async def get_employees_dashboard(current_user: dict = Depends(get_current_active_user)):
+async def get_employees_dashboard(
+    nocache: bool = Query(False, description="Skip server cache (use after Azure sync)"),
+    current_user: dict = Depends(get_current_active_user),
+):
     """Get comprehensive employee analytics data for dashboard visualization (cached for 2 minutes)"""
     try:
         # Check cache first
         current_time = time.time()
-        if (_dashboard_cache["data"] is not None and 
-            current_time - _dashboard_cache["timestamp"] < _dashboard_cache["ttl"]):
+        if (
+            not nocache
+            and _dashboard_cache["data"] is not None
+            and current_time - _dashboard_cache["timestamp"] < _dashboard_cache["ttl"]
+        ):
             return _dashboard_cache["data"]
         
         # Get all employees - use pagination to get all items
@@ -62,7 +68,8 @@ async def get_employees_dashboard(current_user: dict = Depends(get_current_activ
                 "by_expertise": {},
                 "by_department": {},
                 "by_gender": {},
-                "employees": []
+                "employees": [],
+                "usage_location_coverage": {"with_field": 0, "total_active": 0},
             }
         
         employees = []
@@ -166,6 +173,10 @@ async def get_employees_dashboard(current_user: dict = Depends(get_current_activ
         
         # Count only active employees - default to "active" if status field doesn't exist
         active_employees = [emp for emp in employees if emp.get("status", "active") != "inactive"]
+
+        with_usage = sum(
+            1 for e in active_employees if (e.get("usage_location") or "").strip()
+        )
         
         result = {
             "total_employees": len(active_employees),
@@ -179,7 +190,11 @@ async def get_employees_dashboard(current_user: dict = Depends(get_current_activ
             "by_department": by_department,
             "by_gender": by_gender,
             "by_status": by_status,
-            "employees": active_employees  # Only send active employees to avoid double-filter confusion
+            "employees": active_employees,  # Only send active employees to avoid double-filter confusion
+            "usage_location_coverage": {
+                "with_field": with_usage,
+                "total_active": len(active_employees),
+            },
         }
         
         # Update cache

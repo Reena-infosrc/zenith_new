@@ -4,6 +4,7 @@ import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -23,7 +24,12 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart, Legend } from 'recharts';
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { useToast } from "@/hooks/use-toast";
-import { consolidateRemoteLocations, isIndiaEmployeeByLocation, isUSAEmployeeByLocation } from "@/lib/utils";
+import {
+  consolidateRemoteLocations,
+  dashboardLocationBucketKey,
+  isIndiaEmployeeByLocation,
+  isUSAEmployeeByLocation,
+} from "@/lib/utils";
 import { exportEmployeesToCSV } from "@/utils/csvExport";
 import { API_BASE_URL } from "@/config/api";
 
@@ -66,6 +72,8 @@ interface DashboardData {
   by_gender: { [key: string]: number };
   by_status: { [key: string]: number };
   employees: Employee[];
+  /** How many active rows have Azure Entra usage_location in DynamoDB */
+  usage_location_coverage?: { with_field: number; total_active: number };
 }
 
 interface ChartDataPoint {
@@ -154,7 +162,7 @@ export default function Dashboard() {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/employees-dashboard/`, { headers });
+      const response = await fetch(`${API_BASE_URL}/employees-dashboard/?nocache=1`, { headers });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -249,14 +257,9 @@ export default function Dashboard() {
       const account = emp.account || "Unknown";
       by_account[account] = (by_account[account] || 0) + 1;
 
-      // Location
-      const location = emp.location || "Unknown";
-      const normalizedLocation = location.toLowerCase().trim();
-      if (normalizedLocation.startsWith('remote -') || normalizedLocation === 'remote') {
-        by_location['Remote'] = (by_location['Remote'] || 0) + 1;
-      } else {
-        by_location[location] = (by_location[location] || 0) + 1;
-      }
+      // Location — include Entra country when present so buckets match license country vs city-only drift
+      const locKey = dashboardLocationBucketKey(emp);
+      by_location[locKey] = (by_location[locKey] || 0) + 1;
 
       // Employee status
       const empStatusType = emp.employee_status || "Unknown";
@@ -854,6 +857,25 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold mb-2">Employee Analytics Dashboard</h1>
             <p className="text-muted-foreground mb-4">Comprehensive insights into your workforce data</p>
 
+            {dashboardData?.usage_location_coverage &&
+              dashboardData.usage_location_coverage.total_active > 0 &&
+              dashboardData.usage_location_coverage.with_field <
+                dashboardData.usage_location_coverage.total_active && (
+                <Alert className="mb-4 max-w-3xl">
+                  <AlertTitle>Entra country not synced for most employees</AlertTitle>
+                  <AlertDescription>
+                    Only {dashboardData.usage_location_coverage.with_field} of{" "}
+                    {dashboardData.usage_location_coverage.total_active} active rows have{" "}
+                    <span className="font-mono text-xs">usage_location</span> (Azure{" "}
+                    <span className="font-mono text-xs">usageLocation</span>) in DynamoDB. Until the
+                    Azure AD sync runs and fills this field, India/USA totals use city names in{" "}
+                    <span className="font-mono text-xs">location</span> only, so counts can differ
+                    from HR. Deploy and run the sync that updates{" "}
+                    <span className="font-mono text-xs">Data/sync.py</span>, then refresh this page.
+                  </AlertDescription>
+                </Alert>
+              )}
+
             {/* Location Filter Buttons */}
             <div className="flex items-center gap-3 mb-6">
               <span className="text-sm font-medium text-muted-foreground">Filter by Location:</span>
@@ -966,7 +988,7 @@ export default function Dashboard() {
                       {Object.keys(filteredData.by_location).length}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Different locations
+                      Distinct city/office (Entra country in parentheses when set)
                     </p>
                   </CardContent>
                 </Card>
