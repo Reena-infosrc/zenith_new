@@ -4,7 +4,6 @@ import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -859,25 +858,6 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold mb-2">Employee Analytics Dashboard</h1>
             <p className="text-muted-foreground mb-4">Comprehensive insights into your workforce data</p>
 
-            {dashboardData?.usage_location_coverage &&
-              dashboardData.usage_location_coverage.total_active > 0 &&
-              dashboardData.usage_location_coverage.with_field <
-                dashboardData.usage_location_coverage.total_active && (
-                <Alert className="mb-4 max-w-3xl">
-                  <AlertTitle>Entra country not synced for most employees</AlertTitle>
-                  <AlertDescription>
-                    Only {dashboardData.usage_location_coverage.with_field} of{" "}
-                    {dashboardData.usage_location_coverage.total_active} active rows have{" "}
-                    <span className="font-mono text-xs">usage_location</span> (Azure{" "}
-                    <span className="font-mono text-xs">usageLocation</span>) in DynamoDB. Until the
-                    Azure AD sync runs and fills this field, India/USA totals use city names in{" "}
-                    <span className="font-mono text-xs">location</span> only, so counts can differ
-                    from HR. Deploy and run the sync that updates{" "}
-                    <span className="font-mono text-xs">Data/sync.py</span>, then refresh this page.
-                  </AlertDescription>
-                </Alert>
-              )}
-
             {/* Location Filter Buttons */}
             <div className="flex items-center gap-3 mb-6">
               <span className="text-sm font-medium text-muted-foreground">Filter by Location:</span>
@@ -990,7 +970,7 @@ export default function Dashboard() {
                       {Object.keys(filteredData.by_location).length}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Distinct city/office (Entra country in parentheses when set)
+                      Different locations
                     </p>
                   </CardContent>
                 </Card>
