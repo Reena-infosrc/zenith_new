@@ -349,6 +349,10 @@ async def get_employees(
     gender: Optional[str] = None,
     account: Optional[str] = None,
     search: Optional[str] = None,
+    usage_location: Optional[str] = Query(
+        None,
+        description="Filter by Azure Entra usage location (ISO 3166 alpha-2), e.g. IN or US",
+    ),
     sort_by: Optional[str] = Query(None, description="Sort by field: name, date_of_joining"),
     sort_order: Optional[str] = Query("asc", description="Sort order: asc, desc"),
     current_user: dict = Depends(get_current_active_user)
@@ -417,6 +421,14 @@ async def get_employees(
             parsed.append(doc)
         
         print(f"DEBUG: Final parsed items: {len(parsed)}")
+
+        # Filter by Entra usage location (DynamoDB usage_location)
+        if usage_location:
+            want = usage_location.strip().upper()
+            parsed = [
+                d for d in parsed
+                if (d.get("usage_location") or "").strip().upper() == want
+            ]
 
         # Apply search filter client-side
         if search:

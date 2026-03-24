@@ -71,6 +71,8 @@ interface DashboardData {
   by_department: { [key: string]: number };
   by_gender: { [key: string]: number };
   by_status: { [key: string]: number };
+  /** Active employees grouped by usage_location (ISO code or not_set) */
+  by_usage_location?: { [key: string]: number };
   employees: Employee[];
   /** How many active rows have Azure Entra usage_location in DynamoDB */
   usage_location_coverage?: { with_field: number; total_active: number };

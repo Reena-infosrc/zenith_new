@@ -19,6 +19,7 @@ export interface EmployeeCSVRow {
   account?: string;
   isLeader?: string;
   location?: string;
+  usageLocation?: string;
   dateOfBirth?: string;
   dateOfJoining?: string;
   bio?: string;
@@ -49,6 +50,7 @@ export const CSV_HEADERS = [
   "Account",
   "Is Leader",
   "Location",
+  "Usage Location (Entra)",
   "Date of Birth",
   "Date of Joining",
   "Project Start Date",
@@ -78,6 +80,7 @@ export const FIELD_MAPPING: Record<string, keyof EmployeeCSVRow> = {
   "Account": "account",
   "Is Leader": "isLeader",
   "Location": "location",
+  "Usage Location (Entra)": "usageLocation",
   "Date of Birth": "dateOfBirth",
   "Date of Joining": "dateOfJoining",
   "Project Start Date": "projectStartDate",
@@ -157,6 +160,7 @@ export function employeeToCSVRow(employee: Employee, getManagerName?: (managerId
       account: ['account'],
       isLeader: ['isLeader', 'is_leader'],
       location: ['location'],
+      usageLocation: ['usageLocation', 'usage_location'],
       dateOfBirth: ['dateOfBirth', 'date_of_birth'],
       dateOfJoining: ['dateOfJoining', 'date_of_joining'],
       projectStartDate: ['projectStartDate', 'project_start_date'],

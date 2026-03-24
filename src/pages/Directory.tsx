@@ -201,6 +201,20 @@ export default function Directory() {
     if (!isAdmin && (employee.status || 'active') === 'inactive') {
       return false;
     }
+    // Entra usage location (ISO country — IN / US) from DynamoDB
+    if (activeFilters.some(filter => filter.startsWith("Entra country:"))) {
+      const hasMatch = activeFilters.some(filter => {
+        if (!filter.startsWith("Entra country: ")) return false;
+        const filterValue = filter.replace("Entra country: ", "").trim().toUpperCase();
+        const ul = (employee.usageLocation || "").trim().toUpperCase();
+        if (filterValue === "NOT SET") {
+          return !ul;
+        }
+        return ul === filterValue;
+      });
+      if (!hasMatch) return false;
+    }
+
     // Department filters
     if (activeFilters.some(filter => filter.startsWith("Department:"))) {
       const hasMatch = activeFilters.some(filter => {
@@ -364,6 +378,28 @@ export default function Directory() {
                         </DropdownMenuItem>
                       ))}
                     </div>
+
+                    <div className="px-2 py-1.5 text-sm font-semibold text-muted-foreground border-t mt-1 sticky top-0 bg-background border-b z-10">
+                      Entra country
+                    </div>
+                    <DropdownMenuItem
+                      onClick={() => toggleFilter("Entra country: IN")}
+                      className="pl-4"
+                    >
+                      India (IN)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => toggleFilter("Entra country: US")}
+                      className="pl-4"
+                    >
+                      United States (US)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => toggleFilter("Entra country: Not set")}
+                      className="pl-4"
+                    >
+                      Not set in Entra
+                    </DropdownMenuItem>
 
                     {/* Location Section */}
                     {Object.keys(groupedLocations).length > 0 && (

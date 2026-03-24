@@ -69,6 +69,7 @@ async def get_employees_dashboard(
                 "by_department": {},
                 "by_gender": {},
                 "employees": [],
+                "by_usage_location": {},
                 "usage_location_coverage": {"with_field": 0, "total_active": 0},
             }
         
@@ -119,6 +120,7 @@ async def get_employees_dashboard(
         by_department = {}
         by_gender = {}
         by_status = {}
+        by_usage_location = {}
         
         for emp in employees:
             # Skip inactive employees for distribution calculations
@@ -170,6 +172,11 @@ async def get_employees_dashboard(
             # Status distribution
             status = emp.get("status", "active")
             by_status[status] = by_status.get(status, 0) + 1
+
+            # Entra usage location (ISO country for license assignment)
+            ul = (emp.get("usage_location") or "").strip().upper()
+            ul_key = ul if ul else "not_set"
+            by_usage_location[ul_key] = by_usage_location.get(ul_key, 0) + 1
         
         # Count only active employees - default to "active" if status field doesn't exist
         active_employees = [emp for emp in employees if emp.get("status", "active") != "inactive"]
@@ -190,6 +197,7 @@ async def get_employees_dashboard(
             "by_department": by_department,
             "by_gender": by_gender,
             "by_status": by_status,
+            "by_usage_location": by_usage_location,
             "employees": active_employees,  # Only send active employees to avoid double-filter confusion
             "usage_location_coverage": {
                 "with_field": with_usage,

@@ -162,9 +162,6 @@ export function isIndiaEmployeeByLocation(
 }
 
 /**
- * USA headcount / filters: prefer Entra usageLocation US; otherwise infer from office text (exclude India signals).
- */
-/**
  * Bucket key for dashboard "Locations" chart: city + optional Entra ISO code so India/US counts match reality.
  */
 export function dashboardLocationBucketKey(emp: {
@@ -182,6 +179,9 @@ export function dashboardLocationBucketKey(emp: {
   return city;
 }
 
+/**
+ * USA headcount / filters: prefer Entra usageLocation US; otherwise infer from office text (exclude India signals).
+ */
 export function isUSAEmployeeByLocation(
   location: string | undefined | null,
   usageLocation: string | undefined | null
