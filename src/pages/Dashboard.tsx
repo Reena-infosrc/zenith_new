@@ -84,6 +84,19 @@ interface ChartDataPoint {
   employees?: Employee[];
 }
 
+/** Value used for dashboard "Filter by" charts and drill-down (Entra ISO or "Not set"). */
+function getEmployeeFilterValue(emp: Employee, filterKey: string): string | undefined {
+  if (filterKey === "usage_location") {
+    const v = (emp.usage_location || "").trim();
+    return v ? v.toUpperCase() : "Not set";
+  }
+  const raw = emp[filterKey as keyof Employee];
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  return undefined;
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -192,10 +205,15 @@ export default function Dashboard() {
             }).join(' ');
           }
 
+          const raw = emp as Employee & { usage_location?: string };
           return {
             ...emp,
             account: normalizedAccount,
             location: normalizedLocation || emp.location,
+            usage_location:
+              typeof raw.usage_location === "string"
+                ? raw.usage_location.trim()
+                : undefined,
             employeeId: emp.employee_id || emp.employeeId || "",
             id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9)
           };
@@ -290,6 +308,14 @@ export default function Dashboard() {
       by_status[empStatus] = (by_status[empStatus] || 0) + 1;
     });
 
+    const by_usage_location: { [key: string]: number } = {};
+    locationFilteredEmployees.forEach(emp => {
+      const es = emp.status || "active";
+      if (es === "inactive") return;
+      const k = (emp.usage_location || "").trim().toUpperCase() || "not_set";
+      by_usage_location[k] = (by_usage_location[k] || 0) + 1;
+    });
+
     // Calculate monthly headcount for filtered employees
     const monthly_headcount = [];
     const current_year = new Date().getFullYear();
@@ -336,6 +362,7 @@ export default function Dashboard() {
       by_department,
       by_gender,
       by_status,
+      by_usage_location,
       employees: locationFilteredEmployees
     };
   };
@@ -361,7 +388,7 @@ export default function Dashboard() {
     // Get all unique categories for the selected filter
     const categories = new Set<string>();
     filteredData.employees.forEach(emp => {
-      const fieldValue = emp[selectedFilter as keyof Employee];
+      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
       if (fieldValue && fieldValue !== "Unknown") {
         categories.add(fieldValue);
       }
@@ -426,7 +453,7 @@ export default function Dashboard() {
             const empStatus = emp.status || "active";
             if (empStatus === "inactive") continue;
 
-            const fieldValue = emp[selectedFilter as keyof Employee];
+            const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
             if (fieldValue === category) {
               const join_date_str = emp.date_of_joining || emp.created_at;
               if (join_date_str) {
@@ -509,7 +536,7 @@ export default function Dashboard() {
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return;
 
-      const fieldValue = emp[selectedFilter as keyof Employee];
+      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
         if (selectedFilter === "location") {
@@ -552,7 +579,7 @@ export default function Dashboard() {
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return;
 
-      const fieldValue = emp[selectedFilter as keyof Employee];
+      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
         if (selectedFilter === "location") {
@@ -602,7 +629,7 @@ export default function Dashboard() {
           const empStatus = emp.status || "active";
           if (empStatus === "inactive") continue;
 
-          const fieldValue = emp[selectedFilter as keyof Employee];
+          const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
 
           // Handle consolidated remote locations
           let matchesCategory = false;
@@ -662,7 +689,7 @@ export default function Dashboard() {
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return false;
 
-      const fieldValue = emp[selectedFilter as keyof Employee];
+      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
       return fieldValue && fieldValue !== "Unknown";
     });
   };
@@ -681,7 +708,7 @@ export default function Dashboard() {
       const empStatus = emp.status || "active";
       if (empStatus === "inactive") return;
 
-      const fieldValue = emp[selectedFilter as keyof Employee];
+      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
       if (fieldValue && fieldValue !== "Unknown") {
         // Consolidate remote locations when filter is location
         if (selectedFilter === "location") {
@@ -737,7 +764,7 @@ export default function Dashboard() {
         // Other charts - show employees for the clicked category
         const categoryName = clickedData.name;
         const categoryEmployees = getFilteredEmployees().filter(emp => {
-          const fieldValue = emp[selectedFilter as keyof Employee];
+          const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
           return fieldValue === categoryName;
         });
 
@@ -759,6 +786,7 @@ export default function Dashboard() {
     const labels: { [key: string]: string } = {
       account: "Account",
       location: "Location",
+      usage_location: "Usage location (Entra)",
       employee_status: "Work Type",
       employment_category: "Employment Category",
       is_leader: "Is Leader",
@@ -916,6 +944,7 @@ export default function Dashboard() {
                 <SelectItem value="all">All Employees</SelectItem>
                 <SelectItem value="account">Account</SelectItem>
                 <SelectItem value="location">Location</SelectItem>
+                <SelectItem value="usage_location">Usage location (Entra)</SelectItem>
                 <SelectItem value="employee_status">Work Type</SelectItem>
                 <SelectItem value="employment_category">Employment Category</SelectItem>
                 <SelectItem value="is_leader">Is Leader</SelectItem>
@@ -1463,6 +1492,7 @@ export default function Dashboard() {
                         <TableHead>Department</TableHead>
                         <TableHead>Account</TableHead>
                         <TableHead>Location</TableHead>
+                        <TableHead>Usage (Entra)</TableHead>
                         <TableHead>Work Type</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Leader</TableHead>
@@ -1476,6 +1506,9 @@ export default function Dashboard() {
                           <TableCell>{employee.department}</TableCell>
                           <TableCell>{employee.account || 'N/A'}</TableCell>
                           <TableCell>{employee.location || 'N/A'}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {employee.usage_location?.trim() || '—'}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline">
                               {employee.employee_status || 'N/A'}
