@@ -6,6 +6,41 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Indian city / state fragments for "Remote - …" lines (lowercase). Avoids classifying "Remote - Texas" as India.
+ */
+const INDIA_REMOTE_TAILS = [
+  'bangalore', 'bengaluru', 'indore', 'kurnool', 'vijayawada', 'uttar pradesh', 'west bengal',
+  'gujarat', 'madhya pradesh', 'haryana', 'shimoga', 'shivamoga', 'anantapur', 'kandukur', 'thane',
+  'punjab', 'pune',
+] as const;
+
+/**
+ * Substrings for Indian office / state / city (lowercase). Does not include bare "remote" — use isIndiaRemoteLine().
+ */
+export const INDIA_LOCATION_KEYWORDS = [
+  // Tier 1 hubs
+  'hyderabad', 'chennai', 'bangalore', 'bengaluru', 'pune',
+  // Tier 2
+  'nagpur', 'indore', 'firozabad',
+  // Other metros / common
+  'mumbai', 'delhi', 'new delhi', 'kolkata', 'noida', 'gurgaon', 'gurugram',
+  'ahmedabad', 'coimbatore', 'kochi', 'trivandrum', 'thiruvananthapuram', 'calicut', 'kozhikode',
+  'vizag', 'visakhapatnam', 'mysore', 'mysuru', 'surat', 'jaipur', 'chandigarh',
+  'home office',
+  'kurnool', 'vijayawada', 'uttar pradesh', 'west bengal', 'gujarat', 'madhya pradesh',
+  'haryana', 'shimoga', 'shivamoga', 'anantapur', 'kandukur', 'thane', 'punjab',
+] as const;
+
+/** True if location text denotes India-only remote / home (not e.g. Remote - Texas). */
+function isIndiaRemoteOrHomeLine(loc: string): boolean {
+  const s = loc.trim().toLowerCase();
+  if (s === 'remote' || s === 'home office') return true;
+  if (!s.startsWith('remote -')) return false;
+  const tail = s.slice('remote -'.length).trim();
+  return INDIA_REMOTE_TAILS.some((t) => tail.includes(t));
+}
+
+/**
  * Consolidates remote locations into a single "Remote" entry
  * @param locations Array of location strings
  * @returns Array of consolidated locations with remote locations merged
@@ -15,8 +50,8 @@ export function consolidateRemoteLocations(locations: string[]): string[] {
     if (!location) return location;
 
     const normalizedLocation = location.trim().toLowerCase();
-    // Check if location starts with "remote -" or is exactly "remote" and consolidate to just "Remote"
-    if (normalizedLocation.startsWith('remote -') || normalizedLocation === 'remote') {
+    // Only collapse generic "remote" — keep "Remote - Bangalore" etc. as distinct filter options
+    if (normalizedLocation === 'remote') {
       return 'Remote';
     }
     // Use formatLocation to normalize casing for deduplication (e.g. "Duncanville, TX")
@@ -116,7 +151,7 @@ export function formatLocation(location: string): string {
 export function consolidatedEmployeeLocationLabel(location: string | undefined): string {
   if (!location) return '';
   const normalizedLocation = location.trim().toLowerCase();
-  if (normalizedLocation.startsWith('remote -') || normalizedLocation === 'remote') {
+  if (normalizedLocation === 'remote') {
     return 'Remote';
   }
   return formatLocation(location);
@@ -148,17 +183,10 @@ export function isIndiaEmployeeByLocation(
   if (iso === 'US' || iso === 'OTHER') return false;
 
   const loc = (location || '').toLowerCase().trim();
-  const indiaLocations = ['chennai', 'hyderabad', 'remote', 'india'];
-  const indiaKeywords = [
-    'india', 'chennai', 'hyderabad', 'bangalore', 'bengaluru', 'mumbai', 'delhi', 'pune', 'kolkata', 'noida', 'gurgaon',
-    'ahmedabad', 'coimbatore', 'kochi', 'trivandrum', 'thiruvananthapuram', 'calicut', 'kozhikode', 'vizag', 'visakhapatnam',
-    'mysore', 'mysuru', 'surat', 'jaipur', 'gurugram', 'chandigarh', 'shivamoga'
-  ];
-  return (
-    indiaLocations.includes(loc) ||
-    indiaKeywords.some((keyword) => loc.includes(keyword)) ||
-    loc.includes('india')
-  );
+  if (INDIA_LOCATION_KEYWORDS.some((keyword) => loc.includes(keyword))) return true;
+  if (isIndiaRemoteOrHomeLine(loc)) return true;
+  if (loc.includes('india')) return true;
+  return false;
 }
 
 /**
@@ -170,8 +198,7 @@ export function dashboardLocationBucketKey(emp: {
 }): string {
   const raw = emp.location || 'Unknown';
   const normalized = raw.toLowerCase().trim();
-  const city =
-    normalized.startsWith('remote -') || normalized === 'remote' ? 'Remote' : raw;
+  const city = normalized === 'remote' ? 'Remote' : raw;
   const ul = (emp.usage_location || '').trim().toUpperCase();
   if (ul) {
     return `${city} (${ul})`;
@@ -191,9 +218,10 @@ export function isUSAEmployeeByLocation(
   if (iso === 'IN' || iso === 'OTHER') return false;
 
   const loc = (location || '').toLowerCase().trim();
-  const isIndiaLocation = ['chennai', 'hyderabad', 'remote', 'india', 'bangalore', 'bengaluru', 'mumbai', 'delhi'].some(
-    (keyword) => loc.includes(keyword)
-  );
+  const isIndiaLocation =
+    INDIA_LOCATION_KEYWORDS.some((keyword) => loc.includes(keyword)) ||
+    isIndiaRemoteOrHomeLine(loc) ||
+    loc.includes('india');
   if (isIndiaLocation) return false;
 
   if (loc === 'usa' || loc === 'us' || loc === 'u.s.' || loc === 'u.s.a.') return true;
@@ -210,11 +238,7 @@ export function groupLocationsByCountry(
   locations: string[],
   employees?: { location?: string; usageLocation?: string }[]
 ): Record<string, string[]> {
-  const indiaKeywords = [
-    'bangalore', 'bengaluru', 'chennai', 'hyderabad', 'firozabad', 'mumbai', 'delhi', 'new delhi', 'pune', 'nagpur',
-    'india', 'noida', 'gurgaon', 'kolkata', 'indore', 'ahmedabad', 'coimbatore', 'kochi', 'trivandrum', 'mysore', 'mysuru',
-    'surat', 'jaipur', 'gurugram', 'chandigarh',
-  ];
+  const indiaKeywords = [...INDIA_LOCATION_KEYWORDS, 'india'];
 
   // Added common US state codes and major cities to ensure proper grouping
   const usaKeywords = [
@@ -265,14 +289,11 @@ export function groupLocationsByCountry(
       return;
     }
 
-    // Check if location belongs to India
-    if (indiaKeywords.some(keyword => lowerLocation.includes(keyword.toLowerCase()))) {
-      if (!grouped['INDIA'].includes(normalizedLocation)) {
-        grouped['INDIA'].push(normalizedLocation);
-      }
-    }
-    // "Remote" without ISO hint: align with dashboard India filter (India org remote workers).
-    else if (lowerLocation === 'remote') {
+    // Check if location belongs to India (cities, states, remote/home lines per INDIA_* helpers)
+    if (
+      indiaKeywords.some((keyword) => lowerLocation.includes(keyword.toLowerCase())) ||
+      isIndiaRemoteOrHomeLine(lowerLocation)
+    ) {
       if (!grouped['INDIA'].includes(normalizedLocation)) {
         grouped['INDIA'].push(normalizedLocation);
       }
