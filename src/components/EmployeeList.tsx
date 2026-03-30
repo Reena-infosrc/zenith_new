@@ -153,7 +153,10 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
         <EmployeeProfile
           isOpen={!!selectedEmployee}
           onClose={() => setSelectedEmployee(null)}
-          employee={selectedEmployee}
+          employee={{
+            ...selectedEmployee,
+            photoUrl: selectedEmployee.photoUrl || "",
+          }}
         />
       )}
     </>
