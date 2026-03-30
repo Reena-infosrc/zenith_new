@@ -61,7 +61,9 @@ export function EmployeeCard(props: EmployeeCardProps) {
   };
 
   const isInactive = (props.status || 'active').trim().toLowerCase() === 'inactive';
-  const showInactiveDetails = isInactive && !!props.enableInactiveDetails;
+  // Admin "Inactive Profiles" view should remain functional even if status
+  // values vary; Directory only enables this in its inactive view.
+  const showInactiveDetails = !!props.enableInactiveDetails;
 
   return (
     <>
