@@ -60,7 +60,7 @@ export function EmployeeCard(props: EmployeeCardProps) {
     return colors[colorIndex];
   };
 
-  const isInactive = (props.status || 'active') === 'inactive';
+  const isInactive = (props.status || 'active').trim().toLowerCase() === 'inactive';
   const showInactiveDetails = isInactive && !!props.enableInactiveDetails;
 
   return (

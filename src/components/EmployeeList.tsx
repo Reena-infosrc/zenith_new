@@ -78,7 +78,7 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
           </TableHeader>
           <TableBody>
             {employees.map((employee) => {
-              const isInactive = (employee.status || 'active') === 'inactive';
+              const isInactive = (employee.status || 'active').trim().toLowerCase() === 'inactive';
               return (
                 <TableRow
                   key={employee.id}
