@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Employee, useEmployees } from './use-employees';
+import { useAuth } from './use-auth';
 
 interface SearchResult {
   id: string;
@@ -40,6 +41,7 @@ export function useEmployeeSearch() {
 
   // Use the same data source as the directory
   const { employees } = useEmployees();
+  const { isAdmin } = useAuth();
 
   // Debounced search function
   const searchEmployees = useCallback(async (term: string) => {
@@ -84,8 +86,12 @@ export function useEmployeeSearch() {
         reasonForResignation: emp.reasonForResignation || ""
       }));
       
-      // Filter employees based on search term
+      // Filter employees based on search term (and privilege)
       const filtered = transformedData
+        .filter((employee) => {
+          if (isAdmin) return true;
+          return (employee.status || 'active') !== 'inactive';
+        })
         .filter(employee => {
           const searchLower = term.toLowerCase();
           return (
@@ -105,7 +111,7 @@ export function useEmployeeSearch() {
     } finally {
       setIsSearching(false);
     }
-  }, [employees]);
+  }, [employees, isAdmin]);
 
   // Debounce search
   useEffect(() => {

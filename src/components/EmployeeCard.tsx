@@ -28,11 +28,17 @@ export type EmployeeCardProps = {
   status?: string;
   resignationDate?: string;
   reasonForResignation?: string;
+  /**
+   * When enabled, inactive cards can be interacted with and will show an
+   * expandable details section (intended for admin "Inactive" view).
+   */
+  enableInactiveDetails?: boolean;
   className?: string;
 }
 
 export function EmployeeCard(props: EmployeeCardProps) {
   const [showProfile, setShowProfile] = useState(false);
+  const [inactiveExpanded, setInactiveExpanded] = useState(false);
   
   // Debug logging removed for security
   
@@ -55,14 +61,151 @@ export function EmployeeCard(props: EmployeeCardProps) {
   };
 
   const isInactive = (props.status || 'active') === 'inactive';
+  const showInactiveDetails = isInactive && !!props.enableInactiveDetails;
 
   return (
     <>
       <div className={cn(
         "group h-full [perspective:1000px] aspect-[1/1.5] min-h-[210px]",
-        isInactive && "opacity-60 grayscale pointer-events-none",
+        isInactive && !showInactiveDetails && "opacity-60 grayscale pointer-events-none",
+        isInactive && showInactiveDetails && "opacity-80 grayscale",
         props.className
       )}>
+        {showInactiveDetails ? (
+          <div className="relative w-full h-full bg-white dark:bg-gray-800 rounded-xl border border-border/50 overflow-hidden shadow-sm flex flex-col">
+            <div className="aspect-square overflow-hidden shrink-0 border-b border-border/10">
+              {props.photoUrl ? (
+                <img
+                  src={props.photoUrl}
+                  alt={props.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    const parent = target.parentElement;
+                    if (parent) {
+                      const color = getInitialsAvatar(props.name);
+                      parent.innerHTML = `
+                        <div class="${color} w-full h-full flex items-center justify-center text-white text-3xl font-bold">
+                          ${props.name.split(' ').map(part => part[0]).join('').toUpperCase()}
+                        </div>
+                      `;
+                    }
+                  }}
+                />
+              ) : (
+                <div className={`${getInitialsAvatar(props.name)} w-full h-full flex items-center justify-center text-white text-3xl font-bold`}>
+                  {props.name.split(' ').map(part => part[0]).join('').toUpperCase()}
+                </div>
+              )}
+            </div>
+
+            <div className="p-2 flex-1 flex flex-col bg-gradient-to-b from-transparent to-accent/5">
+              <div className="text-center">
+                <h3 className="font-bold text-[11px] leading-tight text-foreground line-clamp-1 px-1">{props.name}</h3>
+                <p className="text-[9px] text-muted-foreground mt-1 font-medium line-clamp-1 px-1">{props.position}</p>
+                {props.employeeId && (
+                  <p className="text-[9.5px] text-muted-foreground/80 mt-1 font-mono font-bold tracking-tight">ID: {props.employeeId}</p>
+                )}
+                <p className="text-[9px] text-muted-foreground italic mt-1">(Inactive)</p>
+              </div>
+
+              <button
+                className="mt-2 w-full py-1.5 bg-muted text-foreground text-[9px] font-bold rounded-lg hover:bg-muted/80 active:scale-[0.98] transition-all uppercase tracking-tight flex-shrink-0"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setInactiveExpanded((v) => !v);
+                }}
+                aria-expanded={inactiveExpanded}
+              >
+                {inactiveExpanded ? "Hide details" : "Show details"}
+              </button>
+
+              {inactiveExpanded && (
+                <div className="mt-2 text-[9px] text-muted-foreground space-y-1 overflow-auto pr-1">
+                  {props.department && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Department:</span>
+                      <span className="truncate">{props.department}</span>
+                    </div>
+                  )}
+                  {props.account && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Account:</span>
+                      <span className="truncate">{props.account}</span>
+                    </div>
+                  )}
+                  {props.location && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Location:</span>
+                      <span className="truncate">{props.location}</span>
+                    </div>
+                  )}
+                  {props.email && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Email:</span>
+                      <span className="truncate">{props.email}</span>
+                    </div>
+                  )}
+                  {props.mobile && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Mobile:</span>
+                      <span className="truncate">{props.mobile}</span>
+                    </div>
+                  )}
+                  {props.phone && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Phone:</span>
+                      <span className="truncate">{props.phone}</span>
+                    </div>
+                  )}
+                  {props.manager && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Manager:</span>
+                      <span className="truncate">{props.manager}</span>
+                    </div>
+                  )}
+                  {props.employeeStatus && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Employee status:</span>
+                      <span className="truncate">{props.employeeStatus}</span>
+                    </div>
+                  )}
+                  {props.dateOfJoining && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Joined:</span>
+                      <span className="truncate">{props.dateOfJoining}</span>
+                    </div>
+                  )}
+                  {props.resignationDate && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Resigned:</span>
+                      <span className="truncate">{props.resignationDate}</span>
+                    </div>
+                  )}
+                  {props.reasonForResignation && (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Reason:</span>
+                      <span className="line-clamp-3">{props.reasonForResignation}</span>
+                    </div>
+                  )}
+                  {props.skills?.length ? (
+                    <div className="flex gap-1">
+                      <span className="font-semibold text-foreground/80">Skills:</span>
+                      <span className="line-clamp-2">{props.skills.join(", ")}</span>
+                    </div>
+                  ) : null}
+                  {props.bio && (
+                    <div className="pt-1">
+                      <div className="font-semibold text-foreground/80">Bio</div>
+                      <div className="line-clamp-5">{props.bio}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
         <div className="relative w-full h-full transition-all duration-[800ms] [transform-style:preserve-3d] group-hover:[transform:rotateY(180deg)]">
           
           {/* Front Face */}
@@ -128,6 +271,7 @@ export function EmployeeCard(props: EmployeeCardProps) {
             </button>
           </div>
         </div>
+        )}
       </div>
 
       {/* Employee Profile Dialog - Only show for active employees */}

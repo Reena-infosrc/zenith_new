@@ -71,6 +71,7 @@ export default function Directory() {
   const { toast } = useToast();
 
   const { user, isAdmin } = useAuth();
+  const isInactiveTab = isAdmin && activeFilters.includes("Status: InActive");
 
   const {
     employees,
@@ -698,6 +699,7 @@ export default function Directory() {
                                 <EmployeeCard
                                   key={currentUserEmployee.id}
                                   {...currentUserEmployee}
+                                  enableInactiveDetails={isInactiveTab}
                                   className="ring-[4px] ring-indigo-600 ring-offset-4 ring-offset-background shadow-2xl shadow-indigo-600/40 h-full border-transparent rounded-2xl"
                                 />
                               </div>
@@ -709,6 +711,7 @@ export default function Directory() {
                                 <EmployeeCard
                                   key={employee.id}
                                   {...employee}
+                                  enableInactiveDetails={isInactiveTab}
                                   className="h-full"
                                 />
                               ))}
