@@ -711,21 +711,19 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                   </div>
 
                   {/* Phone */}
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone</Label>
-                    <Input
-                      id="phone"
-                      name="phone"
-                      value={
-                        canViewSensitiveFields
-                          ? (profileData.phone || profileData.mobile || '')
-                          : (profileData.phone || profileData.mobile ? 'Hidden for privacy' : '')
-                      }
-                      disabled={true}
-                      readOnly
-                      className="bg-muted cursor-not-allowed"
-                    />
-                  </div>
+                  {isAdmin && (
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone</Label>
+                      <Input
+                        id="phone"
+                        name="phone"
+                        value={profileData.phone || profileData.mobile || ''}
+                        disabled={true}
+                        readOnly
+                        className="bg-muted cursor-not-allowed"
+                      />
+                    </div>
+                  )}
 
                   {/* Location */}
                   <div className="space-y-2">
@@ -912,125 +910,113 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                   </div>
 
                   {/* Gender */}
-                  <div className="space-y-2">
-                    <Label htmlFor="gender">Gender</Label>
-                    {isEditing ? (
-                      <Select
-                        value={profileData.gender || 'none'}
-                        onValueChange={(value) => setProfileData(prev => ({ ...prev, gender: value === 'none' ? '' : value }))}
-                        disabled={!canEditBasicInfo}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select gender" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Prefer not to say</SelectItem>
-                          {genderOptions.map((gender) => (
-                            <SelectItem key={gender} value={gender}>
-                              {gender}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        value={profileData.gender || 'Not provided'}
-                        disabled
-                        className="bg-muted"
-                      />
-                    )}
-                  </div>
-
-                  {/* Date of Birth */}
-                  <div className="space-y-2">
-                    <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                    {canViewSensitiveFields ? (
-                      <Input
-                        id="dateOfBirth"
-                        name="dateOfBirth"
-                        type="date"
-                        value={profileData.dateOfBirth || ''}
-                        onChange={handleChange}
-                        disabled={!isEditing}
-                        className={!isEditing ? "bg-muted" : ""}
-                      />
-                    ) : (
-                      <Input
-                        id="dateOfBirth"
-                        name="dateOfBirth"
-                        type="text"
-                        value={(() => {
-                          if (!profileData.dateOfBirth) return '';
-                          const parts = profileData.dateOfBirth.split('-');
-                          if (parts.length === 3) {
-                            const [year, month, day] = parts;
-                            return `${day}-${month}-XXXX`;
-                          }
-                          return profileData.dateOfBirth;
-                        })()}
-                        disabled
-                        readOnly
-                        className="bg-muted cursor-not-allowed"
-                      />
-                    )}
-                  </div>
-
-                  {/* Date of Joining */}
-                  <div className="space-y-2">
-                    <Label htmlFor="dateOfJoining">Date of Joining</Label>
-                    <Input
-                      id="dateOfJoining"
-                      name="dateOfJoining"
-                      type="date"
-                      value={profileData.dateOfJoining || ''}
-                      onChange={handleChange}
-                      disabled={!isEditing || !canEditBasicInfo}
-                      className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
-                    />
-                  </div>
-
-                  {/* Project Start Date */}
-                  <div className="space-y-2">
-                    <Label htmlFor="projectStartDate">Project Start Date</Label>
-                    <Input
-                      id="projectStartDate"
-                      name="projectStartDate"
-                      type="date"
-                      value={profileData.projectStartDate || ''}
-                      onChange={handleChange}
-                      disabled={!isEditing || !canEditBasicInfo}
-                      className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
-                    />
-                  </div>
-
-                  {/* Project End Date */}
-                  <div className="space-y-2">
-                    <Label htmlFor="projectEndDate">Project End Date</Label>
-                    <Input
-                      id="projectEndDate"
-                      name="projectEndDate"
-                      type="date"
-                      value={profileData.projectEndDate || ''}
-                      onChange={handleChange}
-                      disabled={!isEditing || !canEditBasicInfo}
-                      className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
-                    />
-                  </div>
-
-                  {/* Experience At Info Services - Only show in view mode */}
-                  {!isEditing && profileData.dateOfJoining && (
+                  {isAdmin && (
                     <div className="space-y-2">
-                      <Label htmlFor="experience">Experience At Info Services</Label>
-                      <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          {calculateExperience(profileData.dateOfJoining)}
-                        </span>
-                      </div>
+                      <Label htmlFor="gender">Gender</Label>
+                      {isEditing ? (
+                        <Select
+                          value={profileData.gender || 'none'}
+                          onValueChange={(value) => setProfileData(prev => ({ ...prev, gender: value === 'none' ? '' : value }))}
+                          disabled={!canEditBasicInfo}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select gender" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Prefer not to say</SelectItem>
+                            {genderOptions.map((gender) => (
+                              <SelectItem key={gender} value={gender}>
+                                {gender}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={profileData.gender || 'Not provided'}
+                          disabled
+                          className="bg-muted"
+                        />
+                      )}
                     </div>
                   )}
 
+                  {/* Admin-only sensitive fields block */}
+                  {isAdmin && (
+                    <>
+                      {/* Date of Birth */}
+                      <div className="space-y-2">
+                        <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                        <Input
+                          id="dateOfBirth"
+                          name="dateOfBirth"
+                          type="date"
+                          value={profileData.dateOfBirth || ''}
+                          onChange={handleChange}
+                          disabled={!isEditing}
+                          className={!isEditing ? "bg-muted" : ""}
+                        />
+                      </div>
+
+                      {/* Date of Joining */}
+                      <div className="space-y-2">
+                        <Label htmlFor="dateOfJoining">Date of Joining</Label>
+                        <Input
+                          id="dateOfJoining"
+                          name="dateOfJoining"
+                          type="date"
+                          value={profileData.dateOfJoining || ''}
+                          onChange={handleChange}
+                          disabled={!isEditing || !canEditBasicInfo}
+                          className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
+                        />
+                      </div>
+
+                      {/* Project Start Date */}
+                      <div className="space-y-2">
+                        <Label htmlFor="projectStartDate">Project Start Date</Label>
+                        <Input
+                          id="projectStartDate"
+                          name="projectStartDate"
+                          type="date"
+                          value={profileData.projectStartDate || ''}
+                          onChange={handleChange}
+                          disabled={!isEditing || !canEditBasicInfo}
+                          className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
+                        />
+                      </div>
+
+                      {/* Project End Date */}
+                      <div className="space-y-2">
+                        <Label htmlFor="projectEndDate">Project End Date</Label>
+                        <Input
+                          id="projectEndDate"
+                          name="projectEndDate"
+                          type="date"
+                          value={profileData.projectEndDate || ''}
+                          onChange={handleChange}
+                          disabled={!isEditing || !canEditBasicInfo}
+                          className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
+                        />
+                      </div>
+
+                      {/* Experience At Info Services - Only show in view mode */}
+                      {!isEditing && profileData.dateOfJoining && (
+                        <div className="space-y-2">
+                          <Label htmlFor="experience">Experience At Info Services</Label>
+                          <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                            <Clock className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                              {calculateExperience(profileData.dateOfJoining)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
                   {/* Employee Status */}
+                  {isAdmin && (
                   <div className="space-y-2">
                     <Label htmlFor="status">Employee Status</Label>
                     {isEditing ? (
@@ -1062,6 +1048,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                       </div>
                     )}
                   </div>
+                  )}
 
                   {/* Resignation Date - Only show when inactive (optional for update) */}
                   {(profileData.status !== undefined ? profileData.status : 'active') === 'inactive' && (

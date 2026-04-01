@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useAuth } from '@/hooks/use-auth';
 
 interface UserProfilePopupProps {
   isOpen: boolean;
@@ -32,6 +33,8 @@ interface UserProfilePopupProps {
 }
 
 export function UserProfilePopup({ isOpen, onClose, employee }: UserProfilePopupProps) {
+  const { isAdmin } = useAuth();
+  
   if (!employee) return null;
 
   const formatDate = (dateString?: string) => {
@@ -136,13 +139,13 @@ export function UserProfilePopup({ isOpen, onClose, employee }: UserProfilePopup
                   <p className="text-sm text-muted-foreground">{employee.email}</p>
                 </div>
               </div>
-              {(employee.phone || employee.mobile) && (
+              {isAdmin && (employee.phone || employee.mobile) && (
                 <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <Phone className="h-4 w-4 text-muted-foreground" />
                   <div>
                     <p className="text-sm font-medium">Phone</p>
                     <p className="text-sm text-muted-foreground">
-                      {employee.mobile || employee.phone || 'N/A'}
+                      {employee.mobile || employee.phone}
                     </p>
                   </div>
                 </div>
@@ -203,57 +206,59 @@ export function UserProfilePopup({ isOpen, onClose, employee }: UserProfilePopup
             </div>
           </div>
 
-          {/* Personal Information */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Personal Information
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {employee.dateOfBirth && (
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Date of Birth</p>
-                    <p className="text-sm text-muted-foreground">
-                      {formatDate(employee.dateOfBirth)}
-                    </p>
+          {/* Personal Information (Admin Only) */}
+          {isAdmin && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Calendar className="h-5 w-5" />
+                Personal Information
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {employee.dateOfBirth && (
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Date of Birth</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatDate(employee.dateOfBirth)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
-              {employee.dateOfJoining && (
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Date of Joining</p>
-                    <p className="text-sm text-muted-foreground">
-                      {formatDate(employee.dateOfJoining)}
-                    </p>
+                )}
+                {employee.dateOfJoining && (
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Date of Joining</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatDate(employee.dateOfJoining)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
-              {employee.dateOfJoining && (
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Experience At Info Services</p>
-                    <p className="text-sm text-muted-foreground">
-                      {calculateExperience(employee.dateOfJoining)}
-                    </p>
+                )}
+                {employee.dateOfJoining && (
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Experience At Info Services</p>
+                      <p className="text-sm text-muted-foreground">
+                        {calculateExperience(employee.dateOfJoining)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
-              {employee.gender && (
-                <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Gender</p>
-                    <p className="text-sm text-muted-foreground">{employee.gender}</p>
+                )}
+                {employee.gender && (
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Gender</p>
+                      <p className="text-sm text-muted-foreground">{employee.gender}</p>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
