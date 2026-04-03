@@ -40,6 +40,8 @@ provider:
   name: aws
   region: ${env:AWS_REGION, 'us-east-1'}
   stage: ${opt:stage, 'prod'}
+  stackTags:
+    Name: infosrv-zenith-${self:provider.stage}
   httpApi:
     metrics: true
   environment:
@@ -338,6 +340,14 @@ resources:
                 Value: us-east-1
               - Name: S3_PHOTOS_PREFIX
                 Value: profile-photos/
+              - Name: SERVICE_NAME
+                Value: ${env:SERVICE_NAME, 'zenith-hr-pulse'}
+              - Name: DYNAMODB_FIELD_ENCRYPTION_ENABLED
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_ENABLED, 'false'}
+              - Name: DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN, ''}
+              - Name: DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP, ''}
             LogConfiguration:
               LogDriver: awslogs
               Options:

@@ -174,8 +174,14 @@ def generate_id() -> str:
     import uuid
     return str(uuid.uuid4())
 
-def format_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
-    """Format item for DynamoDB storage"""
+def format_dynamodb_item(item: Dict[str, Any], table_logical_name: Optional[str] = None) -> Dict[str, Any]:
+    """Format item for DynamoDB storage.
+
+    If ``table_logical_name`` is set and field encryption is enabled (see ``field_crypto``),
+    configured fields are encrypted to ``*_enc`` attributes before write. Nested dicts/lists
+    do not receive table context (only top-level attributes are encrypted). Callers that omit
+    ``table_logical_name`` behave exactly as before (no encryption).
+    """
     formatted_item = {}
     for key, value in item.items():
         if value is None:
@@ -190,18 +196,26 @@ def format_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
         elif isinstance(value, bool):
             formatted_item[key] = value
         elif isinstance(value, list):
-            # Recursively format list items
-            formatted_item[key] = [format_dynamodb_item({"item": v})["item"] if isinstance(v, dict) else (Decimal(str(v)) if isinstance(v, float) else (v.isoformat() if isinstance(v, datetime) else v)) for v in value]
+            # Recursively format list items (no table context for nested structures)
+            formatted_item[key] = [format_dynamodb_item({"item": v}, None)["item"] if isinstance(v, dict) else (Decimal(str(v)) if isinstance(v, float) else (v.isoformat() if isinstance(v, datetime) else v)) for v in value]
         elif isinstance(value, dict):
-            formatted_item[key] = format_dynamodb_item(value)
+            formatted_item[key] = format_dynamodb_item(value, None)
         elif isinstance(value, datetime):
             formatted_item[key] = value.isoformat()
         else:
             formatted_item[key] = str(value)
+    if table_logical_name:
+        from .services.field_crypto import encrypt_item_for_write
+        return encrypt_item_for_write(table_logical_name, formatted_item)
     return formatted_item
 
-def parse_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
-    """Parse item from DynamoDB storage"""
+def parse_dynamodb_item(item: Dict[str, Any], table_logical_name: Optional[str] = None) -> Dict[str, Any]:
+    """Parse item from DynamoDB storage.
+
+    If ``table_logical_name`` is set and field encryption is active, ``*_enc`` attributes
+    are decrypted and merged into plain field names. Omitted ``table_logical_name`` preserves
+    legacy behavior.
+    """
     parsed_item = {}
     # Fields that should remain as strings (not converted to datetime)
     string_date_fields = ['created_at', 'updated_at', 'targetDate', 'dueDate', 'completedDate', 
@@ -244,12 +258,15 @@ def parse_dynamodb_item(item: Dict[str, Any]) -> Dict[str, Any]:
             # Convert Decimal back to float for API compatibility
             parsed_item[key] = float(value)
         elif isinstance(value, dict):
-            parsed_item[key] = parse_dynamodb_item(value)
+            parsed_item[key] = parse_dynamodb_item(value, None)
         elif isinstance(value, list):
             # Recursively parse list items
-            parsed_item[key] = [parse_dynamodb_item({"item": v})["item"] if isinstance(v, dict) else (float(v) if isinstance(v, Decimal) else v) for v in value]
+            parsed_item[key] = [parse_dynamodb_item({"item": v}, None)["item"] if isinstance(v, dict) else (float(v) if isinstance(v, Decimal) else v) for v in value]
         else:
             parsed_item[key] = value
+    if table_logical_name:
+        from .services.field_crypto import decrypt_item_after_read
+        return decrypt_item_after_read(table_logical_name, parsed_item)
     return parsed_item
 
 # Initialize tables on startup

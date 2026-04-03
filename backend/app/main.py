@@ -468,16 +468,18 @@ async def is_user_admin_main(email: str) -> bool:
 
 @app.get("/health")
 async def health_check():
+    from .services.field_crypto import describe_status
     return {
         "status": "healthy",
         "services": {
             "dynamodb": "initialized",
-            "s3": "initialized", 
-            "bedrock": "initialized"
+            "s3": "initialized",
+            "bedrock": "initialized",
         },
+        "field_encryption": describe_status(),
         "deployment_id": "router-only-prod-fix-v6.0",
         "version": "6.0.0",
-        "root_path": root_path
+        "root_path": root_path,
     }
 
 # print registered routes at startup for diagnostics

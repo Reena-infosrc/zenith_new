@@ -54,6 +54,9 @@ six
 boto3>=1.34.0
 botocore>=1.34.0
 aioboto3>=12.0.0
+# Field-level DynamoDB encryption (optional; inactive until DYNAMODB_FIELD_ENCRYPTION_ENABLED=true)
+# Pin to 3.x: 4.x prefers MPL keyrings; our code uses KMSMasterKeyProvider (supported in 3.x).
+aws-encryption-sdk>=3.1.1,<4.0.0
 
 # Python compatibility
 typing_extensions>=4.0.0
