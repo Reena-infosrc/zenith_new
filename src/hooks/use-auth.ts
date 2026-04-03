@@ -40,42 +40,42 @@ export function useAuth() {
       // Check cache first
       const cached = globalAdminCache.get(email);
       const now = Date.now();
-      
+
       if (cached && (now - cached.timestamp < CACHE_DURATION_MS)) {
         return cached.isAdmin;
       }
-      
+
       // Check if there's already a pending request
       const pendingCheck = globalPendingChecks.get(email);
       if (pendingCheck) {
         return await pendingCheck;
       }
-      
+
       // Make API call
       const fetchPromise = (async () => {
         try {
           const response = await fetch(`${API_BASE_URL}/admin/check/${encodeURIComponent(email)}`);
-          
+
           if (response.ok) {
             const data = await response.json();
             const isAdmin = data.is_admin || false;
-            
+
             // Cache the result
             globalAdminCache.set(email, {
               isAdmin,
               timestamp: Date.now()
             });
-            
+
             return isAdmin;
           } else {
             const isAdmin = false;
-            
+
             // Cache negative result
             globalAdminCache.set(email, {
               isAdmin,
               timestamp: Date.now()
             });
-            
+
             return isAdmin;
           }
         } catch (error) {
@@ -85,10 +85,10 @@ export function useAuth() {
           globalPendingChecks.delete(email);
         }
       })();
-      
+
       // Store pending check
       globalPendingChecks.set(email, fetchPromise);
-      
+
       return await fetchPromise;
     } catch (error) {
       return false;
@@ -100,7 +100,7 @@ export function useAuth() {
     setIsLoading(true);
     try {
       const isAdmin = await checkAdminStatus(userEmail);
-      
+
       setUser(prev => ({
         ...prev,
         email: userEmail,
@@ -121,7 +121,7 @@ export function useAuth() {
       const currentAccount = accounts[0];
       const userEmail = currentAccount.username || '';
       const userName = currentAccount.name || '';
-      
+
       if (userEmail) {
         updateAdminStatus(userEmail, userName);
       }
@@ -152,6 +152,7 @@ export function useAuth() {
     user,
     isLoading,
     isAdmin: user?.is_admin || user?.role === 'admin',
+    // isAdmin: false,
     isManager: user?.is_manager || user?.role === 'manager' || checkManagerStatus(user.email),
     updateAdminStatus
   };
