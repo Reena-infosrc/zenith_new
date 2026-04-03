@@ -1,6 +1,7 @@
 service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 # Touch this file to trigger CI serverless deploy (see .github/workflows/deploy.yml).
+# Rev: 2026-04-02 — bump comment to re-push and run Serverless deploy on changed file.
 # using env files
 useDotenv: true
 
