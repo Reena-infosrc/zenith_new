@@ -1,0 +1,14 @@
+{
+  "Sid": "AllowZenithECSTaskRoleUseKey",
+  "Effect": "Allow",
+  "Principal": {
+    "AWS": "REPLACE_WITH_ECS_TASK_ROLE_ARN"
+  },
+  "Action": [
+    "kms:Encrypt",
+    "kms:Decrypt",
+    "kms:GenerateDataKey",
+    "kms:DescribeKey"
+  ],
+  "Resource": "*"
+}

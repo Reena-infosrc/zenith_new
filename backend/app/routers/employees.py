@@ -57,7 +57,7 @@ async def get_unique_clients(current_user: dict = Depends(get_current_active_use
         
         clients = set()
         for item in response.get("Items", []):
-            parsed_item = parse_dynamodb_item(item)
+            parsed_item = parse_dynamodb_item(item, "employees")
             account = parsed_item.get("account")
             if account and account.strip():
                 clients.add(account.strip())
@@ -90,7 +90,7 @@ async def get_unique_employee_statuses(current_user: dict = Depends(get_current_
         
         statuses = set()
         for item in response.get("Items", []):
-            parsed_item = parse_dynamodb_item(item)
+            parsed_item = parse_dynamodb_item(item, "employees")
             status = parsed_item.get("employee_status")
             if status and status.strip():
                 statuses.add(status.strip())
@@ -394,7 +394,7 @@ async def get_employees(
         parsed = []
         for i, raw in enumerate(items):
             print(f"DEBUG: Parsing item {i+1}: {raw}")
-            doc = parse_dynamodb_item(raw)
+            doc = parse_dynamodb_item(raw, "employees")
             print(f"DEBUG: Parsed item {i+1}: {doc}")
             
             # Ensure id field exists for API model
@@ -534,7 +534,7 @@ async def check_team_members(current_user: dict = Depends(get_current_active_use
                 "team_count": 0
             }
         
-        current_employee = parse_dynamodb_item(user_response["Items"][0])
+        current_employee = parse_dynamodb_item(user_response["Items"][0], "employees")
         current_employee_id = current_employee.get("id")
         
         if not current_employee_id:
@@ -569,7 +569,7 @@ async def check_team_members(current_user: dict = Depends(get_current_active_use
         # Parse and filter out inactive team members (default to active if status missing)
         team_members = []
         for item in raw_items:
-            emp = parse_dynamodb_item(item)
+            emp = parse_dynamodb_item(item, "employees")
             emp_status = emp.get("status", "active")
             if emp_status == "inactive":
                 continue
@@ -605,7 +605,7 @@ async def get_employee(employee_id: str, current_user: dict = Depends(get_curren
         if "Item" not in response:
             raise HTTPException(status_code=404, detail="Employee not found")
     
-        employee = parse_dynamodb_item(response["Item"])
+        employee = parse_dynamodb_item(response["Item"], "employees")
         
         # Set default status to "active" if not present (but don't override explicit "inactive")
         if employee.get("status") is None or employee.get("status") == "":
@@ -758,7 +758,7 @@ async def create_employee(
         }
         
         # Convert to DynamoDB format
-        dynamodb_item = format_dynamodb_item(employee_data)
+        dynamodb_item = format_dynamodb_item(employee_data, "employees")
         
         # Insert into DynamoDB
         await table.put_item(Item=dynamodb_item)
@@ -799,7 +799,7 @@ async def update_employee(employee_id: str, request: Request, current_user: dict
                     if items:
                         fallback_employee = items[0]
                         # Update employee_id to the real primary key from table
-                        employee_id = parse_dynamodb_item(fallback_employee).get("id", employee_id)
+                        employee_id = parse_dynamodb_item(fallback_employee, "employees").get("id", employee_id)
                 except Exception as e:
                     print(f"DEBUG: Error scanning by employee_id in update_employee: {e}")
             
@@ -816,7 +816,7 @@ async def update_employee(employee_id: str, request: Request, current_user: dict
                     items = email_response.get("Items", [])
                     if items:
                         fallback_employee = items[0]
-                        employee_id = parse_dynamodb_item(fallback_employee).get("id", employee_id)
+                        employee_id = parse_dynamodb_item(fallback_employee, "employees").get("id", employee_id)
                 except Exception as e:
                     print(f"DEBUG: Error querying by email in update_employee: {e}")
             
@@ -826,7 +826,7 @@ async def update_employee(employee_id: str, request: Request, current_user: dict
                 raise HTTPException(status_code=404, detail="Employee not found")
         
         # Parse existing employee data
-        existing_employee = parse_dynamodb_item(response["Item"])
+        existing_employee = parse_dynamodb_item(response["Item"], "employees")
         print(f"DEBUG: Existing employee data: {existing_employee}")
         
         # Get update data (only fields that are being updated)
@@ -845,7 +845,7 @@ async def update_employee(employee_id: str, request: Request, current_user: dict
         print(f"DEBUG: Merged data: {merged_data}")
         
         # Convert to DynamoDB format and update
-        dynamodb_item = format_dynamodb_item(merged_data)
+        dynamodb_item = format_dynamodb_item(merged_data, "employees")
         
         # Update in DynamoDB
         await table.put_item(Item=dynamodb_item)
@@ -875,7 +875,7 @@ async def bulk_update_employee_names(current_user: dict = Depends(get_current_ac
         
         for employee_item in employees:
             # Parse the employee data
-            employee_data = parse_dynamodb_item(employee_item)
+            employee_data = parse_dynamodb_item(employee_item, "employees")
             
             # Convert name to camel case
             original_name = employee_data.get('name', '')
@@ -889,7 +889,7 @@ async def bulk_update_employee_names(current_user: dict = Depends(get_current_ac
                     employee_data['updated_at'] = time.strftime("%Y-%m-%d")
                     
                     # Convert back to DynamoDB format and update
-                    dynamodb_item = format_dynamodb_item(employee_data)
+                    dynamodb_item = format_dynamodb_item(employee_data, "employees")
                     await table.put_item(Item=dynamodb_item)
                     updated_count += 1
                     
@@ -941,7 +941,7 @@ async def upload_employee_photo(
             raise HTTPException(status_code=404, detail="Employee not found")
         
         # Get employee data to extract location and department for S3 organization
-        employee_data = parse_dynamodb_item(response["Item"])
+        employee_data = parse_dynamodb_item(response["Item"], "employees")
         location = employee_data.get("location", "")
         department = employee_data.get("department", "")
         
@@ -969,7 +969,7 @@ async def upload_employee_photo(
         print(f"DEBUG: Photo URL in employee data: {employee_data.get('photo_url')}")
         
         # Save updated employee data
-        dynamodb_item = format_dynamodb_item(employee_data)
+        dynamodb_item = format_dynamodb_item(employee_data, "employees")
         print(f"DEBUG: DynamoDB item to save: {dynamodb_item}")
         await table.put_item(Item=dynamodb_item)
         
@@ -978,7 +978,7 @@ async def upload_employee_photo(
         # Verify the data was saved correctly
         verify_response = await table.get_item(Key={"id": employee_id})
         if "Item" in verify_response:
-            saved_data = parse_dynamodb_item(verify_response["Item"])
+            saved_data = parse_dynamodb_item(verify_response["Item"], "employees")
             print(f"DEBUG: Verified saved data photo_url: {saved_data.get('photo_url')}")
         else:
             print("DEBUG: Could not verify saved data")
@@ -1130,7 +1130,7 @@ async def import_employees_csv(
             table = await get_employees_table()
             for employee in employees_to_insert:
                 try:
-                    formatted_item = format_dynamodb_item(employee)
+                    formatted_item = format_dynamodb_item(employee, "employees")
                     await table.put_item(Item=formatted_item)
                     inserted_count += 1
                 except Exception as e:

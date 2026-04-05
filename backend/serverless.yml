@@ -1,7 +1,7 @@
 service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 # Touch this file to trigger CI serverless deploy (see .github/workflows/deploy.yml).
-# Rev: 2026-04-02 — bump comment to re-push and run Serverless deploy on changed file.
+# Rev: added field encryption
 # using env files
 useDotenv: true
 
@@ -216,6 +216,45 @@ resources:
                     - s3:*
                     - bedrock:*
                   Resource: "*"
+                # Field-level encryption (aws_encryption_sdk + KMS). Key policy on the CMK must also allow this role.
+                - Effect: Allow
+                  Action:
+                    - kms:Encrypt
+                    - kms:Decrypt
+                    - kms:GenerateDataKey
+                    - kms:DescribeKey
+                  Resource: "*"
+
+    ZenithFieldEncryptionKey:
+      Type: AWS::KMS::Key
+      Properties:
+        Description: Field-level encryption for Zenith HR sensitive data
+        EnableKeyRotation: true
+        KeyPolicy:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: AllowRootAccount
+              Effect: Allow
+              Principal:
+                AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+              Action: "kms:*"
+              Resource: "*"
+            - Sid: AllowECSTaskRole
+              Effect: Allow
+              Principal:
+                AWS: !GetAtt TaskExecutionRole.Arn
+              Action:
+                - kms:Encrypt
+                - kms:Decrypt
+                - kms:GenerateDataKey
+                - kms:DescribeKey
+              Resource: "*"
+
+    ZenithFieldEncryptionKeyAlias:
+      Type: AWS::KMS::Alias
+      Properties:
+        AliasName: alias/zenith-hr-field-encryption-${self:provider.stage}
+        TargetKeyId: !Ref ZenithFieldEncryptionKey
 
     ECSLogGroup:
       Type: AWS::Logs::LogGroup
@@ -344,11 +383,11 @@ resources:
               - Name: SERVICE_NAME
                 Value: ${env:SERVICE_NAME, 'zenith-hr-pulse'}
               - Name: DYNAMODB_FIELD_ENCRYPTION_ENABLED
-                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_ENABLED, 'false'}
+                Value: "true"
               - Name: DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN
-                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN, ''}
+                Value: !GetAtt ZenithFieldEncryptionKey.Arn
               - Name: DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP
-                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP, ''}
+                Value: zenith-hr-pulse
             LogConfiguration:
               LogDriver: awslogs
               Options:

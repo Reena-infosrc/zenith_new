@@ -28,7 +28,7 @@ async def get_upcoming_milestones(days_ahead: int = 7) -> List[Dict[str, Any]]:
         target_date = today + timedelta(days=days_ahead)
         
         for item in response.get("Items", []):
-            goal = parse_dynamodb_item(item)
+            goal = parse_dynamodb_item(item, "goals")
             milestones = goal.get("milestones", [])
             
             for milestone in milestones:
@@ -49,14 +49,14 @@ async def get_upcoming_milestones(days_ahead: int = 7) -> List[Dict[str, Any]]:
                         if employee_id:
                             emp_response = await employees_table.get_item(Key={"id": employee_id})
                             if "Item" in emp_response:
-                                employee_info = parse_dynamodb_item(emp_response["Item"])
+                                employee_info = parse_dynamodb_item(emp_response["Item"], "employees")
                                 
                                 # Get manager information
                                 reporting_to = employee_info.get("reporting_to")
                                 if reporting_to:
                                     mgr_response = await employees_table.get_item(Key={"id": reporting_to})
                                     if "Item" in mgr_response:
-                                        manager_info = parse_dynamodb_item(mgr_response["Item"])
+                                        manager_info = parse_dynamodb_item(mgr_response["Item"], "employees")
                         
                         upcoming_milestones.append({
                             "goal": goal,
@@ -146,7 +146,7 @@ async def check_overdue_milestones():
         today = datetime.utcnow().date()
         
         for item in response.get("Items", []):
-            goal = parse_dynamodb_item(item)
+            goal = parse_dynamodb_item(item, "goals")
             milestones = goal.get("milestones", [])
             
             for milestone in milestones:
@@ -165,13 +165,13 @@ async def check_overdue_milestones():
                         if employee_id:
                             emp_response = await employees_table.get_item(Key={"id": employee_id})
                             if "Item" in emp_response:
-                                employee_info = parse_dynamodb_item(emp_response["Item"])
+                                employee_info = parse_dynamodb_item(emp_response["Item"], "employees")
                                 
                                 reporting_to = employee_info.get("reporting_to")
                                 if reporting_to:
                                     mgr_response = await employees_table.get_item(Key={"id": reporting_to})
                                     if "Item" in mgr_response:
-                                        manager_info = parse_dynamodb_item(mgr_response["Item"])
+                                        manager_info = parse_dynamodb_item(mgr_response["Item"], "employees")
                         
                         overdue_milestones.append({
                             "goal": goal,

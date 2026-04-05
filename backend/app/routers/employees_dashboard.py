@@ -75,7 +75,7 @@ async def get_employees_dashboard(
         
         employees = []
         for item in all_items:
-            employee = parse_dynamodb_item(item)
+            employee = parse_dynamodb_item(item, "employees")
             employees.append(employee)
         
         # Calculate monthly headcount data

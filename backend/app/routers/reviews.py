@@ -37,6 +37,7 @@ from ..database_dynamodb import (
 )
 from ..security import get_current_active_user
 from ..services.s3_service import s3_service
+from ..services.field_crypto import is_field_encryption_active, remove_field_names_for_delete
 
 logger = logging.getLogger(__name__)
 
@@ -79,17 +80,29 @@ ENTITY_TYPE_CYCLE = "cycle"
 ENTITY_TYPE_REVIEW = "review"
 
 
+def _review_logical_name(is_draft: bool) -> str:
+    return "reviewDraft" if is_draft else "review"
+
+
+def _omit_projection_if_encryption() -> bool:
+    """When field encryption is on, skip ProjectionExpression (encrypted attrs use *_enc names)."""
+    return is_field_encryption_active()
+
+
+def _strip_projection_if_encryption(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    if not _omit_projection_if_encryption():
+        return kwargs
+    out = dict(kwargs)
+    out.pop("ProjectionExpression", None)
+    return out
+
+
 def _cycle_pk(year: str) -> str:
     return f"{CYCLE_PK_PREFIX}{year}"
 
 
 def _review_sk(review_id: str) -> str:
     return f"{REVIEW_SK_PREFIX}{review_id}"
-
-
-def _format_value(value: Any) -> Any:
-    formatted = format_dynamodb_item({"_v": value})
-    return formatted.get("_v")
 
 
 def _map_cycle(item: Dict[str, Any]) -> ReviewCycleInDB:
@@ -121,7 +134,7 @@ def _map_cycle(item: Dict[str, Any]) -> ReviewCycleInDB:
 
 def _map_review(item: Dict[str, Any], is_draft: bool = False) -> ReviewInDB:
     """Map DynamoDB item to ReviewInDB. is_draft indicates which table it came from."""
-    parsed = parse_dynamodb_item(item)
+    parsed = parse_dynamodb_item(item, _review_logical_name(is_draft))
     # Remove isDraft from parsed data if it exists (legacy data)
     parsed.pop("isDraft", None)
     status_value = parsed.get("status") or parsed.get("metadata", {}).get("status")
@@ -295,7 +308,7 @@ async def _find_existing_review(
         return None, table
     
     for item in response.get("Items", []):
-        parsed = parse_dynamodb_item(item)
+        parsed = parse_dynamodb_item(item, _review_logical_name(is_draft))
         if parsed.get("isActive", True) is False and not include_inactive:
             continue
         if review_type and parsed.get("reviewType") != review_type:
@@ -340,23 +353,35 @@ async def _validate_employee_and_goals(
         logger.warning(warning_message)
 
 
-def _build_update_expression(payload: Dict[str, Any]) -> Tuple[str, Dict[str, str], Dict[str, Any]]:
+def _build_update_expression(
+    payload: Dict[str, Any],
+    table_logical_name: Optional[str] = None,
+) -> Tuple[str, Dict[str, str], Dict[str, Any]]:
     set_clauses = []
     remove_clauses = []
     attr_names: Dict[str, str] = {}
     attr_values: Dict[str, Any] = {}
+    name_counter = 0
+    val_counter = 0
 
-    for idx, (field, value) in enumerate(payload.items()):
-        placeholder_name = f"#f{idx}"
-        attr_names[placeholder_name] = field
-
+    for field, value in payload.items():
         if value is None:
-            remove_clauses.append(placeholder_name)
+            for rm in remove_field_names_for_delete(table_logical_name, field):
+                placeholder_name = f"#n{name_counter}"
+                name_counter += 1
+                attr_names[placeholder_name] = rm
+                remove_clauses.append(placeholder_name)
             continue
 
-        placeholder_value = f":v{idx}"
-        attr_values[placeholder_value] = _format_value(value)
-        set_clauses.append(f"{placeholder_name} = {placeholder_value}")
+        formatted = format_dynamodb_item({field: value}, table_logical_name)
+        for fk, fv in formatted.items():
+            placeholder_name = f"#f{name_counter}"
+            name_counter += 1
+            attr_names[placeholder_name] = fk
+            placeholder_value = f":v{val_counter}"
+            val_counter += 1
+            attr_values[placeholder_value] = fv
+            set_clauses.append(f"{placeholder_name} = {placeholder_value}")
 
     expressions = []
     if set_clauses:
@@ -657,12 +682,14 @@ async def create_review(
     if existing_item and existing_table:
         pk = existing_item["pk"]
         sk = existing_item["sk"]
-        review_id = parse_dynamodb_item(existing_item).get("reviewId", "")
+        review_id = parse_dynamodb_item(existing_item, _review_logical_name(is_draft)).get("reviewId", "")
         update_payload = review.dict()
         update_payload["isActive"] = True  # reactivate/ensure active
         update_payload["updatedAt"] = now
         
-        update_expression, attr_names, attr_values = _build_update_expression(update_payload)
+        update_expression, attr_names, attr_values = _build_update_expression(
+            update_payload, _review_logical_name(is_draft)
+        )
         update_kwargs: Dict[str, Any] = {
             "Key": {"pk": pk, "sk": sk},
             "UpdateExpression": update_expression,
@@ -692,7 +719,7 @@ async def create_review(
     try:
         existing_check = await table.get_item(Key={"pk": pk, "sk": sk})
         if "Item" in existing_check:
-            existing_item = parse_dynamodb_item(existing_check["Item"])
+            existing_item = parse_dynamodb_item(existing_check["Item"], _review_logical_name(is_draft))
             existing_review_type = existing_item.get("reviewType")
             
             if existing_review_type != review.reviewType:
@@ -736,7 +763,7 @@ async def create_review(
 
     try:
         logger.info(f"Creating review: reviewId={review_id}, reviewType={review.reviewType}, employeeId={review.employeeId}, cycleYear={review.cycleYear}, isDraft={is_draft}, isActive=True")
-        await table.put_item(Item=format_dynamodb_item(item))
+        await table.put_item(Item=format_dynamodb_item(item, _review_logical_name(is_draft)))
         logger.info(f"✅ Successfully created review {review_id} (type={review.reviewType}) in {'draft' if is_draft else 'submitted'} table")
     except ClientError as exc:
         logger.exception(f"❌ Failed to create review {review_id}: {exc}")
@@ -783,7 +810,7 @@ async def get_review_stats(
                 scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
             response = await drafts_table.scan(**scan_kwargs)
             for item in response.get("Items", []):
-                parsed = parse_dynamodb_item(item)
+                parsed = parse_dynamodb_item(item, "reviewDraft")
                 if parsed.get("reviewType") == "self":
                     pending += 1
             last_evaluated_key = response.get("LastEvaluatedKey")
@@ -803,7 +830,7 @@ async def get_review_stats(
                 scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
             response = await reviews_table.scan(**scan_kwargs)
             for item in response.get("Items", []):
-                parsed = parse_dynamodb_item(item)
+                parsed = parse_dynamodb_item(item, "review")
                 review_type = parsed.get("reviewType")
                 submitted_at = parsed.get("submittedAt")
                 employee_id = parsed.get("employeeId")
@@ -881,7 +908,9 @@ async def get_dashboard_stats(
                     scan_kwargs.pop("Select")
                     response = await table.scan(**scan_kwargs)
                     items = response.get("Items", [])
-                    count += sum(1 for item in items if filter_func(parse_dynamodb_item(item)))
+                    count += sum(
+                        1 for item in items if filter_func(parse_dynamodb_item(item, "review"))
+                    )
                 else:
                     # No filter - use COUNT projection for efficiency
                     response = await table.scan(**scan_kwargs)
@@ -921,9 +950,9 @@ async def get_dashboard_stats(
                     if last_evaluated_key:
                         query_kwargs["ExclusiveStartKey"] = last_evaluated_key
                     
-                    response = await reviews_table.query(**query_kwargs)
+                    response = await reviews_table.query(**_strip_projection_if_encryption(query_kwargs))
                     for item in response.get("Items", []):
-                        parsed = parse_dynamodb_item(item)
+                        parsed = parse_dynamodb_item(item, "review")
                         employee_id = parsed.get("employeeId")
                         submitted_at = parsed.get("submittedAt")
                         
@@ -970,9 +999,9 @@ async def get_dashboard_stats(
                     }
                     if last_evaluated_key:
                         scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-                    response = await reviews_table.scan(**scan_kwargs)
+                    response = await reviews_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                     for item in response.get("Items", []):
-                        parsed = parse_dynamodb_item(item)
+                        parsed = parse_dynamodb_item(item, "review")
                         employee_id = parsed.get("employeeId")
                         review_type = parsed.get("reviewType")
                         submitted_at = parsed.get("submittedAt")
@@ -1027,9 +1056,9 @@ async def get_dashboard_stats(
                 }
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-                response = await employees_table.scan(**scan_kwargs)
+                response = await employees_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "employees")
                     emp_status = parsed.get("status", "active")
                     if emp_status != "inactive":
                         emp_id = parsed.get("id")
@@ -1051,9 +1080,9 @@ async def get_dashboard_stats(
                 }
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-                response = await drafts_table.scan(**scan_kwargs)
+                response = await drafts_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "reviewDraft")
                     # Only count self-reviews for active employees
                     if parsed.get("reviewType") == "self" and parsed.get("employeeId") in active_employee_ids:
                         count += 1
@@ -1195,7 +1224,7 @@ async def get_completion_trend(
             try:
                 response = await cycles_table.get_item(
                     Key={"year": target_cycle_year},
-                    ProjectionExpression="startDate"
+                    ProjectionExpression="startDate",
                 )
                 if "Item" in response:
                     cycle_data = parse_dynamodb_item(response["Item"])
@@ -1239,9 +1268,9 @@ async def get_completion_trend(
                 if last_evaluated_key:
                     query_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 
-                response = await reviews_table.query(**query_kwargs)
+                response = await reviews_table.query(**_strip_projection_if_encryption(query_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "review")
                     submitted_at = parsed.get("submittedAt")
                     if submitted_at:
                         try:
@@ -1267,9 +1296,9 @@ async def get_completion_trend(
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 
-                response = await reviews_table.scan(**scan_kwargs)
+                response = await reviews_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "review")
                     submitted_at = parsed.get("submittedAt")
                     if submitted_at:
                         try:
@@ -1421,9 +1450,9 @@ async def get_rating_distribution(
                 if last_evaluated_key:
                     query_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 
-                response = await reviews_table.query(**query_kwargs)
+                response = await reviews_table.query(**_strip_projection_if_encryption(query_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "review")
                     
                     # Extract rating from metadata.finalRating.overallRating or ratings.overall
                     metadata = parsed.get("metadata", {})
@@ -1468,9 +1497,9 @@ async def get_rating_distribution(
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 
-                response = await reviews_table.scan(**scan_kwargs)
+                response = await reviews_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "review")
                     
                     metadata = parsed.get("metadata", {})
                     final_rating = metadata.get("finalRating", {})
@@ -1601,9 +1630,9 @@ async def get_team_performance(
             }
             if last_evaluated_key:
                 scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
-            response = await employees_table.scan(**scan_kwargs)
+            response = await employees_table.scan(**_strip_projection_if_encryption(scan_kwargs))
             for item in response.get("Items", []):
-                parsed = parse_dynamodb_item(item)
+                parsed = parse_dynamodb_item(item, "employees")
                 employee_id = parsed.get("id")
                 if employee_id:
                     employees.append(parsed)
@@ -1660,9 +1689,9 @@ async def get_team_performance(
                 if last_evaluated_key:
                     query_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 
-                response = await reviews_table.query(**query_kwargs)
+                response = await reviews_table.query(**_strip_projection_if_encryption(query_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "review")
                     employee_id = parsed.get("employeeId")
                     
                     if employee_id:
@@ -1709,9 +1738,9 @@ async def get_team_performance(
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 
-                response = await reviews_table.scan(**scan_kwargs)
+                response = await reviews_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "review")
                     employee_id = parsed.get("employeeId")
                     
                     if employee_id:
@@ -1921,7 +1950,7 @@ async def export_dashboard_csv(
 
             response = await employees_table.scan(**scan_kwargs)
             for item in response.get("Items", []):
-                emp = parse_dynamodb_item(item)
+                emp = parse_dynamodb_item(item, "employees")
                 emp_id = emp.get("id")
                 if not emp_id:
                     continue
@@ -2288,7 +2317,7 @@ async def get_reviews(
                 
                 # Apply additional filters
                 for item in items:
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, _review_logical_name(is_draft_table))
                     item_review_type = parsed.get("reviewType")
                     item_cycle_year = parsed.get("cycleYear")
                     item_reviewer_id = parsed.get("reviewerId")
@@ -2323,7 +2352,7 @@ async def get_reviews(
                 
                 # Apply additional filters
                 for item in items:
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, _review_logical_name(is_draft_table))
                     item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
                     
                     # Skip inactive items (unless includeInactive=True for debugging)
@@ -2376,10 +2405,10 @@ async def get_reviews(
                                 else:
                                     query_kwargs["FilterExpression"] = And(*filter_conditions)
                             
-                            response = await table.query(**query_kwargs)
+                            response = await table.query(**_strip_projection_if_encryption(query_kwargs))
                             
                             for item in response.get("Items", []):
-                                parsed = parse_dynamodb_item(item)
+                                parsed = parse_dynamodb_item(item, _review_logical_name(is_draft_table))
                                 item_is_active = parsed.get("isActive", True)
                                 
                                 # Skip inactive items (unless includeInactive=True)
@@ -2426,10 +2455,10 @@ async def get_reviews(
                     if filter_expr:
                         scan_kwargs["FilterExpression"] = filter_expr
                     
-                    response = await table.scan(**scan_kwargs)
+                    response = await table.scan(**_strip_projection_if_encryption(scan_kwargs))
                     
                     for item in response.get("Items", []):
-                        parsed = parse_dynamodb_item(item)
+                        parsed = parse_dynamodb_item(item, _review_logical_name(is_draft_table))
                         item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
                         
                         # Skip inactive items (unless includeInactive=True for debugging)
@@ -2464,7 +2493,7 @@ async def get_reviews(
                     items = response.get("Items", [])
                     
                     for item in items:
-                        parsed = parse_dynamodb_item(item)
+                        parsed = parse_dynamodb_item(item, _review_logical_name(is_draft_table))
                         item_is_active = parsed.get("isActive", True)  # Default to True for backward compatibility
                         
                         # Skip inactive items (unless includeInactive=True for debugging)
@@ -2642,7 +2671,7 @@ async def update_review(
     item, current_is_draft = await _fetch_review_by_id(review_id)
     
     # Log which review is being updated to ensure we're not affecting others
-    parsed_item_check = parse_dynamodb_item(item)
+    parsed_item_check = parse_dynamodb_item(item, _review_logical_name(current_is_draft))
     existing_review_type = parsed_item_check.get('reviewType')
     logger.info(f"Updating review: reviewId={review_id}, reviewType={existing_review_type}, employeeId={parsed_item_check.get('employeeId')}, isDraft={current_is_draft}")
     
@@ -2652,7 +2681,7 @@ async def update_review(
     if "status" not in update_payload:
         if isinstance(metadata_update, dict) and "status" in metadata_update:
             update_payload["status"] = metadata_update.get("status")
-    parsed_item = parse_dynamodb_item(item)
+    parsed_item = parse_dynamodb_item(item, _review_logical_name(current_is_draft))
     
     # CRITICAL SAFETY CHECK: Prevent changing reviewType
     # If update payload tries to change reviewType, reject it
@@ -2711,7 +2740,7 @@ async def update_review(
             logger.info(f"Creating draft version of submitted review {review_id} - keeping submitted version intact")
             
             # Copy item to draft table with updated data
-            parsed_item = parse_dynamodb_item(item)
+            parsed_item = parse_dynamodb_item(item, _review_logical_name(current_is_draft))
             parsed_item.update(update_payload)
             # Ensure submittedAt is None for draft
             parsed_item["submittedAt"] = None
@@ -2723,7 +2752,7 @@ async def update_review(
             try:
                 existing_check = await target_table.get_item(Key={"pk": item["pk"], "sk": item["sk"]})
                 if "Item" in existing_check:
-                    existing_item = parse_dynamodb_item(existing_check["Item"])
+                    existing_item = parse_dynamodb_item(existing_check["Item"], "reviewDraft")
                     existing_review_type = existing_item.get("reviewType")
                     current_review_type = parsed_item.get("reviewType")
                     
@@ -2740,7 +2769,7 @@ async def update_review(
                 # Continue - if check fails, proceed with creation
             
             # Create new entry in draft table (don't delete from submitted table)
-            await target_table.put_item(Item=format_dynamodb_item(parsed_item))
+            await target_table.put_item(Item=format_dynamodb_item(parsed_item, "reviewDraft"))
             
             # Fetch from draft table to return
             # Use the formatted item directly if get_item fails (eventual consistency)
@@ -2753,14 +2782,16 @@ async def update_review(
             
             # Fallback: format the parsed item and return it
             # We need to format it as DynamoDB item since _map_review expects DynamoDB format
-            formatted_item = format_dynamodb_item(parsed_item)
+            formatted_item = format_dynamodb_item(parsed_item, "reviewDraft")
             return _map_review(formatted_item, is_draft=True)
         
         # Normal case: Moving from draft to submitted (submitting a draft)
         # Update in current table first if there are other updates
         if len(update_payload) > 1:  # More than just updatedAt
             try:
-                update_expression, attr_names, attr_values = _build_update_expression(update_payload)
+                update_expression, attr_names, attr_values = _build_update_expression(
+                    update_payload, _review_logical_name(current_is_draft)
+                )
                 update_kwargs = {
                     "Key": {"pk": item["pk"], "sk": item["sk"]},
                     "UpdateExpression": update_expression,
@@ -2784,7 +2815,7 @@ async def update_review(
             parsed_item.update(update_payload)
         
         # Copy item to target table
-        parsed_item = parse_dynamodb_item(item)
+        parsed_item = parse_dynamodb_item(item, _review_logical_name(current_is_draft))
         parsed_item.update(update_payload)
         # Ensure new item is marked as active
         parsed_item["isActive"] = True
@@ -2801,7 +2832,7 @@ async def update_review(
         if existing_target_item:
             existing_pk = existing_target_item["pk"]
             existing_sk = existing_target_item["sk"]
-            existing_review_id = parse_dynamodb_item(existing_target_item).get("reviewId")
+            existing_review_id = parse_dynamodb_item(existing_target_item, "review").get("reviewId")
             if existing_review_id:
                 parsed_item["reviewId"] = existing_review_id
                 parsed_item["pk"] = existing_pk
@@ -2815,7 +2846,7 @@ async def update_review(
             parsed_item["sk"] = _review_sk(parsed_item["reviewId"])
             review_id = parsed_item["reviewId"]
         
-        await target_table.put_item(Item=format_dynamodb_item(parsed_item))
+        await target_table.put_item(Item=format_dynamodb_item(parsed_item, _review_logical_name(target_is_draft)))
         
         # IMPORTANT: Instead of deleting, mark the old item as inactive
         # This preserves all data in the database for audit/history purposes
@@ -2866,13 +2897,15 @@ async def update_review(
             logger.warning(f"Could not fetch review immediately after move: {e}, using formatted item")
         
         # Fallback: format the parsed item and return it
-        formatted_item = format_dynamodb_item(parsed_item)
+        formatted_item = format_dynamodb_item(parsed_item, _review_logical_name(target_is_draft))
         return _map_review(formatted_item, is_draft=target_is_draft)
     else:
         # Normal update - no table change needed
         table = await get_review_table_by_draft_status(current_is_draft)
         try:
-            update_expression, attr_names, attr_values = _build_update_expression(update_payload)
+            update_expression, attr_names, attr_values = _build_update_expression(
+                update_payload, _review_logical_name(current_is_draft)
+            )
             update_kwargs = {
                 "Key": {"pk": item["pk"], "sk": item["sk"]},
                 "UpdateExpression": update_expression,

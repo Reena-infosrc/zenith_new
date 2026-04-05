@@ -32,6 +32,7 @@ def clear_goals_caches():
 # Optimized parsing function for goals (faster than generic parse_dynamodb_item)
 def parse_goal_item_fast(item: Dict[str, Any]) -> Dict[str, Any]:
     """Fast parsing for goal items - optimized to avoid deep recursion"""
+    item = parse_dynamodb_item(item, "goals")
     parsed = {}
     string_date_fields = {'created_at', 'updated_at', 'targetDate', 'dueDate', 'completedDate'}
     
@@ -120,7 +121,7 @@ async def is_manager_of_employee(manager_id: str, employee_id: str) -> bool:
             _manager_check_cache[cache_key] = (False, current_time)
             return False
         
-        employee = parse_dynamodb_item(employee_response["Item"])
+        employee = parse_dynamodb_item(employee_response["Item"], "employees")
         reporting_to = employee.get("reporting_to")
         
         # Check if reporting_to matches manager_id directly
@@ -130,7 +131,7 @@ async def is_manager_of_employee(manager_id: str, employee_id: str) -> bool:
         
         # Check if manager's employee_id matches
         if not isinstance(manager_response, Exception) and "Item" in manager_response:
-            manager = parse_dynamodb_item(manager_response["Item"])
+            manager = parse_dynamodb_item(manager_response["Item"], "employees")
             manager_employee_id = manager.get("employee_id")
             if reporting_to == manager_employee_id:
                 _manager_check_cache[cache_key] = (True, current_time)
@@ -271,12 +272,12 @@ async def create_goal(
         
         # Insert into DynamoDB
         table = await get_goals_table()
-        formatted_item = format_dynamodb_item(goal_dict)
+        formatted_item = format_dynamodb_item(goal_dict, "goals")
         await table.put_item(Item=formatted_item)
         
         # Return created goal
         response = await table.get_item(Key={"id": goal_id})
-        created_goal = parse_dynamodb_item(response["Item"])
+        created_goal = parse_dynamodb_item(response["Item"], "goals")
         return GoalInDB(**created_goal)
         
     except HTTPException:
@@ -456,7 +457,7 @@ async def get_goal(
                 detail="Goal not found"
             )
         
-        goal = parse_dynamodb_item(response["Item"])
+        goal = parse_dynamodb_item(response["Item"], "goals")
         user_employee_id = await get_employee_id_from_user(current_user)
         
         # Check if user owns the goal or is the manager
@@ -503,7 +504,7 @@ async def update_goal(
                 detail="Goal not found"
             )
         
-        existing_goal = parse_dynamodb_item(response["Item"])
+        existing_goal = parse_dynamodb_item(response["Item"], "goals")
         user_employee_id = await get_employee_id_from_user(current_user)
         
         is_owner = existing_goal.get("employeeId") == user_employee_id
@@ -550,12 +551,12 @@ async def update_goal(
         updated_goal = {**existing_goal, **update_data}
         
         # Format and save
-        formatted_item = format_dynamodb_item(updated_goal)
+        formatted_item = format_dynamodb_item(updated_goal, "goals")
         await table.put_item(Item=formatted_item)
         
         # Return updated goal
         updated_response = await table.get_item(Key={"id": goal_id})
-        updated_goal_data = parse_dynamodb_item(updated_response["Item"])
+        updated_goal_data = parse_dynamodb_item(updated_response["Item"], "goals")
         return GoalInDB(**updated_goal_data)
         
     except HTTPException:
@@ -588,7 +589,7 @@ async def delete_goal(
                 detail="Goal not found"
             )
         
-        existing_goal = parse_dynamodb_item(response["Item"])
+        existing_goal = parse_dynamodb_item(response["Item"], "goals")
         user_employee_id = await get_employee_id_from_user(current_user)
         
         is_owner = existing_goal.get("employeeId") == user_employee_id
@@ -644,7 +645,7 @@ async def create_milestone(
                 detail="Goal not found"
             )
         
-        goal = parse_dynamodb_item(response["Item"])
+        goal = parse_dynamodb_item(response["Item"], "goals")
         user_employee_id = await get_employee_id_from_user(current_user)
         
         # Check permissions
@@ -683,7 +684,7 @@ async def create_milestone(
         goal["completion"] = completion
         goal["updated_at"] = datetime.utcnow().isoformat()
         
-        formatted_item = format_dynamodb_item(goal)
+        formatted_item = format_dynamodb_item(goal, "goals")
         await table.put_item(Item=formatted_item)
         
         return MilestoneBase(**new_milestone)
@@ -719,7 +720,7 @@ async def update_milestone(
                 detail="Goal not found"
             )
         
-        goal = parse_dynamodb_item(response["Item"])
+        goal = parse_dynamodb_item(response["Item"], "goals")
         user_employee_id = await get_employee_id_from_user(current_user)
         
         # Check permissions
@@ -774,7 +775,7 @@ async def update_milestone(
         goal["completion"] = completion
         goal["updated_at"] = datetime.utcnow().isoformat()
         
-        formatted_item = format_dynamodb_item(goal)
+        formatted_item = format_dynamodb_item(goal, "goals")
         await table.put_item(Item=formatted_item)
         
         # Return updated milestone
@@ -817,7 +818,7 @@ async def delete_milestone(
                 detail="Goal not found"
             )
         
-        goal = parse_dynamodb_item(response["Item"])
+        goal = parse_dynamodb_item(response["Item"], "goals")
         user_employee_id = await get_employee_id_from_user(current_user)
         
         # Check permissions - only user can delete their own milestones
@@ -848,7 +849,7 @@ async def delete_milestone(
         goal["completion"] = completion
         goal["updated_at"] = datetime.utcnow().isoformat()
         
-        formatted_item = format_dynamodb_item(goal)
+        formatted_item = format_dynamodb_item(goal, "goals")
         await table.put_item(Item=formatted_item)
         
         return None
@@ -882,7 +883,7 @@ async def get_milestones(
                 detail="Goal not found"
             )
         
-        goal = parse_dynamodb_item(response["Item"])
+        goal = parse_dynamodb_item(response["Item"], "goals")
         user_employee_id = await get_employee_id_from_user(current_user)
         
         # Check permissions

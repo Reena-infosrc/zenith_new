@@ -5,12 +5,14 @@ Staging / safe default: DYNAMODB_FIELD_ENCRYPTION_ENABLED=false → no-op; exist
 When enabled: only fields listed in ENCRYPTED_FIELDS_BY_TABLE for that logical table are transformed
 (plaintext attribute -> *_enc ciphertext); decrypt merges *_enc back on read.
 
-See docs/dynamodb-field-encryption-design.md
+Cleartext keys include partition/sort keys, GSI attributes (email, reporting_to, reviewId, cycleYear, …).
+See ENCRYPTED_FIELDS_BY_TABLE below.
 """
 
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -19,11 +21,91 @@ logger = logging.getLogger(__name__)
 
 _STATUS_LOGGED = False
 
-# Per logical DynamoDB table key (see database_dynamodb.DynamoDBService.tables): list of attribute names
-# to encrypt when encryption is active. Leave empty to never transform data (staging default).
+# Per logical DynamoDB table key (see database_dynamodb.DynamoDBService.tables): attribute names to encrypt.
+# Keys must match format_dynamodb_item top-level names. Do not list partition key, GSI keys, or foreign ids
+# needed for queries (email, reporting_to, reviewId, cycleYear, reviewType, reviewerId, isActive, …).
 ENCRYPTED_FIELDS_BY_TABLE: Dict[str, List[str]] = {
-    # "employees": ["phone", "mobile", "bio"],
-    # "review": ["comments"],
+    "employees": [
+        "account",
+        "bio",
+        "created_at",
+        "date_of_birth",
+        "date_of_joining",
+        "department",
+        "emergency_contact_name",
+        "emergency_contact_phone",
+        "emergency_contact_relationship",
+        "employee_status",
+        "employment_category",
+        "experience_years",
+        "expertise",
+        "first_name",
+        "gender",
+        "is_leader",
+        "last_name",
+        "location",
+        "manager_email",
+        "mobile",
+        "name",
+        "overall_rating",
+        "performance_client_feedback",
+        "performance_communication",
+        "performance_leadership",
+        "phone",
+        "photo_url",
+        "position",
+        "project_end_date",
+        "project_start_date",
+        "reason_for_resignation",
+        "skills",
+        "status",
+        "strengths",
+        "tech_stack",
+        "updated_at",
+        "usage_location",
+    ],
+    "goals": [
+        "category",
+        "completion",
+        "created_at",
+        "createdBy",
+        "description",
+        "managerApproved",
+        "milestones",
+        "status",
+        "targetDate",
+        "title",
+        "updated_at",
+        "weightage",
+    ],
+    "review": [
+        "attachments",
+        "comments",
+        "createdAt",
+        "createdBy",
+        "goalIds",
+        "improvements",
+        "metadata",
+        "ratings",
+        "status",
+        "strengths",
+        "submittedAt",
+        "updatedAt",
+    ],
+    "reviewDraft": [
+        "attachments",
+        "comments",
+        "createdAt",
+        "createdBy",
+        "goalIds",
+        "improvements",
+        "metadata",
+        "ratings",
+        "status",
+        "strengths",
+        "submittedAt",
+        "updatedAt",
+    ],
 }
 
 
@@ -116,6 +198,32 @@ def _physical_table_name(table_logical_name: str) -> Optional[str]:
     return (os.getenv(env_key) or "").strip() or None
 
 
+def remove_field_names_for_delete(table_logical_name: Optional[str], field_name: str) -> List[str]:
+    """Attribute name(s) to REMOVE in DynamoDB when clearing a field (plaintext vs *_enc)."""
+    if not table_logical_name or not is_field_encryption_active():
+        return [field_name]
+    fields = ENCRYPTED_FIELDS_BY_TABLE.get(table_logical_name, [])
+    if field_name in fields:
+        return [f"{field_name}_enc"]
+    return [field_name]
+
+
+def _serialize_for_encryption(val: Any) -> bytes:
+    """JSON wrapper preserves type round-trip (str, bool, dict, list, int, float)."""
+    return json.dumps({"v": val}, default=str).encode("utf-8")
+
+
+def _deserialize_after_decryption(plain: bytes) -> Any:
+    s = plain.decode("utf-8")
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, dict) and "v" in obj:
+            return obj["v"]
+    except json.JSONDecodeError:
+        pass
+    return s
+
+
 def _get_client_and_provider():
     import aws_encryption_sdk
     from aws_encryption_sdk.key_providers.kms import KMSMasterKeyProvider
@@ -156,7 +264,7 @@ def _decrypt_payload(ciphertext_blob: Any) -> bytes:
 
 def encrypt_item_for_write(table_logical_name: str, formatted_item: Dict[str, Any]) -> Dict[str, Any]:
     """
-    After format_dynamodb_item: encrypt configured top-level string fields to *_enc; remove plaintext keys.
+    After format_dynamodb_item: encrypt configured top-level fields to *_enc; remove plaintext keys.
     No-op if encryption inactive or no fields for this table.
     """
     _log_bootstrap_once()
@@ -174,14 +282,11 @@ def encrypt_item_for_write(table_logical_name: str, formatted_item: Dict[str, An
         if field not in out or out[field] is None:
             continue
         val = out[field]
-        if isinstance(val, bool):
-            continue
-        if not isinstance(val, str):
-            val = str(val)
         enc_key = f"{field}_enc"
         try:
             ctx = _encryption_context(table_logical_name, field, physical)
-            out[enc_key] = _encrypt_bytes(val.encode("utf-8"), ctx)
+            payload = _serialize_for_encryption(val)
+            out[enc_key] = _encrypt_bytes(payload, ctx)
             del out[field]
         except Exception as e:
             logger.exception("Field encryption failed for %s.%s: %s", table_logical_name, field, e)
@@ -213,8 +318,8 @@ def decrypt_item_after_read(table_logical_name: str, parsed_item: Dict[str, Any]
         if not isinstance(blob, (str, bytes, bytearray)):
             continue
         try:
-            plain = _decrypt_payload(blob).decode("utf-8")
-            out[field] = plain
+            plain = _decrypt_payload(blob)
+            out[field] = _deserialize_after_decryption(plain)
             del out[enc_key]
         except Exception as e:
             logger.exception("Field decryption failed for %s.%s: %s", table_logical_name, field, e)
