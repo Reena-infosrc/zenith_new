@@ -15,8 +15,10 @@ venv/
 env/
 ENV/
 
-# Ignore node and build artifacts
+# Ignore node and build artifacts (Serverless CLI deps are CI-only, not in the API image)
 node_modules/
+package.json
+package-lock.json
 dist/
 build/
 .cache/

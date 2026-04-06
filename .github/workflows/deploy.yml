@@ -56,10 +56,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
+      # Global `npm install -g serverless@3` often fails on ubuntu-latest (npm 10+ / permissions).
+      # Local `npm ci` in backend/ is reliable; API Docker image ignores these files (.dockerignore).
       - name: Install Serverless Framework
         if: matrix.branch == github.ref_name
-        run: npm install -g serverless@3
+        working-directory: backend
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: npm ci --no-audit --no-fund
 
       - name: Check if serverless.yml changed
         if: matrix.branch == github.ref_name
@@ -138,8 +145,7 @@ jobs:
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
         run: |
           cd backend
-          serverless plugin install -n serverless-dotenv-plugin
-          serverless deploy --stage "$STAGE"
+          npx serverless deploy --stage "$STAGE"
         env:
           ECR_IMAGE_URI: ${{ env.ECR_IMAGE_URI }}
           ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}

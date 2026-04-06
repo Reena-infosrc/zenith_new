@@ -1,0 +1,9 @@
+{
+  "name": "zenith-hr-pulse-backend-infra",
+  "private": true,
+  "description": "Serverless CLI for CI deploy only (Python API image does not use Node)",
+  "devDependencies": {
+    "serverless": "3.38.0",
+    "serverless-dotenv-plugin": "6.0.0"
+  }
+}
