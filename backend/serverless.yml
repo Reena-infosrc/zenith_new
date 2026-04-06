@@ -1,7 +1,7 @@
 service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 # Touch this file to trigger CI serverless deploy (see .github/workflows/deploy.yml).
-# Rev: added field encryption
+# Rev: field_crypto StrictAwsKmsMasterKeyProvider (aws-encryption-sdk 3.3+) — 2026-04-06
 # using env files
 useDotenv: true
 
