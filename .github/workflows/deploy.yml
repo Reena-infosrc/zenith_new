@@ -35,8 +35,6 @@ jobs:
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
       STAGE: ${{ matrix.stage }}
-      # Large dependency tree (serverless); avoid silent npm OOM on ubuntu-latest.
-      NODE_OPTIONS: --max-old-space-size=8192
 
     steps:
       - name: Checkout repository
@@ -57,7 +55,11 @@ jobs:
         if: matrix.branch == github.ref_name
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
+
+      - name: Install Serverless Framework
+        if: matrix.branch == github.ref_name
+        run: npm install -g serverless@3
 
       - name: Check if serverless.yml changed
         if: matrix.branch == github.ref_name
@@ -132,20 +134,12 @@ jobs:
           echo "AZURE_MSAL_CLIENT_ID=${AZURE_MSAL_CLIENT_ID}" >> $GITHUB_ENV
           echo "AZURE_MSAL_TENANT_ID=${AZURE_MSAL_TENANT_ID}" >> $GITHUB_ENV
 
-      # Host `npm`/`npx` on GHA has been failing with exit 1 (no ERR line) — often OOM or npm 10+ quirks.
-      # Run Serverless inside Node 18 Docker with the same env as this job (after Load env + ECR_IMAGE_URI).
       - name: Deploy with Serverless Framework (if serverless.yml changed)
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
         run: |
-          set -euo pipefail
-          # Do not pass host PATH into the container — it can hide Node/npm on the image.
-          env | grep -v '^PATH=' > /tmp/sls-deploy.env
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}/backend:/app" \
-            -w /app \
-            --env-file /tmp/sls-deploy.env \
-            node:18-bookworm-slim \
-            bash -c 'set -euo pipefail && npm install serverless@3.38.0 serverless-dotenv-plugin@6.0.0 --no-audit --no-fund && npx serverless deploy --stage "$STAGE"'
+          cd backend
+          serverless plugin install -n serverless-dotenv-plugin
+          serverless deploy --stage "$STAGE"
         env:
           ECR_IMAGE_URI: ${{ env.ECR_IMAGE_URI }}
           ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
