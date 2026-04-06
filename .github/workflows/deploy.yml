@@ -57,9 +57,15 @@ jobs:
         with:
           node-version: 20
 
+      # Global npm install can fail on ubuntu-latest (prefix/EACCES). Use user prefix + pinned 3.x.
       - name: Install Serverless Framework
         if: matrix.branch == github.ref_name
-        run: npm install -g serverless@3
+        run: |
+          mkdir -p "$HOME/.npm-global"
+          npm config set prefix "$HOME/.npm-global"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+          npm install -g serverless@3.38.0 --no-audit --no-fund
+          serverless --version
 
       - name: Check if serverless.yml changed
         if: matrix.branch == github.ref_name
@@ -139,7 +145,7 @@ jobs:
         run: |
           cd backend
           serverless plugin install -n serverless-dotenv-plugin
-          serverless deploy --stage $STAGE
+          serverless deploy --stage "$STAGE"
         env:
           ECR_IMAGE_URI: ${{ env.ECR_IMAGE_URI }}
           ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
