@@ -94,6 +94,11 @@ def _strip_projection_if_encryption(kwargs: Dict[str, Any]) -> Dict[str, Any]:
         return kwargs
     out = dict(kwargs)
     out.pop("ProjectionExpression", None)
+    # If we drop ProjectionExpression but leave ExpressionAttributeNames with no
+    # FilterExpression/KeyConditionExpression using # placeholders, DynamoDB returns:
+    # ValidationException: ExpressionAttributeNames can only be specified when using expressions
+    if "FilterExpression" not in out and "KeyConditionExpression" not in out:
+        out.pop("ExpressionAttributeNames", None)
     return out
 
 

@@ -335,11 +335,34 @@ async def is_user_admin(email: str) -> bool:
         traceback.print_exc()
         return False
 
+
+def _parse_employee_list_item(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Parse a DynamoDB employee row for list responses; returns None if invalid."""
+    doc = parse_dynamodb_item(raw, "employees")
+    if "id" not in doc and "_id" in doc:
+        doc["id"] = doc["_id"]
+    elif "id" not in doc:
+        return None
+    if not doc.get("photo_url"):
+        doc["photo_url"] = ""
+    if doc.get("status") is None or doc.get("status") == "":
+        doc["status"] = "active"
+    if not doc.get("department"):
+        doc["department"] = ""
+    if not doc.get("position"):
+        doc["position"] = ""
+    return doc
+
+
+# DynamoDB scan page size per request (early-exit path stops after skip+limit rows).
+_EMPLOYEES_SCAN_PAGE_LIMIT = 500
+
+
 @router.get("", response_model=List[EmployeeInDB])
 @router.get("/", response_model=List[EmployeeInDB])
 async def get_employees(
     skip: int = Query(0, ge=0),
-    limit: int = Query(1000, ge=1),
+    limit: int = Query(1000, ge=1, le=10000),
     department: Optional[str] = None,
     location: Optional[str] = None,
     employee_status: Optional[str] = None,
@@ -359,68 +382,55 @@ async def get_employees(
 ):
     """Get all employees with optional filtering from DynamoDB"""
     try:
-        print(f"DEBUG: get_employees called with params: department={department}, location={location}, skip={skip}, limit={limit}")
-        
-        # Get table
+        try:
+            start_idx = int(skip) if isinstance(skip, (int, str)) else 0
+            end_limit = int(limit) if isinstance(limit, (int, str)) else 1000
+        except (ValueError, TypeError):
+            start_idx = 0
+            end_limit = 1000
+
         table = await get_employees_table()
-        print(f"DEBUG: Table obtained: {table}")
 
-        # Scan all employees with pagination
-        print(f"DEBUG: Performing scan with pagination...")
-        all_items = []
-        last_evaluated_key = None
-        
-        while True:
-            scan_kwargs = {}
-            if last_evaluated_key:
-                scan_kwargs['ExclusiveStartKey'] = last_evaluated_key
-            
-            resp = await table.scan(**scan_kwargs)
-            items = resp.get("Items", [])
-            all_items.extend(items)
-            
-            print(f"DEBUG: Scan batch returned {len(items)} items, total so far: {len(all_items)}")
-            
-            # Check if there are more items to scan
-            last_evaluated_key = resp.get('LastEvaluatedKey')
-            if not last_evaluated_key:
-                break
-        
-        print(f"DEBUG: Total items scanned: {len(all_items)}")
-        items = all_items
+        # Full table scan is slow (especially with field encryption). When no filter/sort/search
+        # is needed, stop scanning after we have enough rows for skip + limit.
+        needs_full_dataset = bool(usage_location or search or sort_by)
 
-        # Parse and normalize items
-        print(f"DEBUG: Parsing {len(items)} items")
-        parsed = []
-        for i, raw in enumerate(items):
-            print(f"DEBUG: Parsing item {i+1}: {raw}")
-            doc = parse_dynamodb_item(raw, "employees")
-            print(f"DEBUG: Parsed item {i+1}: {doc}")
-            
-            # Ensure id field exists for API model
-            if "id" not in doc and "_id" in doc:
-                doc["id"] = doc["_id"]
-            elif "id" not in doc:
-                print(f"DEBUG: Skipping item {i+1} - no id field")
-                continue
+        parsed: List[Dict[str, Any]] = []
 
-            # Set photo_url to empty string if not present
-            if not doc.get("photo_url"):
-                doc["photo_url"] = ""
-            
-            # Set default status to "active" if not present (but don't override explicit "inactive")
-            if doc.get("status") is None or doc.get("status") == "":
-                doc["status"] = "active"
-            
-            # Ensure required fields have default values
-            if not doc.get("department"):
-                doc["department"] = ""
-            if not doc.get("position"):
-                doc["position"] = ""
+        if not needs_full_dataset:
+            need_count = start_idx + end_limit
+            last_evaluated_key = None
+            while len(parsed) < need_count:
+                scan_kwargs: Dict[str, Any] = {"Limit": _EMPLOYEES_SCAN_PAGE_LIMIT}
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                resp = await table.scan(**scan_kwargs)
+                for raw in resp.get("Items", []):
+                    doc = _parse_employee_list_item(raw)
+                    if doc is not None:
+                        parsed.append(doc)
+                    if len(parsed) >= need_count:
+                        break
+                last_evaluated_key = resp.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+        else:
+            last_evaluated_key = None
+            while True:
+                scan_kwargs: Dict[str, Any] = {}
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                resp = await table.scan(**scan_kwargs)
+                items = resp.get("Items", [])
+                for raw in items:
+                    doc = _parse_employee_list_item(raw)
+                    if doc is not None:
+                        parsed.append(doc)
+                last_evaluated_key = resp.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
 
-            parsed.append(doc)
-        
-        print(f"DEBUG: Final parsed items: {len(parsed)}")
+            logger.debug("get_employees full scan parsed %s rows (filters/sort/search)", len(parsed))
 
         # Filter by Entra usage location (DynamoDB usage_location)
         if usage_location:
@@ -464,23 +474,13 @@ async def get_employees(
                 
                 parsed.sort(key=get_date_key, reverse=reverse_order)
 
-        # Apply pagination via slicing
-        try:
-            start_idx = int(skip) if isinstance(skip, (int, str)) else 0
-            end_idx = start_idx + (int(limit) if isinstance(limit, (int, str)) else 1000)
-        except (ValueError, TypeError):
-            start_idx = 0
-            end_idx = 1000
-        sliced = parsed[start_idx: end_idx]
-        
-        print(f"DEBUG: Returning {len(sliced)} employees")
+        end_idx = start_idx + end_limit
+        sliced = parsed[start_idx:end_idx]
+        logger.debug("get_employees returning %s employees (skip=%s limit=%s)", len(sliced), start_idx, end_limit)
         return sliced
-        
+
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"Error fetching employees from DynamoDB: {e}")
-        print(f"Full traceback: {error_details}")
+        logger.exception("Error fetching employees from DynamoDB: %s", e)
         raise HTTPException(status_code=500, detail=f"Error fetching employees: {str(e)}")
 
 @router.get("/check-team-members", tags=["employees"])
