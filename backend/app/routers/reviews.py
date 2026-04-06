@@ -4,6 +4,7 @@ import time
 import csv
 import io
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile, Form
 from fastapi.responses import Response
@@ -90,14 +91,34 @@ def _omit_projection_if_encryption() -> bool:
 
 
 def _strip_projection_if_encryption(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop ProjectionExpression when encryption is on; clean up # placeholders only used there.
+
+    DynamoDB rejects (1) names with no expressions, and (2) unused placeholders in
+    ExpressionAttributeNames. Scans often only had #names for projection; queries may
+    still use KeyConditionExpression/FilterExpression without those placeholders.
+    """
     if not _omit_projection_if_encryption():
         return kwargs
     out = dict(kwargs)
-    out.pop("ProjectionExpression", None)
-    # If we drop ProjectionExpression but leave ExpressionAttributeNames with no
-    # FilterExpression/KeyConditionExpression using # placeholders, DynamoDB returns:
-    # ValidationException: ExpressionAttributeNames can only be specified when using expressions
-    if "FilterExpression" not in out and "KeyConditionExpression" not in out:
+    proj = out.pop("ProjectionExpression", None)
+    if not proj:
+        return out
+    names = out.get("ExpressionAttributeNames") or {}
+    if not names:
+        return out
+    placeholders_in_proj = set(re.findall(r"#\w+", proj))
+    other_blob = " ".join(
+        str(out.get(k))
+        for k in ("KeyConditionExpression", "FilterExpression", "ConditionExpression")
+        if out.get(k) is not None
+    )
+    for ph in placeholders_in_proj:
+        if ph in other_blob:
+            continue
+        names.pop(ph, None)
+    if names:
+        out["ExpressionAttributeNames"] = names
+    else:
         out.pop("ExpressionAttributeNames", None)
     return out
 
