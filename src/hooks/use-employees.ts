@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from './use-toast';
 import { apiCache, CACHE_KEYS } from '@/utils/api-cache';
 import { API_BASE_URL } from '@/config/api';
@@ -6,8 +6,12 @@ import { API_BASE_URL } from '@/config/api';
 // Global state to prevent multiple simultaneous API calls
 let globalEmployees: Employee[] = [];
 let globalLoading = false;
+let globalIsLoadingMore = false;
 let globalError: string | null = null;
 let globalFetchPromise: Promise<void> | null = null;
+
+const FIRST_PAGE_LIMIT = 72;
+const FULL_PAGE_LIMIT = 10000;
 
 // Employee type definition
 export interface Employee {
@@ -46,403 +50,222 @@ export interface Employee {
   emergencyContactPhone?: string;
 }
 
+function mapEmployeeRow(emp: Record<string, unknown>): Employee {
+  return {
+    id: (emp.id as string) || 'temp-' + Math.random().toString(36).substring(2, 11),
+    employeeId: (emp.employee_id as string) || '',
+    name: (emp.name as string) || 'Unknown',
+    position: (emp.position as string) || 'Not specified',
+    department: (emp.department as string) || 'Not specified',
+    photoUrl: (emp.photo_url as string) || '',
+    email: (emp.email as string) || '',
+    phone: (emp.phone as string) || '',
+    mobile: (emp.mobile as string) || '',
+    bio: (emp.bio as string) || '',
+    projectStartDate: (emp.project_start_date as string) || '',
+    projectEndDate: (emp.project_end_date as string) || '',
+    manager: (emp.reporting_to as string) || '',
+    reporting_to: (emp.reporting_to as string) || null,
+    skills: (emp.skills as string[]) || [],
+    expertise: (emp.expertise as string) || '',
+    experienceYears:
+      emp.experience_years !== null && emp.experience_years !== undefined
+        ? (emp.experience_years as number)
+        : undefined,
+    location: (emp.location as string) || '',
+    usageLocation: (emp.usage_location as string) || '',
+    account: (emp.account as string) || '',
+    dateOfBirth: (emp.date_of_birth as string) || '',
+    dateOfJoining: (emp.date_of_joining as string) || '',
+    gender: (emp.gender as string) || '',
+    employmentCategory: (emp.employment_category as string) || '',
+    employeeStatus: (emp.employee_status as string) || '',
+    isLeader: (emp.is_leader as string) || '',
+    status:
+      emp.status !== undefined && emp.status !== null && emp.status !== ''
+        ? (emp.status as string)
+        : 'active',
+    resignationDate: (emp.resignation_date as string) || '',
+    reasonForResignation: (emp.reason_for_resignation as string) || '',
+    emergencyContactName: (emp.emergency_contact_name as string) || '',
+    emergencyContactRelationship: (emp.emergency_contact_relationship as string) || '',
+    emergencyContactPhone: (emp.emergency_contact_phone as string) || '',
+  };
+}
+
 export function useEmployees() {
   const [employees, setEmployees] = useState<Employee[]>(globalEmployees);
   const [isLoading, setIsLoading] = useState<boolean>(globalLoading);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(globalIsLoadingMore);
   const [error, setError] = useState<string | null>(globalError);
   const { toast } = useToast();
-  const hasInitialized = useRef(false);
 
-  // Debug logging removed for security
-
-  // Fetch all employees
   const fetchEmployees = async (sortBy?: string, sortOrder?: string) => {
-
-    // Create cache key that includes sorting parameters
     const cacheKey = sortBy ? `${CACHE_KEYS.EMPLOYEES}-${sortBy}-${sortOrder}` : CACHE_KEYS.EMPLOYEES;
-    
-    // Check cache first
+
     const cachedData = apiCache.get(cacheKey);
     if (cachedData) {
       globalEmployees = cachedData;
       globalError = null;
       setEmployees(cachedData);
       setIsLoading(false);
+      setIsLoadingMore(false);
       setError(null);
       return;
     }
 
-    // If already loading, return the existing promise
     if (globalLoading && globalFetchPromise) {
       await globalFetchPromise;
       setEmployees(globalEmployees);
       setIsLoading(globalLoading);
+      setIsLoadingMore(globalIsLoadingMore);
       setError(globalError);
       return;
     }
 
-    // If we already have data and not loading, just update local state
     if (globalEmployees.length > 0 && !globalLoading) {
       setEmployees(globalEmployees);
       setIsLoading(false);
+      setIsLoadingMore(false);
       setError(null);
       return;
     }
 
-    // Start loading
+    const progressive = !sortBy && !sortOrder;
+
     globalLoading = true;
+    globalIsLoadingMore = false;
     setIsLoading(true);
+    setIsLoadingMore(false);
     setError(null);
-    
-    // Create a promise for this fetch operation
+
     globalFetchPromise = (async () => {
-      try {
-        // Get authentication token
-        const token = localStorage.getItem('auth_token');
-        const headers: HeadersInit = {
-          'Content-Type': 'application/json',
-        };
-        
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        
+      const token = localStorage.getItem('auth_token');
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const fetchPage = async (skip: number, limit: number): Promise<Employee[] | null> => {
         const params = new URLSearchParams();
-        params.append('limit', '1000');
-        if (sortBy) {
-          params.append('sort_by', sortBy);
-        }
-        if (sortOrder) {
-          params.append('sort_order', sortOrder);
-        }
-        
+        params.append('skip', String(skip));
+        params.append('limit', String(limit));
+        if (sortBy) params.append('sort_by', sortBy);
+        if (sortOrder) params.append('sort_order', sortOrder);
         const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, { headers });
-        
-        if (!response.ok) {
-          // For now, use mock data when API fails
-          const mockEmployees = [
-            { 
-              id: "1", 
-              name: "Alex Johnson", 
-              position: "Developer", 
-              department: "Engineering", 
-              photoUrl: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-              email: "alex.johnson@example.com",
-              phone: "555-0123",
-              startDate: "2023-01-15",
-              manager: "",
-              reporting_to: "",
-              skills: ["JavaScript", "React", "Node.js"],
-              expertise: "Frontend Development",
-              experienceYears: 3,
-              location: "New York",
-              dateOfBirth: "1995-05-15",
-              dateOfJoining: "2023-01-15",
-              gender: "MALE",
-              employmentCategory: "FTE",
-              employeeStatus: "Active",
-              isLeader: "No"
-            },
-            { 
-              id: "2", 
-              name: "Sarah Wilson", 
-              position: "Designer", 
-              department: "Product", 
-              photoUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-              email: "sarah.wilson@example.com",
-              phone: "555-0124",
-              startDate: "2023-02-20",
-              manager: "",
-              reporting_to: "",
-              skills: ["UI/UX", "Figma", "Sketch"],
-              expertise: "User Experience Design",
-              experienceYears: 4,
-              location: "San Francisco",
-              dateOfBirth: "1992-08-22",
-              dateOfJoining: "2023-02-20",
-              gender: "FEMALE",
-              employmentCategory: "FTE",
-              employeeStatus: "Active",
-              isLeader: "No"
-            },
-            { 
-              id: "3", 
-              name: "Mike Chen", 
-              position: "Manager", 
-              department: "Engineering", 
-              photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-              email: "mike.chen@example.com",
-              phone: "555-0125",
-              startDate: "2022-11-10",
-              manager: "",
-              reporting_to: "",
-              skills: ["Leadership", "Python", "AWS"],
-              expertise: "Engineering Management",
-              experienceYears: 6,
-              location: "Seattle",
-              dateOfBirth: "1988-12-03",
-              dateOfJoining: "2022-11-10",
-              gender: "MALE",
-              employmentCategory: "FTE",
-              employeeStatus: "Active",
-              isLeader: "Yes"
-            },
-            { 
-              id: "4", 
-              name: "Emma Davis", 
-              position: "Analyst", 
-              department: "Finance", 
-              photoUrl: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-              email: "emma.davis@example.com",
-              phone: "555-0126",
-              startDate: "2023-03-05",
-              manager: "",
-              reporting_to: "",
-              skills: ["Excel", "SQL", "Financial Modeling"],
-              expertise: "Financial Analysis",
-              experienceYears: 2,
-              location: "Chicago",
-              dateOfBirth: "1996-03-15",
-              dateOfJoining: "2023-03-05",
-              gender: "FEMALE",
-              employmentCategory: "FTE",
-              employeeStatus: "Active",
-              isLeader: "No"
-            },
-            { 
-              id: "5", 
-              name: "David Rodriguez", 
-              position: "Sales Rep", 
-              department: "Sales", 
-              photoUrl: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-              email: "david.rodriguez@example.com",
-              phone: "555-0127",
-              startDate: "2023-04-12",
-              manager: "",
-              reporting_to: "",
-              skills: ["Sales", "CRM", "Negotiation"],
-              expertise: "Sales Management",
-              experienceYears: 5,
-              location: "Miami",
-              dateOfBirth: "1990-07-08",
-              dateOfJoining: "2023-04-12",
-              gender: "MALE",
-              employmentCategory: "FTE",
-              employeeStatus: "Active",
-              isLeader: "No"
-            }
-          ];
-          globalEmployees = mockEmployees;
-          globalError = null;
-          return;
-        }
-        
+        if (!response.ok) return null;
         const data = await response.json();
-        
-        // Handle empty data case
-        if (!data || !Array.isArray(data)) {
-          globalEmployees = [];
-          globalError = null;
-          return;
-        }
-      
-        // Transform data to match our frontend model
-        const transformedData = data.map((emp: Record<string, unknown>) => {
-          return {
-            id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9),
-            employeeId: emp.employee_id || "",
-            name: emp.name || "Unknown",
-            position: emp.position || "Not specified",
-            department: emp.department || "Not specified",
-            photoUrl: emp.photo_url || "",
-            email: emp.email || "",
-            phone: emp.phone || "",
-            mobile: emp.mobile || "",
-            emergencyContact: emp.emergency_contact || "",
-            bio: emp.bio || "",
-            projectStartDate: emp.project_start_date || "",
-            projectEndDate: emp.project_end_date || "",
-            manager: emp.reporting_to || "", // Map manager to reporting_to field
-            reporting_to: emp.reporting_to || null,
-            skills: emp.skills || [],
-            expertise: emp.expertise || "",
-            experienceYears: emp.experience_years !== null ? emp.experience_years : undefined,
-            location: emp.location || "",
-            usageLocation: (emp.usage_location as string) || "",
-            account: emp.account || "",
-            dateOfBirth: emp.date_of_birth || "",
-            dateOfJoining: emp.date_of_joining || "",
-            gender: emp.gender || "",
-            employmentCategory: emp.employment_category || "",
-            employeeStatus: emp.employee_status || "",
-            isLeader: emp.is_leader || "",
-            status: emp.status !== undefined && emp.status !== null && emp.status !== '' ? emp.status : 'active',
-            resignationDate: emp.resignation_date || "",
-            reasonForResignation: emp.reason_for_resignation || "",
-            emergencyContactName: emp.emergency_contact_name || "",
-            emergencyContactRelationship: emp.emergency_contact_relationship || "",
-            emergencyContactPhone: emp.emergency_contact_phone || ""
-          };
-        });
-      
-      // Update global state
-      globalEmployees = transformedData;
-      globalError = null;
-      
-      // Cache the data with the appropriate key
-      apiCache.set(cacheKey, transformedData);
-      
-      // Dispatch event to notify other components
-      window.dispatchEvent(new CustomEvent('employeesUpdated'));
-      
-    } catch (err) {
-      console.error("Error fetching employees:", err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch employees';
-      
-      // If it's a network error, use mock data
-      if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
-        const mockEmployees = [
-          { 
-            id: "1", 
-            name: "Alex Johnson", 
-            position: "Developer", 
-            department: "Engineering", 
-            photoUrl: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-            email: "alex.johnson@example.com",
-            phone: "555-0123",
-            startDate: "2023-01-15",
-            manager: "",
-            reporting_to: "",
-            skills: ["JavaScript", "React", "Node.js"],
-            expertise: "Frontend Development",
-            experienceYears: 3,
-            location: "New York",
-            dateOfBirth: "1995-05-15",
-            dateOfJoining: "2023-01-15",
-            gender: "MALE"
+        if (!data || !Array.isArray(data)) return [];
+        return data.map((emp: Record<string, unknown>) => mapEmployeeRow(emp));
+      };
+
+      const applyDevMock = () => {
+        const mockEmployees: Employee[] = [
+          {
+            id: '1',
+            name: 'Alex Johnson',
+            position: 'Developer',
+            department: 'Engineering',
+            photoUrl:
+              'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80',
+            email: 'alex.johnson@example.com',
           },
-          { 
-            id: "2", 
-            name: "Sarah Wilson", 
-            position: "Designer", 
-            department: "Product", 
-            photoUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-            email: "sarah.wilson@example.com",
-            phone: "555-0124",
-            startDate: "2023-02-20",
-            manager: "",
-            reporting_to: "",
-            skills: ["UI/UX", "Figma", "Sketch"],
-            expertise: "User Experience Design",
-            experienceYears: 4,
-            location: "San Francisco",
-            dateOfBirth: "1992-08-22",
-            dateOfJoining: "2023-02-20",
-            gender: "FEMALE"
+          {
+            id: '2',
+            name: 'Emma Wilson',
+            position: 'Designer',
+            department: 'Product',
+            photoUrl:
+              'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80',
+            email: 'emma@example.com',
           },
-          { 
-            id: "3", 
-            name: "Mike Chen", 
-            position: "Manager", 
-            department: "Engineering", 
-            photoUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-            email: "mike.chen@example.com",
-            phone: "555-0125",
-            startDate: "2022-11-10",
-            manager: "",
-            reporting_to: "",
-            skills: ["Leadership", "Python", "AWS"],
-            expertise: "Engineering Management",
-            experienceYears: 6,
-            location: "Seattle",
-            dateOfBirth: "1988-12-03",
-            dateOfJoining: "2022-11-10",
-            gender: "MALE"
-          },
-          { 
-            id: "4", 
-            name: "Emma Davis", 
-            position: "Analyst", 
-            department: "Finance", 
-            photoUrl: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-            email: "emma.davis@example.com",
-            phone: "555-0126",
-            startDate: "2023-03-05",
-            manager: "",
-            reporting_to: "",
-            skills: ["Excel", "SQL", "Financial Modeling"],
-            expertise: "Financial Analysis",
-            experienceYears: 2,
-            location: "Chicago",
-            dateOfBirth: "1996-03-15",
-            dateOfJoining: "2023-03-05",
-            gender: "FEMALE"
-          },
-          { 
-            id: "5", 
-            name: "David Rodriguez", 
-            position: "Sales Rep", 
-            department: "Sales", 
-            photoUrl: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-            email: "david.rodriguez@example.com",
-            phone: "555-0127",
-            startDate: "2023-04-12",
-            manager: "",
-            reporting_to: "",
-            skills: ["Sales", "CRM", "Negotiation"],
-            expertise: "Sales Management",
-            experienceYears: 5,
-            location: "Miami",
-            dateOfBirth: "1990-07-08",
-            dateOfJoining: "2023-04-12",
-            gender: "MALE"
-          }
         ];
         globalEmployees = mockEmployees;
         globalError = null;
-      } else {
-        globalError = errorMessage;
-      }
-      
-      // Use mock data for development
-      if (process.env.NODE_ENV === 'development') {
-        const mockEmployees = [
-          { 
-            id: "1", 
-            name: "Alex Johnson", 
-            position: "Developer", 
-            department: "Engineering", 
-            photoUrl: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80",
-            email: "alex.johnson@example.com"
-          },
-          { 
-            id: "2", 
-            name: "Emma Wilson", 
-            position: "Designer", 
-            department: "Product", 
-            photoUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&auto=format&fit=crop&w=200&q=80" 
+      };
+
+      try {
+        if (progressive) {
+          const first = await fetchPage(0, FIRST_PAGE_LIMIT);
+          if (first === null) {
+            if (process.env.NODE_ENV === 'development') applyDevMock();
+            else {
+              globalEmployees = [];
+              globalError = 'Failed to load employees';
+              toast({ title: 'Error', description: 'Failed to load employees.', variant: 'destructive' });
+            }
+            return;
           }
-        ];
-        globalEmployees = mockEmployees;
-      } else {
-        toast({
-          title: 'Error',
-          description: 'Failed to load employees. Please try again.',
-          variant: 'destructive',
-        });
+
+          globalEmployees = first;
+          globalError = null;
+          window.dispatchEvent(new CustomEvent('employeesUpdated'));
+          setEmployees([...globalEmployees]);
+          setIsLoading(false);
+          globalIsLoadingMore = true;
+          setIsLoadingMore(true);
+
+          const full = await fetchPage(0, FULL_PAGE_LIMIT);
+          if (full === null) {
+            globalError = globalError || 'Partial load';
+            toast({
+              title: 'Could not refresh full directory',
+              description: 'Showing the first page only. Try refreshing.',
+              variant: 'destructive',
+            });
+            return;
+          }
+          globalEmployees = full;
+          globalError = null;
+          apiCache.set(cacheKey, full);
+          window.dispatchEvent(new CustomEvent('employeesUpdated'));
+          return;
+        }
+
+        const rows = await fetchPage(0, FULL_PAGE_LIMIT);
+        if (rows === null) {
+          if (process.env.NODE_ENV === 'development') applyDevMock();
+          else {
+            globalEmployees = [];
+            globalError = 'Failed to load employees';
+            toast({ title: 'Error', description: 'Failed to load employees.', variant: 'destructive' });
+          }
+          return;
+        }
+        globalEmployees = rows;
+        globalError = null;
+        apiCache.set(cacheKey, rows);
+        window.dispatchEvent(new CustomEvent('employeesUpdated'));
+      } catch (err) {
+        console.error('Error fetching employees:', err);
+        const errorMessage = err instanceof Error ? err.message : 'Failed to fetch employees';
+        if (
+          errorMessage.includes('fetch') ||
+          errorMessage.includes('network') ||
+          errorMessage.includes('Failed to fetch')
+        ) {
+          if (process.env.NODE_ENV === 'development') applyDevMock();
+          else globalError = errorMessage;
+        } else {
+          globalError = errorMessage;
+        }
+        if (process.env.NODE_ENV !== 'development' && globalEmployees.length === 0) {
+          toast({
+            title: 'Error',
+            description: 'Failed to load employees. Please try again.',
+            variant: 'destructive',
+          });
+        }
+      } finally {
+        globalLoading = false;
+        globalIsLoadingMore = false;
+        globalFetchPromise = null;
       }
-    } finally {
-      globalLoading = false;
-      globalFetchPromise = null;
-    }
     })();
 
-    // Wait for the promise to complete
     await globalFetchPromise;
-    
-    // Update local state
+
     setEmployees(globalEmployees);
-    setIsLoading(globalLoading);
+    setIsLoading(false);
+    setIsLoadingMore(false);
     setError(globalError);
   };
   
@@ -767,25 +590,35 @@ export function useEmployees() {
     }
   };
 
-  // Load employees on component mount (only once globally)
+  // Hydrate from localStorage-backed cache or in-memory list so navigating away and back does not refetch.
   useEffect(() => {
-    if (!hasInitialized.current) {
-      hasInitialized.current = true;
-      fetchEmployees();
-    } else {
-      // If already initialized, just sync with global state
-      setEmployees(globalEmployees);
-      setIsLoading(globalLoading);
-      setError(globalError);
+    const cacheKey = CACHE_KEYS.EMPLOYEES;
+    const cached = apiCache.get(cacheKey);
+    if (cached) {
+      globalEmployees = cached;
+      setEmployees(cached);
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      setError(null);
+      return;
     }
+    if (globalEmployees.length > 0) {
+      setEmployees(globalEmployees);
+      setIsLoading(false);
+      setIsLoadingMore(globalIsLoadingMore);
+      setError(globalError);
+      return;
+    }
+    fetchEmployees();
   }, []);
 
   // Sync local state with global state when global state changes
   // Use a custom event system to notify components of global state changes
   useEffect(() => {
     const handleGlobalStateChange = () => {
-      setEmployees([...globalEmployees]); // Create new array to trigger re-render
+      setEmployees([...globalEmployees]);
       setIsLoading(globalLoading);
+      setIsLoadingMore(globalIsLoadingMore);
       setError(globalError);
     };
 
@@ -801,6 +634,7 @@ export function useEmployees() {
     apiCache.clear();
     globalEmployees = [];
     globalLoading = false;
+    globalIsLoadingMore = false;
     globalFetchPromise = null;
     globalError = null;
   };
@@ -835,6 +669,7 @@ export function useEmployees() {
   return {
     employees,
     isLoading,
+    isLoadingMore,
     error,
     fetchEmployees,
     getEmployee,

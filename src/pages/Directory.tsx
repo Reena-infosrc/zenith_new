@@ -17,7 +17,8 @@ import {
   User,
   MapPin,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Loader2
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmployeeCard, EmployeeCardProps } from "@/components/EmployeeCard";
@@ -76,19 +77,17 @@ export default function Directory() {
   const {
     employees,
     isLoading,
+    isLoadingMore,
     error,
     createEmployee,
     updateEmployee,
     importEmployeesFromCsv,
-    fetchEmployees,
-    clearCache,
     bulkUpdateEmployeeNames
   } = useEmployees();
 
   const { stats: dashboardStats } = useDashboardStats();
 
-  // Show loading state when navigating or when data is loading
-  const showLoading = isLoading || isNavigating;
+  const showLoading = (isLoading && employees.length === 0) || isNavigating;
 
   // Available departments, locations, and accounts for filters - use predefined department options
   const departments = DEPARTMENT_OPTIONS;
@@ -189,12 +188,6 @@ export default function Directory() {
       setIsNavigating(false);
     }
   }, [isLoading, employees.length]);
-
-  // Clear cache on component mount to ensure fresh data
-  useEffect(() => {
-    clearCache();
-    fetchEmployees();
-  }, []); // Empty dependency array means this runs only once on mount
 
   // Drop removed "Entra country" filter chips if still in state (e.g. HMR)
   useEffect(() => {
@@ -641,6 +634,16 @@ export default function Directory() {
 
             {/* Employee Directory */}
             <div className="mb-8">
+              {isLoadingMore && employees.length > 0 && !showLoading && (
+                <div
+                  className="mb-4 flex items-center gap-2 text-sm text-muted-foreground"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden />
+                  Loading more employees…
+                </div>
+              )}
               {showLoading ? (
                 <div className="flex flex-col justify-center items-center py-12">
                   <div className="animate-spin h-12 w-12 border-4 border-primary rounded-full border-t-transparent mb-4"></div>

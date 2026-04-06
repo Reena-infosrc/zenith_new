@@ -373,6 +373,8 @@ def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = False) -> 
 
 # DynamoDB scan page size per request (early-exit path stops after skip+limit rows).
 _EMPLOYEES_SCAN_PAGE_LIMIT = 500
+# First paint: stop scanning after this many rows when filters/sort don't need the full table.
+_FAST_FIRST_PAGE_ROW_CAP = 200
 
 
 @router.get("", response_model=List[EmployeeInDB])
@@ -408,13 +410,21 @@ async def get_employees(
             start_idx = 0
             end_limit = 1000
 
-        # --- in-memory cache (no-decrypt scan) ---
+        need_count = start_idx + end_limit
+        needs_full_dataset = bool(usage_location or search or sort_by)
+
+        parsed: List[Dict[str, Any]] = []
         cached = _employee_list_cache["data"]
-        if cached is not None and (time.time() - _employee_list_cache["ts"]) < _CACHE_TTL:
+        cache_fresh = (
+            cached is not None
+            and (time.time() - _employee_list_cache["ts"]) < _CACHE_TTL
+        )
+
+        if cache_fresh:
             parsed = list(cached)
-        else:
+        elif needs_full_dataset or need_count > _FAST_FIRST_PAGE_ROW_CAP:
+            # Full table scan + warm cache (filters/sort/search or large page).
             table = await get_employees_table()
-            parsed: List[Dict[str, Any]] = []
             last_evaluated_key = None
             while True:
                 scan_kwargs: Dict[str, Any] = {}
@@ -431,6 +441,29 @@ async def get_employees(
             _employee_list_cache["data"] = parsed
             _employee_list_cache["ts"] = time.time()
             logger.info("Employee list cache refreshed: %d rows", len(parsed))
+        else:
+            # Fast first page: stop scanning DynamoDB once we have enough rows (no full cache).
+            table = await get_employees_table()
+            last_evaluated_key = None
+            while len(parsed) < need_count:
+                scan_kwargs: Dict[str, Any] = {"Limit": _EMPLOYEES_SCAN_PAGE_LIMIT}
+                if last_evaluated_key:
+                    scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+                resp = await table.scan(**scan_kwargs)
+                for raw in resp.get("Items", []):
+                    doc = _parse_employee_list_item(raw)
+                    if doc is not None:
+                        parsed.append(doc)
+                    if len(parsed) >= need_count:
+                        break
+                last_evaluated_key = resp.get("LastEvaluatedKey")
+                if not last_evaluated_key:
+                    break
+            logger.debug(
+                "get_employees fast path: %d rows (need=%s, no cache warm)",
+                len(parsed),
+                need_count,
+            )
 
         # Filter by Entra usage location (DynamoDB usage_location)
         if usage_location:
