@@ -321,6 +321,7 @@ roles:
 
 ```bash
 cd backend
+pip install -r requirements.txt
 
 # Test API endpoints
 python test_api.py
@@ -331,6 +332,8 @@ python test_auth.py
 # Test S3 uploads
 python test_presigned_url.py
 ```
+
+Optional: run `pytest` from `backend` when you add tests under `backend/tests/`.
 
 ### Frontend Testing
 

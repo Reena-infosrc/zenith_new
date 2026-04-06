@@ -226,7 +226,12 @@ def _deserialize_after_decryption(plain: bytes) -> Any:
 
 def _get_client_and_provider():
     import aws_encryption_sdk
-    from aws_encryption_sdk.key_providers.kms import KMSMasterKeyProvider
+
+    # aws-encryption-sdk 3.3+ removed KMSMasterKeyProvider; use StrictAwsKmsMasterKeyProvider (explicit CMK list).
+    try:
+        from aws_encryption_sdk.key_providers.kms import StrictAwsKmsMasterKeyProvider as _KmsKeyProvider
+    except ImportError:  # pragma: no cover
+        from aws_encryption_sdk.key_providers.kms import KMSMasterKeyProvider as _KmsKeyProvider
 
     try:
         from aws_encryption_sdk.identifiers import CommitmentPolicy
@@ -234,7 +239,7 @@ def _get_client_and_provider():
         from aws_encryption_sdk import CommitmentPolicy  # type: ignore
 
     kms_key_arn = _kms_key_arn()
-    key_provider = KMSMasterKeyProvider(key_ids=[kms_key_arn])
+    key_provider = _KmsKeyProvider(key_ids=[kms_key_arn])
     client = aws_encryption_sdk.EncryptionSDKClient(
         commitment_policy=CommitmentPolicy.REQUIRE_ENCRYPT_REQUIRE_DECRYPT
     )
