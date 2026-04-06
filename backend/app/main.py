@@ -231,12 +231,33 @@ load_dotenv()
 
 root_path = os.getenv("ROOT_PATH", "")
 
+
+def _cors_settings() -> tuple:
+    """CORS: cannot use allow_origins=['*'] with allow_credentials=True (browser rejects)."""
+    raw = (os.getenv("CORS_ORIGINS") or "").strip()
+    if raw:
+        origins = [o.strip() for o in raw.split(",") if o.strip()]
+        return origins, True
+    return (
+        [
+            "https://zenith-hr-staging.apps.infoservices.com",
+            "https://zenith-hr-prod.apps.infoservices.com",
+            "https://zenith-api.apps.infoservices.com",
+            "http://localhost:3000",
+            "http://localhost:8080",
+        ],
+        True,
+    )
+
+
+_cors_origins, _cors_credentials = _cors_settings()
+
 app = FastAPI(title="ZenithHR API", root_path=root_path)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

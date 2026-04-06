@@ -271,6 +271,10 @@ resources:
           - ${self:custom.publicSubnet2}
         SecurityGroups:
           - ${self:custom.zenithSecurityGroup}
+        # Default ALB idle timeout is 60s; gunicorn uses --timeout 120 in Dockerfile — align to avoid 504s.
+        LoadBalancerAttributes:
+          - Key: idle_timeout.timeout_seconds
+            Value: "120"
 
     ZenithTargetGroup:
       Type: AWS::ElasticLoadBalancingV2::TargetGroup
