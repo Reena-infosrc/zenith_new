@@ -107,9 +107,8 @@ export function useEmployees() {
           headers['Authorization'] = `Bearer ${token}`;
         }
         
-        // Build query parameters
         const params = new URLSearchParams();
-        params.append('limit', '10000');
+        params.append('limit', '1000');
         if (sortBy) {
           params.append('sort_by', sortBy);
         }
@@ -798,9 +797,12 @@ export function useEmployees() {
     };
   }, [employees.length, globalLoading, globalError]);
 
-  // Clear cache and force refresh
   const clearCache = () => {
     apiCache.clear();
+    globalEmployees = [];
+    globalLoading = false;
+    globalFetchPromise = null;
+    globalError = null;
   };
 
   // Bulk update employee names to camel case

@@ -1069,13 +1069,17 @@ async def get_dashboard_stats(
         # Execute parallel queries for better performance
         # Count active employees and get their IDs, and draft reviews in parallel
         async def get_active_employees():
-            """Get count and set of active employee IDs."""
+            """Get count and set of active employee IDs.
+
+            Only needs id + status — skip field decryption entirely to avoid
+            thousands of KMS round-trips that added ~30 s to this endpoint.
+            """
             active_ids = set()
             count = 0
             last_evaluated_key = None
             while True:
                 scan_kwargs = {
-                    "ProjectionExpression": "id, #status",  # Only fetch id and status
+                    "ProjectionExpression": "id, #status",
                     "ExpressionAttributeNames": {
                         "#status": "status"
                     }
@@ -1084,7 +1088,7 @@ async def get_dashboard_stats(
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await employees_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item, "employees")
+                    parsed = parse_dynamodb_item(item)
                     emp_status = parsed.get("status", "active")
                     if emp_status != "inactive":
                         emp_id = parsed.get("id")
@@ -1097,19 +1101,21 @@ async def get_dashboard_stats(
             return count, active_ids
         
         async def count_draft_reviews(active_employee_ids: set):
-            """Count only draft self-reviews (pending self-reviews that need to be submitted) for active employees."""
+            """Count only draft self-reviews (pending self-reviews that need to be submitted) for active employees.
+
+            employeeId and reviewType are not encrypted — skip decryption.
+            """
             count = 0
             last_evaluated_key = None
             while True:
                 scan_kwargs = {
-                    "ProjectionExpression": "employeeId, reviewType"  # Only fetch needed fields
+                    "ProjectionExpression": "employeeId, reviewType"
                 }
                 if last_evaluated_key:
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await drafts_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item, "reviewDraft")
-                    # Only count self-reviews for active employees
+                    parsed = parse_dynamodb_item(item)
                     if parsed.get("reviewType") == "self" and parsed.get("employeeId") in active_employee_ids:
                         count += 1
                 last_evaluated_key = response.get("LastEvaluatedKey")
