@@ -321,8 +321,8 @@ resources:
       Type: AWS::ECS::TaskDefinition
       Properties:
         Family: zenith-hr-pulse-${self:provider.stage}
-        Cpu: "512"
-        Memory: "1024"
+        Cpu: "1024"
+        Memory: "2048"
         NetworkMode: awsvpc
         RequiresCompatibilities:
           - FARGATE
@@ -392,6 +392,8 @@ resources:
                 Value: !GetAtt ZenithFieldEncryptionKey.Arn
               - Name: DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP
                 Value: zenith-hr-pulse
+              - Name: CORS_ORIGINS
+                Value: "https://zenith-hr-${self:provider.stage}.apps.infoservices.com,https://zenith-api.apps.infoservices.com,http://localhost:3000,http://localhost:8080"
             LogConfiguration:
               LogDriver: awslogs
               Options:

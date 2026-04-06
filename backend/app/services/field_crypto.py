@@ -224,10 +224,19 @@ def _deserialize_after_decryption(plain: bytes) -> Any:
     return s
 
 
+_cached_client = None
+_cached_provider = None
+_cached_kms_arn = None
+
+
 def _get_client_and_provider():
+    global _cached_client, _cached_provider, _cached_kms_arn
+    kms_key_arn = _kms_key_arn()
+    if _cached_client is not None and _cached_kms_arn == kms_key_arn:
+        return _cached_client, _cached_provider
+
     import aws_encryption_sdk
 
-    # aws-encryption-sdk 3.3+ removed KMSMasterKeyProvider; use StrictAwsKmsMasterKeyProvider (explicit CMK list).
     try:
         from aws_encryption_sdk.key_providers.kms import StrictAwsKmsMasterKeyProvider as _KmsKeyProvider
     except ImportError:  # pragma: no cover
@@ -238,12 +247,12 @@ def _get_client_and_provider():
     except ImportError:  # pragma: no cover
         from aws_encryption_sdk import CommitmentPolicy  # type: ignore
 
-    kms_key_arn = _kms_key_arn()
-    key_provider = _KmsKeyProvider(key_ids=[kms_key_arn])
-    client = aws_encryption_sdk.EncryptionSDKClient(
+    _cached_provider = _KmsKeyProvider(key_ids=[kms_key_arn])
+    _cached_client = aws_encryption_sdk.EncryptionSDKClient(
         commitment_policy=CommitmentPolicy.REQUIRE_ENCRYPT_REQUIRE_DECRYPT
     )
-    return client, key_provider
+    _cached_kms_arn = kms_key_arn
+    return _cached_client, _cached_provider
 
 
 def _encrypt_bytes(plaintext: bytes, encryption_context: Dict[str, str]) -> str:

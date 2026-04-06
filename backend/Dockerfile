@@ -52,5 +52,6 @@ EXPOSE 5000
 # Healthcheck for container-level diagnostics
 HEALTHCHECK CMD curl -f http://localhost:5000/health || exit 1
 
-# Start FastAPI app using Gunicorn with Uvicorn workers
-CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "-b", "0.0.0.0:5000", "--timeout", "120"]
+# Fargate task: 512 CPU / 1024 MB.  4 workers × ~250 MB each = OOM.
+# 2 workers fit safely; --timeout matches ALB idle_timeout (120s).
+CMD ["gunicorn", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "app.main:app", "-b", "0.0.0.0:5000", "--timeout", "120"]
