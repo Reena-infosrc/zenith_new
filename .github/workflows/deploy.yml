@@ -55,17 +55,13 @@ jobs:
         if: matrix.branch == github.ref_name
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Serverless v3 + npm 10/11 global installs are flaky; Node 18 + npx is reliable on GHA.
+          node-version: 18
 
-      # Global npm install can fail on ubuntu-latest (prefix/EACCES). Use user prefix + pinned 3.x.
-      - name: Install Serverless Framework
+      # Do not use `npm install -g serverless` — fails on many runners. Use npx in deploy step only.
+      - name: Verify Serverless CLI (npx)
         if: matrix.branch == github.ref_name
-        run: |
-          mkdir -p "$HOME/.npm-global"
-          npm config set prefix "$HOME/.npm-global"
-          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
-          npm install -g serverless@3.38.0 --no-audit --no-fund
-          serverless --version
+        run: npx --yes serverless@3.38.0 --version
 
       - name: Check if serverless.yml changed
         if: matrix.branch == github.ref_name
@@ -144,8 +140,8 @@ jobs:
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
         run: |
           cd backend
-          serverless plugin install -n serverless-dotenv-plugin
-          serverless deploy --stage "$STAGE"
+          npx --yes serverless@3.38.0 plugin install -n serverless-dotenv-plugin
+          npx --yes serverless@3.38.0 deploy --stage "$STAGE"
         env:
           ECR_IMAGE_URI: ${{ env.ECR_IMAGE_URI }}
           ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
