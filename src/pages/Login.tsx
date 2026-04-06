@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, createElement } from "react";
 import { useNavigate } from "react-router-dom";
 import { ModeToggle } from "@/components/ModeToggle";
 import { Button } from "@/components/ui/button";
@@ -8,20 +8,32 @@ import { getFirstAvailableModuleRoute } from "@/utils/navigation";
 import { useMsal } from "@azure/msal-react";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { Loader2 } from "lucide-react";
-import { Employee } from "@/hooks/use-employees";
 import { API_BASE_URL } from "@/config/api";
-import { triggerPerformancePreload } from "@/hooks/use-performance-preload";
+
+const INTRO_VIDEO_SOURCES = [
+  "/video/Start.mp4",
+  "/video/Start Old.mp4",
+  "/public/video/Start.mp4",
+] as const;
+
+const LOGIN_SUCCESS_VIDEO_SOURCES = [
+  "/video/After_login.mp4",
+  "/video/After_Login.mp4",
+  "/video/after_login.mp4",
+  "/public/video/After_login.mp4",
+] as const;
 
 export default function Login() {
   const [loginClicked, setLoginClicked] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isProcessingLogin, setIsProcessingLogin] = useState(false); // New state to track login processing
+  const [isProcessingLogin, setIsProcessingLogin] = useState(false);
   const navigate = useNavigate();
   const { featureFlagStatus, isLoading: flagsLoading } = useFeatureFlags();
   const { instance, accounts } = useMsal();
   
   const introVideoRef = useRef<HTMLVideoElement>(null);
   const loginVideoRef = useRef<HTMLVideoElement>(null);
+  const loginCompletedRef = useRef(false);
   
   // Set a timeout to navigate to first available module if video playback takes too long
   useEffect(() => {
@@ -69,12 +81,14 @@ export default function Login() {
     idToken: string,
     clearTimeout?: () => void
   ) => {
-    // Clear the loading timeout if provided
+    // Prevent duplicate invocations (MSAL can trigger the accounts effect twice)
+    if (loginCompletedRef.current) return;
+    loginCompletedRef.current = true;
+
     if (clearTimeout) {
       clearTimeout();
     }
     
-    // Set processing state to maintain loading UI during API calls
     setIsProcessingLogin(true);
     
     // Fetch user profile from Microsoft Graph (use access token)
@@ -82,6 +96,7 @@ export default function Login() {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!graphRes.ok) {
+      loginCompletedRef.current = false;
       setIsProcessingLogin(false);
       throw new Error("Failed to fetch profile from Microsoft Graph");
     }
@@ -110,15 +125,15 @@ export default function Login() {
         // Token stored successfully
       } else {
         const errorText = await backendRes.text();
-        // Clear any old tokens
         localStorage.removeItem('auth_token');
+        loginCompletedRef.current = false;
         setIsProcessingLogin(false);
         alert('Authentication failed. Please try again.');
         return;
       }
     } catch (error) {
-      // Clear any old tokens
       localStorage.removeItem('auth_token');
+      loginCompletedRef.current = false;
       setIsProcessingLogin(false);
       alert('Authentication failed. Please try again.');
       return;
@@ -130,152 +145,32 @@ export default function Login() {
     // Verify token is still stored after the delay
     const finalToken = localStorage.getItem('auth_token');
 
-    // Pre-fetch critical APIs BEFORE navigation to ensure data is available
-    const preFetchAPIs = async () => {
-      // Clear cache to ensure fresh data
+    // Pre-fetch only feature-flags (tiny, fast) so the router knows which
+    // modules are enabled. Employees + dashboard are heavy (full table scan +
+    // KMS decrypt) — let the destination page load them; blocking login on
+    // those caused a 3-min wait.
+    const preFetchFlags = async () => {
       apiCache.clear();
-      
       const token = localStorage.getItem('auth_token');
-      const headers: HeadersInit = { 
-        'Content-Type': 'application/json',
-      };
-      
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      // Create parallel API calls
-      const apiCalls = [
-        // Feature Flags API
-        fetch(`${API_BASE_URL}/feature-flags/`, { headers })
-          .then(async response => {
-            if (response.ok) {
-              const data = await response.json();
-              apiCache.set(CACHE_KEYS.FEATURE_FLAGS, data, 10 * 60 * 1000); // Cache for 10 minutes
-              return data;
-            } else {
-              console.warn("⚠️ Feature Flags API pre-fetch failed:", response.status);
-              return null;
-            }
-          })
-          .catch(error => {
-            console.warn("⚠️ Feature Flags API pre-fetch error:", error);
-            return null;
-          }),
-
-        // Employees API
-        fetch(`${API_BASE_URL}/employees`, { headers })
-          .then(async response => {
-            if (response.ok) {
-              const data = await response.json();
-              
-              // Transform the data the same way useEmployees does
-              const transformedData = data.map((emp: Record<string, unknown>) => ({
-                id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9),
-                employeeId: emp.employee_id || "",
-                name: emp.name || "Unknown",
-                position: emp.position || "Not specified",
-                department: emp.department || "Not specified",
-                photoUrl: emp.photo_url || "",
-                email: emp.email || "",
-                phone: emp.phone || "",
-                mobile: emp.mobile || "",
-                bio: emp.bio || "",
-                startDate: emp.start_date || "",
-                manager: emp.reporting_to || "",
-                reporting_to: emp.reporting_to || "",
-                skills: emp.skills || [],
-                expertise: emp.expertise || "",
-                experienceYears: emp.experience_years !== null ? emp.experience_years : undefined,
-                location: emp.location || "",
-                dateOfBirth: emp.date_of_birth || "",
-                dateOfJoining: emp.date_of_joining || "",
-                gender: emp.gender || ""
-              }));
-              
-              // Cache the transformed data
-              apiCache.set(CACHE_KEYS.EMPLOYEES, transformedData, 5 * 60 * 1000);
-              return transformedData;
-            } else {
-              console.warn("⚠️ Employees API pre-fetch failed:", response.status);
-              return null;
-            }
-          })
-          .catch(error => {
-            console.warn("⚠️ Employees API pre-fetch error:", error);
-            return null;
-          }),
-
-        // Dashboard API
-        fetch(`${API_BASE_URL}/employees-dashboard/`, { headers })
-          .then(async response => {
-            if (response.ok) {
-              const data = await response.json();
-              apiCache.set(CACHE_KEYS.DASHBOARD, data, 5 * 60 * 1000); // Cache for 5 minutes
-              return data;
-            } else {
-              console.warn("⚠️ Dashboard API pre-fetch failed:", response.status);
-              return null;
-            }
-          })
-          .catch(error => {
-            console.warn("⚠️ Dashboard API pre-fetch error:", error);
-            return null;
-          })
-      ];
-
-      // Wait for all API calls to complete (or fail gracefully)
       try {
-        const results = await Promise.allSettled(apiCalls);
-        
-        // Trigger event to notify FeatureFlagsContext that cache has been updated
-        if (results[0].status === 'fulfilled' && results[0].value) {
+        const res = await fetch(`${API_BASE_URL}/feature-flags/`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          apiCache.set(CACHE_KEYS.FEATURE_FLAGS, data, 10 * 60 * 1000);
           window.dispatchEvent(new CustomEvent('feature-flags-cache-updated'));
         }
-        
-        return results;
-      } catch (error) {
-        console.warn("⚠️ Some API pre-fetch calls failed:", error);
-        return null;
+      } catch (e) {
+        console.warn("Feature-flags pre-fetch failed:", e);
       }
     };
 
-    // Wait for API pre-fetching to complete before proceeding
-    await preFetchAPIs();
+    await preFetchFlags();
 
-    // Kick off performance data preload in the background so the Performance module is warm
-    try {
-      const cachedEmployees = apiCache.get(CACHE_KEYS.EMPLOYEES) as Employee[] | undefined;
-      const userEmail: string | undefined =
-        (profile && (profile.mail || profile.userPrincipalName))?.toLowerCase();
-
-      if (finalToken && userEmail && cachedEmployees && cachedEmployees.length > 0) {
-        const perfHeaders: HeadersInit = {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${finalToken}`,
-        };
-
-        const getEmployeeGoalsForPreload = async (employeeId: string) => {
-          try {
-            const res = await fetch(`${API_BASE_URL}/goals/employee/${employeeId}`, {
-              headers: perfHeaders,
-            });
-            if (!res.ok) {
-              return [];
-            }
-            const data = await res.json();
-            return Array.isArray(data) ? data : [];
-          } catch {
-            return [];
-          }
-        };
-
-        // Fire-and-forget; actual preload is also guarded against duplicates
-        void triggerPerformancePreload(userEmail, cachedEmployees, getEmployeeGoalsForPreload);
-      }
-    } catch (e) {
-      console.warn("⚠️ Performance preload from login failed:", e);
-    }
+    // Performance preload is deferred to RequireAuth / the destination page
+    // so it doesn't block navigation after login.
 
     // Trigger success transition and navigation/video
     setLoginClicked(true);
@@ -330,16 +225,16 @@ export default function Login() {
   // After redirect, if we have an account, acquire token silently and continue
   useEffect(() => {
     const acquireAndProceed = async () => {
+      // Already completed or in progress — skip
+      if (loginCompletedRef.current) return;
+
       if (!accounts || accounts.length === 0) {
-        // Only reset loading state if we're not in the middle of a login process
-        // This prevents flickering when accounts are initially empty during redirect
         if (!loginClicked && !isProcessingLogin) {
           setIsLoading(false);
         }
         return;
       }
       
-      // Check if user explicitly logged out - if so, don't auto-login
       const hasLoggedOut = sessionStorage.getItem('user_logged_out');
       if (hasLoggedOut) {
         sessionStorage.removeItem('user_logged_out');
@@ -355,7 +250,6 @@ export default function Login() {
         });
         await completeLoginWithToken(result.accessToken, result.idToken);
       } catch (silentErr) {
-        // If silent fails, let user click button again
         setIsLoading(false);
         setIsProcessingLogin(false);
       }
@@ -411,11 +305,9 @@ export default function Login() {
                 console.error('Intro video failed to load');
               }}
             >
-              {/* Public assets live under /public, accessible at /video/... */}
-              <source src="/video/Start.mp4" type="video/mp4" />
-              {/* Fallback variants for case/filename differences */}
-              <source src="/video/Start Old.mp4" type="video/mp4" />
-              <source src="/public/video/Start.mp4" type="video/mp4" />
+              {INTRO_VIDEO_SOURCES.map((src) =>
+                createElement("source", { key: src, src, type: "video/mp4" })
+              )}
               Your browser does not support the video tag.
             </video>
             
@@ -431,11 +323,9 @@ export default function Login() {
                 console.error('After login video failed to load');
               }}
             >
-              {/* Use unified public path with multiple filename casing fallbacks */}
-              <source src="/video/After_login.mp4" type="video/mp4" />
-              <source src="/video/After_Login.mp4" type="video/mp4" />
-              <source src="/video/after_login.mp4" type="video/mp4" />
-              <source src="/public/video/After_login.mp4" type="video/mp4" />
+              {LOGIN_SUCCESS_VIDEO_SOURCES.map((src) =>
+                createElement("source", { key: src, src, type: "video/mp4" })
+              )}
               Your browser does not support the video tag.
             </video>
           </div>

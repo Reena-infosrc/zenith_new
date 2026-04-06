@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { API_BASE_URL } from '@/config/api';
+import { authenticatedFetch, getValidToken } from '@/utils/auth-utils';
 
 // Global cache for admin status to prevent repeated API calls
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
@@ -54,7 +55,13 @@ export function useAuth() {
       // Make API call
       const fetchPromise = (async () => {
         try {
-          const response = await fetch(`${API_BASE_URL}/admin/check/${encodeURIComponent(email)}`);
+          const token = await getValidToken();
+          if (!token) {
+            return false;
+          }
+          const response = await authenticatedFetch(
+            `${API_BASE_URL}/admin/check/${encodeURIComponent(email)}`
+          );
 
           if (response.ok) {
             const data = await response.json();

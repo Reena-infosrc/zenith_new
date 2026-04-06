@@ -85,12 +85,16 @@ export function EmployeeCard(props: EmployeeCardProps) {
                     const target = e.target as HTMLImageElement;
                     const parent = target.parentElement;
                     if (parent) {
+                      parent.replaceChildren();
                       const color = getInitialsAvatar(props.name);
-                      parent.innerHTML = `
-                        <div class="${color} w-full h-full flex items-center justify-center text-white text-3xl font-bold">
-                          ${props.name.split(' ').map(part => part[0]).join('').toUpperCase()}
-                        </div>
-                      `;
+                      const div = document.createElement("div");
+                      div.className = `${color} w-full h-full flex items-center justify-center text-white text-3xl font-bold`;
+                      div.textContent = props.name
+                        .split(" ")
+                        .map((part) => part[0])
+                        .join("")
+                        .toUpperCase();
+                      parent.appendChild(div);
                     }
                   }}
                 />
@@ -222,12 +226,16 @@ export function EmployeeCard(props: EmployeeCardProps) {
                     const target = e.target as HTMLImageElement;
                     const parent = target.parentElement;
                     if (parent) {
+                      parent.replaceChildren();
                       const color = getInitialsAvatar(props.name);
-                      parent.innerHTML = `
-                        <div class="${color} w-full h-full flex items-center justify-center text-white text-3xl font-bold">
-                          ${props.name.split(' ').map(part => part[0]).join('').toUpperCase()}
-                        </div>
-                      `;
+                      const div = document.createElement("div");
+                      div.className = `${color} w-full h-full flex items-center justify-center text-white text-3xl font-bold`;
+                      div.textContent = props.name
+                        .split(" ")
+                        .map((part) => part[0])
+                        .join("")
+                        .toUpperCase();
+                      parent.appendChild(div);
                     }
                   }}
                 />

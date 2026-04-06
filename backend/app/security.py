@@ -10,7 +10,7 @@ import time
 from jose import jwt, jwk, JWTError
 
 from .models import TokenData, MOCK_USERS
-from .config import config
+from .security_config import get_jwt_secret_key
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -57,9 +57,8 @@ class JWKSValidator:
             token_tenant = unverified.get("tid")
             token_aud = unverified.get("aud")
             token_iss = unverified.get("iss", "")
-            logger.info(
-                f"Token claims (unverified): aud={token_aud!r}, iss={token_iss!r}, tid={token_tenant!r}; "
-                f"expected aud={client_id!r}, tenant={tenant_id!r}"
+            logger.debug(
+                "JWKS validate: token aud/iss/tid present (details at debug only)"
             )
             jwks_tenant = tenant_id
             if token_tenant and ("login.microsoftonline.com" in token_iss):
@@ -69,7 +68,7 @@ class JWKSValidator:
                 expected_issuer = token_iss.rstrip("/")
             else:
                 expected_issuer = f"https://login.microsoftonline.com/{jwks_tenant}/v2.0".rstrip("/")
-            logger.info(f"Using expected_issuer={expected_issuer!r}, trying aud in (client_id, graph)")
+            logger.debug("JWKS validate: issuer resolution complete")
 
             jwks = self._fetch_jwks(jwks_tenant)
             if not jwks:
@@ -118,7 +117,7 @@ class JWKSValidator:
                 logger.error(f"Audience mismatch: token aud={token_aud_val!r}, allowed={allowed_audiences}")
                 return None
 
-            logger.info("Successfully validated Microsoft token locally")
+            logger.debug("Microsoft token validated via JWKS")
             return payload
         except JWTError as e:
             logger.error(f"JWT Validation Error: {e}")
@@ -130,7 +129,7 @@ class JWKSValidator:
 jwks_validator = JWKSValidator()
 
 # Security configuration
-SECRET_KEY = config.get("security.secret_key", "your-secret-key-for-development")
+SECRET_KEY = get_jwt_secret_key()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours for development
 
@@ -206,33 +205,26 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     """Get current user from token."""
-    print(f"DEBUG: Received token: {token[:20]}..." if token else "DEBUG: No token received")
-    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # First, decode without verification to check the algorithm
-        unverified_header = jwt.get_unverified_header(token)
-        print(f"DEBUG: Token algorithm: {unverified_header.get('alg')}")
-        
-        # Decode token with verification - use HS256 only (RS256 requires PEM keys)
+        jwt.get_unverified_header(token)
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
-        print(f"DEBUG: Decoded username: {username}")
         if username is None:
             raise credentials_exception
         token_data = TokenData(username=username)
     except JWTError as e:
-        print(f"DEBUG: JWT decode error: {str(e)}")
+        logger.debug("JWT validation failed: %s", e)
         raise credentials_exception
     user = get_user(username=token_data.username)
-    print(f"DEBUG: Found user: {user is not None}")
     if user is None:
         raise credentials_exception
     return user
+
 
 async def get_current_active_user(current_user: dict = Depends(get_current_user)) -> dict:
     """Get current active user."""
@@ -267,4 +259,14 @@ async def get_current_active_user(current_user: dict = Depends(get_current_user)
         logger.error(f"Error checking admin status: {str(e)}")
         current_user["is_admin"] = False
     
+    return current_user
+
+
+async def require_admin_user(current_user: dict = Depends(get_current_active_user)) -> dict:
+    """Reject non-admin users (use on routes that manage admins or sensitive bulk data)."""
+    if not current_user.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
     return current_user

@@ -6,7 +6,8 @@ from decimal import Decimal
 
 from ..models import AdminCreate, AdminUpdate, AdminInDB, Admin
 from ..database_dynamodb import get_admins_table, generate_id, format_dynamodb_item, parse_dynamodb_item
-from ..security import get_current_active_user
+from ..security import get_current_user, require_admin_user
+from ..security_config import debug_endpoints_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -17,57 +18,53 @@ router = APIRouter(
 
 # Define specific routes first to avoid conflicts with {admin_id} route
 @router.get("/check/{email}", response_model=dict)
-async def check_admin_status(email: str):
-    """Check if a user is an admin by email - public endpoint for frontend"""
+async def check_admin_status(email: str, current_user: dict = Depends(get_current_user)):
+    """Check admin status for the signed-in user only (path must match JWT identity)."""
+    import urllib.parse
+
+    decoded_email = urllib.parse.unquote(email).lower().strip()
+    subject = (current_user.get("email") or current_user.get("username") or "").lower().strip()
+    if not subject or subject != decoded_email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin status can only be checked for the signed-in user",
+        )
     try:
-        # URL decode the email parameter
-        import urllib.parse
-        decoded_email = urllib.parse.unquote(email)
-        logger.info(f"Admin router - Checking admin status for email: {decoded_email}")
-        
-        is_admin = await is_user_admin(decoded_email.lower())
-        logger.info(f"Admin router - Admin check result for {decoded_email}: {is_admin}")
-        
+        is_admin = await is_user_admin(decoded_email)
         return {
             "is_admin": is_admin,
             "email": decoded_email,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error checking admin status: {str(e)}")
-        # Return False instead of error for production compatibility
-        return {
-            "is_admin": False,
-            "email": email,
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
+        logger.error("Error checking admin status: %s", e)
+        raise HTTPException(status_code=500, detail="Admin check failed")
+
 
 @router.get("/test", response_model=dict)
-async def test_admin_endpoint():
-    """Test endpoint to debug admin functionality - public endpoint"""
+async def test_admin_endpoint(_: dict = Depends(get_current_user)):
+    """Debug-only when ENABLE_DEBUG_ENDPOINTS=1."""
+    if not debug_endpoints_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
     try:
         table = await get_admins_table()
         return {
             "status": "success",
-            "message": "Admin endpoint is working",
-            "table_name": table.table_name,
-            "timestamp": datetime.now().isoformat()
+            "message": "Admin test endpoint reachable",
+            "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
-        logger.error(f"Error in test endpoint: {str(e)}")
-        return {
-            "status": "error",
-            "message": f"Admin endpoint error: {str(e)}",
-            "timestamp": datetime.now().isoformat()
-        }
+        logger.error("Error in test endpoint: %s", e)
+        raise HTTPException(status_code=500, detail="Test failed")
 
 @router.get("", response_model=List[Admin])
 @router.get("/", response_model=List[Admin])
 async def get_admins(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    current_user: dict = Depends(get_current_active_user)
+    current_user: dict = Depends(require_admin_user)
 ):
     """Get all admins - temporarily public for testing"""
     print(f"DEBUG: get_admins called")
@@ -110,7 +107,7 @@ async def get_admins(
 @router.post("/", response_model=Admin)
 async def create_admin(
     admin_data: AdminCreate,
-    current_user: dict = Depends(get_current_active_user)
+    current_user: dict = Depends(require_admin_user)
 ):
     """Create a new admin - temporarily public for testing"""
     print(f"DEBUG: create_admin called with data: {admin_data}")
@@ -157,7 +154,7 @@ async def create_admin(
 @router.get("/{admin_id}", response_model=Admin)
 async def get_admin(
     admin_id: str,
-    current_user: dict = Depends(get_current_active_user)
+    current_user: dict = Depends(require_admin_user)
 ):
     """Get a specific admin by ID - only accessible by admins"""
     # Check if current user is admin
@@ -192,7 +189,7 @@ async def get_admin(
 async def update_admin(
     admin_id: str,
     admin_data: AdminUpdate,
-    current_user: dict = Depends(get_current_active_user)
+    current_user: dict = Depends(require_admin_user)
 ):
     """Update an admin - only accessible by admins"""
     # Check if current user is admin
@@ -251,7 +248,7 @@ async def update_admin(
 @router.delete("/{admin_id}")
 async def delete_admin(
     admin_id: str,
-    current_user: dict = Depends(get_current_active_user)
+    current_user: dict = Depends(require_admin_user)
 ):
     """Delete an admin - only accessible by admins"""
     # Check if current user is admin

@@ -207,23 +207,23 @@
 
 # lambda_handler = Mangum(app)
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 from dotenv import load_dotenv
 
-from .database import initialize_dynamodb
-from .services.s3_service import initialize_s3
-from .services.bedrock_service import initialize_bedrock
-from .database_dynamodb import get_admins_table, parse_dynamodb_item
 from datetime import datetime
 import logging
-import urllib.parse
-from decimal import Decimal
 import importlib
 
 from mangum import Mangum
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+
+from .rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +252,29 @@ def _cors_settings() -> tuple:
 
 _cors_origins, _cors_credentials = _cors_settings()
 
-app = FastAPI(title="ZenithHR API", root_path=root_path)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from .security_config import validate_security_at_startup
+
+    validate_security_at_startup()
+    yield
+
+
+app = FastAPI(title="ZenithHR API", root_path=root_path, lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Baseline headers on API responses (CSP is best set on the static site CDN)."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -265,38 +287,47 @@ app.add_middleware(
 if os.path.exists("uploads"):
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
+def _debug_endpoints_enabled() -> bool:
+    return (os.getenv("ENABLE_DEBUG_ENDPOINTS") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 @app.get("/api/version-check")
 async def version_check():
+    if not _debug_endpoints_enabled():
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Not found")
     return {
         "version": "10.0.0-DEPLOYED",
-        "deployment_id": "clean-no-duplicates-v10.0",
         "timestamp": datetime.now().isoformat(),
-        "message": "If you see this, the new code is deployed!"
     }
+
 
 @app.get("/api/routes-debug")
 async def routes_debug():
-    """Debug endpoint to check registered routes"""
+    if not _debug_endpoints_enabled():
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Not found")
     routes = []
     for route in app.router.routes:
         try:
-            if hasattr(route, 'path') and '/admin' in route.path:
-                routes.append({
-                    "path": route.path,
-                    "methods": getattr(route, 'methods', []),
-                    "name": getattr(route, 'name', 'unknown')
-                })
+            if hasattr(route, "path") and "/admin" in route.path:
+                routes.append(
+                    {
+                        "path": route.path,
+                        "methods": getattr(route, "methods", []),
+                        "name": getattr(route, "name", "unknown"),
+                    }
+                )
         except Exception as e:
             routes.append({"error": str(e)})
-    
-    # Also check if admin_auth module loaded
     admin_auth_loaded = admin_auth is not None
-    
     return {
         "admin_routes": routes,
         "admin_auth_module_loaded": admin_auth_loaded,
         "all_routes_count": len(app.router.routes),
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 # Static import attempts (keep for local / dev)
@@ -377,106 +408,8 @@ for name, module_name in router_names:
 # fallback endpoints (left commented out in your source — keep commented)
 # ...
 
-# helper functions and fallback admin endpoints defined in your original file
-@app.get("/api/auth/admins/")
-@app.get("/api/auth/admins")
-async def main_get_admins():
-    logger.info("Main app - get_admins called")
-    try:
-        table = await get_admins_table()
-        logger.info(f"Main app - Got admins table: {table.table_name}")
-        response = await table.scan(Limit=100)
-        logger.info(f"Main app - Scan response count: {len(response.get('Items', []))}")
-        admins = []
-        for item in response.get("Items", []):
-            parsed_item = {}
-            for key, value in item.items():
-                if isinstance(value, datetime):
-                    parsed_item[key] = value.isoformat()
-                elif hasattr(value, 'value'):
-                    parsed_item[key] = float(value)
-                else:
-                    parsed_item[key] = value
-            admins.append(parsed_item)
-        logger.info(f"Main app - Returning {len(admins)} admins")
-        return {
-            "admins": admins,
-            "count": len(admins),
-            "timestamp": datetime.now().isoformat(),
-            "deployment_id": "main-app-critical-fix-v8.0",
-            "source": "main_app",
-            "version": "8.0.0"
-        }
-    except Exception as e:
-        logger.error(f"Main app - Error fetching admins: {str(e)}")
-        return {
-            "admins": [],
-            "count": 0,
-            "error": str(e),
-            "timestamp": datetime.now().isoformat(),
-            "deployment_id": "main-app-critical-fix-v8.0",
-            "source": "main_app",
-            "version": "8.0.0"
-        }
-
-@app.get("/api/auth/admins/check/{email}")
-@app.get("/api/auth/admins/check/{email}/")
-async def main_check_admin_status(email: str):
-    try:
-        decoded_email = urllib.parse.unquote(email)
-        logger.info(f"Main app - Checking admin status for email: {decoded_email}")
-        is_admin = await is_user_admin_main(decoded_email)
-        logger.info(f"Main app - Admin check result for {decoded_email}: {is_admin}")
-        return {
-            "is_admin": is_admin,
-            "email": decoded_email,
-            "timestamp": datetime.now().isoformat(),
-            "deployment_id": "main-app-critical-fix-v8.0",
-            "source": "main_app",
-            "version": "8.0.0"
-        }
-    except Exception as e:
-        logger.error(f"Main app - Error checking admin status for {email}: {str(e)}")
-        return {
-            "is_admin": False,
-            "email": email,
-            "error": str(e),
-            "timestamp": datetime.now().isoformat(),
-            "deployment_id": "main-app-critical-fix-v8.0",
-            "source": "main_app",
-            "version": "8.0.0"
-        }
-
-async def is_user_admin_main(email: str) -> bool:
-    """Check if a user is an admin by email - case insensitive"""
-    try:
-        table = await get_admins_table()
-        
-        # Normalize email to lowercase for consistent comparison
-        normalized_email = email.lower().strip()
-        logger.info(f"Main app - Checking admin status for normalized email: {normalized_email}")
-        
-        response = await table.query(
-            IndexName="EmailIndex",
-            KeyConditionExpression="email = :email",
-            ExpressionAttributeValues={":email": normalized_email}
-        )
-        
-        logger.info(f"Main app - Query result items count: {len(response.get('Items', []))}")
-        
-        if response.get("Items"):
-            admin_data = parse_dynamodb_item(response["Items"][0])
-            is_active = admin_data.get("is_active", True)
-            logger.info(f"Main app - Found admin record. Email: {admin_data.get('email')}, Active: {is_active}")
-            return is_active
-        
-        logger.info(f"Main app - No admin record found for email: {normalized_email}")
-        return False
-    except Exception as e:
-        logger.error(f"Main app - Error checking admin status: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return False
+# Unauthenticated duplicate /api/auth/admins/* routes removed — use routers under
+# `auth` and `admin_auth` (authenticated) instead.
 
 # startup init (kept commented out if originally commented)
 # @app.on_event("startup")

@@ -27,6 +27,7 @@
 # # MongoDB dependencies removed - using DynamoDB only
 
 fastapi>=0.128.0
+slowapi>=0.1.9
 mangum>=0.3.6
 # numpy==1.26.4
 # pandas>=2.1.4

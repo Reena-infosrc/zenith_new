@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 from ..models.employee import EmployeeCreate, EmployeeUpdate, EmployeeInDB
 from ..database_dynamodb import get_employees_table, get_admins_table, parse_dynamodb_item, format_dynamodb_item, generate_id
 from ..security import get_current_active_user
+from ..rate_limit import limiter
 from ..services.image_upload import ImageUploadService
 from ..feature_flags import FeatureFlags
 from botocore.exceptions import ClientError
@@ -360,7 +361,9 @@ _EMPLOYEES_SCAN_PAGE_LIMIT = 500
 
 @router.get("", response_model=List[EmployeeInDB])
 @router.get("/", response_model=List[EmployeeInDB])
+@limiter.limit("120/minute")
 async def get_employees(
+    request: Request,
     skip: int = Query(0, ge=0),
     limit: int = Query(1000, ge=1, le=10000),
     department: Optional[str] = None,

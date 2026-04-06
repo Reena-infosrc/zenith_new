@@ -117,9 +117,12 @@ export function FeatureFlagsProvider({ children }: { children: React.ReactNode }
     }
   };
 
-  // Load feature flags on mount
+  // Load feature flags on mount (skips API call if Login already cached them)
   useEffect(() => {
-    fetchFeatureFlags();
+    const cached = apiCache.get(CACHE_KEYS.FEATURE_FLAGS);
+    if (!cached) {
+      fetchFeatureFlags();
+    }
   }, []);
 
   // Helper functions
