@@ -239,6 +239,14 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     goalId: string | null;
     summary: GoalDetailSnapshot | null;
   }>({ open: false, goalId: null, summary: null });
+  const selectedPanelGoal = useMemo(
+    () => goals.find((goal) => goal.id === goalPanelState.goalId) ?? null,
+    [goals, goalPanelState.goalId]
+  );
+  const canEditMilestonesForPanelGoal = useMemo(() => {
+    if (!selectedPanelGoal) return false;
+    return ["in_progress", "manager_reopened"].includes(selectedPanelGoal.status);
+  }, [selectedPanelGoal]);
   const goalPanelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const goalPanelId = "goal-detail-panel";
 
@@ -798,6 +806,15 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
 
   // Handle add milestone button click
   const handleAddMilestoneClick = (goalId: string) => {
+    const targetGoal = goals.find((g) => g.id === goalId);
+    if (!targetGoal || !["in_progress", "manager_reopened"].includes(targetGoal.status)) {
+      toast({
+        title: "Manager approval required",
+        description: "You can add milestones only after the manager approves this goal.",
+        variant: "destructive"
+      });
+      return;
+    }
     setSelectedGoalForMilestone(goalId);
     setNewMilestoneTitle("");
     setNewMilestoneDueDate("");
@@ -1201,23 +1218,63 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {goals.map((goal) => (
-                <GoalSummaryCard
-                  key={goal.id}
-                  goal={{
-                    id: goal.id,
-                    title: goal.title,
-                    completion: goal.completion,
-                    status: goal.status,
-                    targetDate: goal.targetDate,
-                    category: goal.category
-                  }}
-                  onOpen={(_, trigger) => handleOpenGoalPanel(goal, trigger)}
-                  isOpen={goalPanelState.open && goalPanelState.goalId === goal.id}
-                  controlsId={goalPanelId}
-                />
-              ))}
+            <div className="space-y-5">
+              {goals.filter((goal) => goal.status === "pending").length > 0 && (
+                <Card className="bg-blue-500/5 border-blue-500/20">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Send className="h-4 w-4 text-blue-600" />
+                      Proposed Goals Waiting for Manager Approval
+                    </CardTitle>
+                    <CardDescription>
+                      You cannot add milestones until your manager approves these goals.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {goals
+                      .filter((goal) => goal.status === "pending")
+                      .map((goal) => (
+                        <GoalSummaryCard
+                          key={goal.id}
+                          goal={{
+                            id: goal.id,
+                            title: goal.title,
+                            completion: goal.completion,
+                            status: goal.status,
+                            targetDate: goal.targetDate,
+                            category: goal.category
+                          }}
+                          onOpen={(_, trigger) => handleOpenGoalPanel(goal, trigger)}
+                          isOpen={goalPanelState.open && goalPanelState.goalId === goal.id}
+                          controlsId={goalPanelId}
+                        />
+                      ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {goals.filter((goal) => goal.status !== "pending").length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {goals
+                    .filter((goal) => goal.status !== "pending")
+                    .map((goal) => (
+                      <GoalSummaryCard
+                        key={goal.id}
+                        goal={{
+                          id: goal.id,
+                          title: goal.title,
+                          completion: goal.completion,
+                          status: goal.status,
+                          targetDate: goal.targetDate,
+                          category: goal.category
+                        }}
+                        onOpen={(_, trigger) => handleOpenGoalPanel(goal, trigger)}
+                        isOpen={goalPanelState.open && goalPanelState.goalId === goal.id}
+                        controlsId={goalPanelId}
+                      />
+                    ))}
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
@@ -1598,7 +1655,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           employee={currentEmployeeSummary}
           onClose={handleCloseGoalPanel}
           getGoal={getGoal}
-          onAddMilestone={handleAddMilestoneClick}
+          onAddMilestone={canEditMilestonesForPanelGoal ? handleAddMilestoneClick : undefined}
           onMilestoneClick={handleMilestoneClick}
           onSubmitGoal={handleSubmitGoal}
           isSubmittingGoal={submittingGoalId === goalPanelState.goalId}

@@ -325,7 +325,7 @@ export function ManagerPerformanceView() {
   const [selectedGoalForApproval, setSelectedGoalForApproval] = useState<{ goal: Goal; employee: Employee } | null>(null);
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const [approvalComment, setApprovalComment] = useState("");
-  const [approvalAction, setApprovalAction] = useState<'approve' | 'reopen' | null>(null);
+  const [approvalAction, setApprovalAction] = useState<'approve' | 'reopen' | 'reject' | null>(null);
 
   // Milestone states for manager's own goals
   const [selectedMilestone, setSelectedMilestone] = useState<{ goalId: string; milestone: Milestone } | null>(null);
@@ -2155,8 +2155,23 @@ export function ManagerPerformanceView() {
                                   }}
                                 >
                                   <RefreshCw className="h-4 w-4 mr-2" />
-                                  Reopen
+                                  Request Changes
                                 </Button>
+                                {goal.status === "pending" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                                    onClick={() => {
+                                      setSelectedGoalForApproval({ goal, employee });
+                                      setApprovalAction('reject');
+                                      setShowApprovalDialog(true);
+                                    }}
+                                  >
+                                    <X className="h-4 w-4 mr-2" />
+                                    Reject
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           </CardContent>
@@ -2621,14 +2636,18 @@ export function ManagerPerformanceView() {
             <DialogTitle>
               {approvalAction === 'approve'
                 ? (selectedGoalForApproval?.goal.status === 'pending' ? 'Approve Proposed Goal' : 'Approve Completed Goal')
-                : 'Reopen Goal'}
+                : approvalAction === 'reject'
+                  ? 'Reject Proposed Goal'
+                  : 'Request Goal Changes'}
             </DialogTitle>
             <DialogDescription>
               {approvalAction === 'approve'
                 ? (selectedGoalForApproval?.goal.status === 'pending'
                   ? 'Approve this proposed goal to move it to "In Progress".'
                   : 'Approve this goal as completed. The employee will be notified.')
-                : 'Reopen this goal. Provide feedback on what needs to be improved.'}
+                : approvalAction === 'reject'
+                  ? 'Reject this proposed goal. Add a reason for the employee.'
+                  : 'Request changes to this goal. Provide feedback on what needs to be improved.'}
             </DialogDescription>
 
           </DialogHeader>
@@ -2681,7 +2700,9 @@ export function ManagerPerformanceView() {
                   onChange={(e) => setApprovalComment(e.target.value)}
                   placeholder={approvalAction === 'approve'
                     ? 'Add any comments about this goal completion...'
-                    : 'Explain what needs to be improved or completed...'}
+                    : approvalAction === 'reject'
+                      ? 'Explain why this proposed goal is rejected...'
+                      : 'Explain what needs to be improved or completed...'}
                   className="mt-2 min-h-[100px]"
                 />
               </div>
@@ -2724,7 +2745,7 @@ export function ManagerPerformanceView() {
                     if (!approvalComment.trim()) {
                       toast({
                         title: "Feedback Required",
-                        description: "Please provide feedback when reopening a goal.",
+                        description: "Please provide feedback when requesting changes.",
                         variant: "destructive"
                       });
                       return;
@@ -2752,6 +2773,23 @@ export function ManagerPerformanceView() {
                     setPendingApprovalGoals(prev =>
                       prev.filter(item => item.goal.id !== selectedGoalForApproval.goal.id)
                     );
+                  } else if (approvalAction === 'reject') {
+                    if (!approvalComment.trim()) {
+                      toast({
+                        title: "Feedback Required",
+                        description: "Please provide feedback when rejecting a proposed goal.",
+                        variant: "destructive"
+                      });
+                      return;
+                    }
+
+                    await deleteGoal(selectedGoalForApproval.goal.id);
+
+                    // Remove from local caches and pending list.
+                    allGoalsCache.current.delete(selectedGoalForApproval.goal.id);
+                    setPendingApprovalGoals(prev =>
+                      prev.filter(item => item.goal.id !== selectedGoalForApproval.goal.id)
+                    );
                   }
 
                   setShowApprovalDialog(false);
@@ -2769,17 +2807,24 @@ export function ManagerPerformanceView() {
               }}
               className={approvalAction === 'approve'
                 ? "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20"
-                : "bg-orange-500/10 text-orange-600 border-orange-500/20 hover:bg-orange-500/20"}
+                : approvalAction === 'reject'
+                  ? "bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/20"
+                  : "bg-orange-500/10 text-orange-600 border-orange-500/20 hover:bg-orange-500/20"}
             >
               {approvalAction === 'approve' ? (
                 <>
                   <CheckCircle2 className="h-4 w-4 mr-2" />
                   Approve Goal
                 </>
+              ) : approvalAction === 'reject' ? (
+                <>
+                  <X className="h-4 w-4 mr-2" />
+                  Reject Goal
+                </>
               ) : (
                 <>
                   <RefreshCw className="h-4 w-4 mr-2" />
-                  Reopen Goal
+                  Request Changes
                 </>
               )}
             </Button>

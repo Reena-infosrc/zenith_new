@@ -33,6 +33,9 @@ _CACHE_TTL = 120  # seconds
 def _invalidate_employee_cache() -> None:
     _employee_list_cache["data"] = None
     _employee_list_cache["ts"] = 0.0
+    # Also clear the dashboard aggregation cache so stale counts don't linger
+    from .employees_dashboard import invalidate_dashboard_cache
+    invalidate_dashboard_cache()
 
 router = APIRouter(
     prefix="/api/employees",

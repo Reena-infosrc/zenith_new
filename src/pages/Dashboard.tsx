@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
@@ -18,7 +18,8 @@ import {
   Filter,
   Eye,
   Download,
-  ArrowLeft
+  ArrowLeft,
+  Loader2
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, ComposedChart, Legend } from 'recharts';
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
@@ -73,6 +74,8 @@ interface DashboardData {
   /** Active employees grouped by usage_location (ISO code or not_set) */
   by_usage_location?: { [key: string]: number };
   employees: Employee[];
+  /** True when employees array was capped by employee_limit */
+  employees_truncated?: boolean;
   /** How many active rows have Azure Entra usage_location in DynamoDB */
   usage_location_coverage?: { with_field: number; total_active: number };
 }
@@ -155,194 +158,161 @@ export default function Dashboard() {
     }
   };
 
-  // Fetch dashboard data
-  useEffect(() => {
-    fetchDashboardData();
+  const DASHBOARD_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+  const normalizeDashboardEmployees = useCallback((data: DashboardData): DashboardData => {
+    if (!data.employees) return data;
+    data.employees = data.employees.map((emp: Employee) => {
+      let normalizedAccount = emp.account;
+      if (normalizedAccount === "ADP- USA") {
+        normalizedAccount = "ADP - USA";
+      }
+
+      let normalizedLocation = emp.location;
+      if (normalizedLocation) {
+        normalizedLocation = normalizedLocation.trim().split(/\s+/).map(word => {
+          if (word.toUpperCase() === 'USA') return 'USA';
+          if (word.toUpperCase() === 'US') return 'US';
+          if (word.toUpperCase() === 'UK') return 'UK';
+          return word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : '';
+        }).join(' ');
+      }
+
+      const raw = emp as Employee & { usage_location?: string };
+      return {
+        ...emp,
+        account: normalizedAccount,
+        location: normalizedLocation || emp.location,
+        usage_location:
+          typeof raw.usage_location === "string"
+            ? raw.usage_location.trim()
+            : undefined,
+        employeeId: emp.employee_id || emp.employeeId || "",
+        id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9)
+      };
+    });
+    return data;
   }, []);
 
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
+  const fetchFromApi = useCallback(async (employeeLimit?: number): Promise<DashboardData> => {
+    const token = localStorage.getItem('auth_token');
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
-      // Always bust the dashboard cache on mount so navigating back shows fresh data
-      apiCache.delete(CACHE_KEYS.DASHBOARD);
+    const qs = employeeLimit !== undefined ? `?employee_limit=${employeeLimit}` : '';
+    const response = await fetch(`${API_BASE_URL}/employees-dashboard/${qs}`, { headers });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return normalizeDashboardEmployees(data);
+  }, [normalizeDashboardEmployees]);
 
-      const token = localStorage.getItem('auth_token');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const mountedRef = useRef(false);
 
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+  useEffect(() => {
+    if (mountedRef.current) return;
+    mountedRef.current = true;
 
-      const response = await fetch(`${API_BASE_URL}/employees-dashboard/?nocache=1`, { headers });
+    const cached = apiCache.get<DashboardData>(CACHE_KEYS.DASHBOARD);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // Transform employee data to match frontend interface
-      if (data.employees) {
-        data.employees = data.employees.map((emp: Employee) => {
-          // Normalize account names specifically to fix duplicate entries
-          let normalizedAccount = emp.account;
-          if (normalizedAccount === "ADP- USA") {
-            normalizedAccount = "ADP - USA";
-          }
-
-          // Normalize location casing to fix duplicate entries like "india", "INDIA", "India"
-          let normalizedLocation = emp.location;
-          if (normalizedLocation) {
-            normalizedLocation = normalizedLocation.trim().split(/\s+/).map(word => {
-              if (word.toUpperCase() === 'USA') return 'USA';
-              if (word.toUpperCase() === 'US') return 'US';
-              if (word.toUpperCase() === 'UK') return 'UK';
-              // Title case other words
-              return word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : '';
-            }).join(' ');
-          }
-
-          const raw = emp as Employee & { usage_location?: string };
-          return {
-            ...emp,
-            account: normalizedAccount,
-            location: normalizedLocation || emp.location,
-            usage_location:
-              typeof raw.usage_location === "string"
-                ? raw.usage_location.trim()
-                : undefined,
-            employeeId: emp.employee_id || emp.employeeId || "",
-            id: emp.id || "temp-" + Math.random().toString(36).substr(2, 9)
-          };
-        });
-      }
-
-      setDashboardData(data);
-
-      // Cache the data
-      apiCache.set(CACHE_KEYS.DASHBOARD, data, 5 * 60 * 1000); // Cache for 5 minutes
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch dashboard data');
-    } finally {
+    if (cached && !cached.employees_truncated) {
+      // Full dataset in cache — render instantly, silent background refresh
+      setDashboardData(cached);
       setLoading(false);
-    }
-  };
+      fetchFromApi()
+        .then((fresh) => {
+          apiCache.set(CACHE_KEYS.DASHBOARD, fresh, DASHBOARD_CACHE_TTL);
+          setDashboardData(fresh);
+        })
+        .catch(() => {});
+    } else {
+      // Cold start — two-phase progressive load:
+      // Phase 1: aggregates only (employee_limit=-1 → empty employees array, tiny payload)
+      //          Charts + summary cards render immediately from aggregate data.
+      // Phase 2: full employees array for drill-down (background)
+      setLoading(true);
+      fetchFromApi(-1)
+        .then((partial) => {
+          setDashboardData(partial);
+          setLoading(false);
 
-  // Filter employees by location
-  const getLocationFilteredEmployees = (employees: Employee[]): Employee[] => {
-    if (selectedLocation === "all") {
-      return employees;
+          setIsLoadingMore(true);
+          return fetchFromApi();
+        })
+        .then((full) => {
+          if (full) {
+            apiCache.set(CACHE_KEYS.DASHBOARD, full, DASHBOARD_CACHE_TTL);
+            setDashboardData(full);
+          }
+        })
+        .catch((err) => {
+          if (!dashboardData) {
+            setError(err instanceof Error ? err.message : 'Failed to fetch dashboard data');
+          }
+        })
+        .finally(() => { setLoading(false); setIsLoadingMore(false); });
     }
+  }, [fetchFromApi]);
 
-    const filtered = employees.filter(emp => {
-      if (selectedLocation === "india") {
-        return isIndiaEmployeeByLocation(emp.location, emp.usage_location);
-      }
-      if (selectedLocation === "usa") {
-        return isUSAEmployeeByLocation(emp.location, emp.usage_location);
-      }
+  // When location is "all", use backend pre-computed aggregates directly (zero CPU).
+  // Only recompute from employees when a location filter (India/USA) is active.
+  const filteredDashboardData = useMemo((): DashboardData | null => {
+    if (!dashboardData) return null;
+
+    // Fast path: no location filter → return backend aggregates as-is
+    if (selectedLocation === "all") return dashboardData;
+
+    // Slow path: location filter active → recompute from employees array
+    const locationFilteredEmployees = dashboardData.employees.filter(emp => {
+      if (selectedLocation === "india") return isIndiaEmployeeByLocation(emp.location, emp.usage_location);
+      if (selectedLocation === "usa") return isUSAEmployeeByLocation(emp.location, emp.usage_location);
       return true;
     });
 
-    return filtered;
-  };
+    const by_account: Record<string, number> = {};
+    const by_location: Record<string, number> = {};
+    const by_employee_status: Record<string, number> = {};
+    const by_employment_category: Record<string, number> = {};
+    const by_is_leader: Record<string, number> = {};
+    const by_expertise: Record<string, number> = {};
+    const by_department: Record<string, number> = {};
+    const by_gender: Record<string, number> = {};
+    const by_status: Record<string, number> = {};
+    const by_usage_location: Record<string, number> = {};
 
-  // Get filtered dashboard data based on location
-  const getFilteredDashboardData = (): DashboardData | null => {
-    if (!dashboardData) return null;
-
-    const locationFilteredEmployees = getLocationFilteredEmployees(dashboardData.employees);
-
-    // Recalculate all analytics based on filtered employees
-    const by_account: { [key: string]: number } = {};
-    const by_location: { [key: string]: number } = {};
-    const by_employee_status: { [key: string]: number } = {};
-    const by_employment_category: { [key: string]: number } = {};
-    const by_is_leader: { [key: string]: number } = {};
-    const by_expertise: { [key: string]: number } = {};
-    const by_department: { [key: string]: number } = {};
-    const by_gender: { [key: string]: number } = {};
-    const by_status: { [key: string]: number } = {};
-
-    locationFilteredEmployees.forEach(emp => {
-      // Only count active employees
+    for (const emp of locationFilteredEmployees) {
       const empStatus = emp.status || "active";
-      if (empStatus === "inactive") return;
+      if (empStatus === "inactive") continue;
 
-      // Account
-      const account = emp.account || "Unknown";
-      by_account[account] = (by_account[account] || 0) + 1;
-
-      // Location — include Entra country when present so buckets match license country vs city-only drift
+      by_account[emp.account || "Unknown"] = (by_account[emp.account || "Unknown"] || 0) + 1;
       const locKey = dashboardLocationBucketKey(emp);
       by_location[locKey] = (by_location[locKey] || 0) + 1;
-
-      // Employee status
-      const empStatusType = emp.employee_status || "Unknown";
-      by_employee_status[empStatusType] = (by_employee_status[empStatusType] || 0) + 1;
-
-      // Employment category
-      const category = emp.employment_category || "Unknown";
-      by_employment_category[category] = (by_employment_category[category] || 0) + 1;
-
-      // Is leader
-      const isLeader = emp.is_leader || "No";
-      by_is_leader[isLeader] = (by_is_leader[isLeader] || 0) + 1;
-
-      // Expertise
-      const expertise = emp.expertise || "Unknown";
-      by_expertise[expertise] = (by_expertise[expertise] || 0) + 1;
-
-      // Department
-      const department = emp.department || "Unknown";
-      by_department[department] = (by_department[department] || 0) + 1;
-
-      // Gender
-      const gender = emp.gender || "Unknown";
-      by_gender[gender] = (by_gender[gender] || 0) + 1;
-
-      // Status
+      by_employee_status[emp.employee_status || "Unknown"] = (by_employee_status[emp.employee_status || "Unknown"] || 0) + 1;
+      by_employment_category[emp.employment_category || "Unknown"] = (by_employment_category[emp.employment_category || "Unknown"] || 0) + 1;
+      by_is_leader[emp.is_leader || "No"] = (by_is_leader[emp.is_leader || "No"] || 0) + 1;
+      by_expertise[emp.expertise || "Unknown"] = (by_expertise[emp.expertise || "Unknown"] || 0) + 1;
+      by_department[emp.department || "Unknown"] = (by_department[emp.department || "Unknown"] || 0) + 1;
+      by_gender[emp.gender || "Unknown"] = (by_gender[emp.gender || "Unknown"] || 0) + 1;
       by_status[empStatus] = (by_status[empStatus] || 0) + 1;
-    });
+      const ulKey = (emp.usage_location || "").trim().toUpperCase() || "not_set";
+      by_usage_location[ulKey] = (by_usage_location[ulKey] || 0) + 1;
+    }
 
-    const by_usage_location: { [key: string]: number } = {};
-    locationFilteredEmployees.forEach(emp => {
-      const es = emp.status || "active";
-      if (es === "inactive") return;
-      const k = (emp.usage_location || "").trim().toUpperCase() || "not_set";
-      by_usage_location[k] = (by_usage_location[k] || 0) + 1;
-    });
-
-    // Calculate monthly headcount for filtered employees
-    const monthly_headcount = [];
-    const current_year = new Date().getFullYear();
+    const monthly_headcount: Array<{ month: string; count: number; month_number: number }> = [];
     const now = new Date();
-
     for (let i = 11; i >= 0; i--) {
       const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
-
       let count = 0;
       for (const emp of locationFilteredEmployees) {
-        const empStatus = emp.status || "active";
-        if (empStatus === "inactive") continue;
-
-        const join_date_str = emp.date_of_joining || emp.created_at;
-        if (join_date_str) {
-          try {
-            const join_date = new Date(join_date_str);
-            if (join_date <= monthEnd) {
-              count += 1;
-            }
-          } catch {
-            count += 1;
-          }
-        }
+        if ((emp.status || "active") === "inactive") continue;
+        const jd = emp.date_of_joining || emp.created_at;
+        if (jd) { try { if (new Date(jd) <= monthEnd) count++; } catch { count++; } }
       }
-
       monthly_headcount.push({
         month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
         count,
@@ -351,6 +321,7 @@ export default function Dashboard() {
     }
 
     return {
+      ...dashboardData,
       total_employees: locationFilteredEmployees.filter(emp => (emp.status || "active") !== "inactive").length,
       monthly_headcount,
       by_account,
@@ -365,419 +336,192 @@ export default function Dashboard() {
       by_usage_location,
       employees: locationFilteredEmployees
     };
-  };
+  }, [dashboardData, selectedLocation]);
 
-  // Apply filters to data
-  useEffect(() => {
-    if (dashboardData) {
-      applyFilters();
+  // ---------- Helper: extract unique category values for the active filter ----------
+  const resolveCategory = useCallback((fieldValue: string | undefined): string | undefined => {
+    if (!fieldValue || fieldValue === "Unknown") return undefined;
+    if (selectedFilter === "location") {
+      const nv = fieldValue.toLowerCase().trim();
+      return nv.startsWith("remote -") || nv === "remote" ? "Remote" : fieldValue;
     }
-  }, [dashboardData, selectedFilter, filterValue, selectedLocation]);
+    return fieldValue;
+  }, [selectedFilter]);
 
-  const applyFilters = () => {
-    if (!dashboardData) return;
+  // ---------- All heavy derivations via useMemo — computed once per dependency change ----------
 
-    // Get location-filtered data
-    const filteredData = getFilteredDashboardData();
-    if (!filteredData) return;
+  const chartData = useMemo((): ChartDataPoint[] => {
+    if (!filteredDashboardData) return [];
+    const fd = filteredDashboardData;
 
-    // Calculate monthly headcount data for multi-line chart
-    const monthly_headcount = [];
-    const current_year = new Date().getFullYear();
-
-    // Get all unique categories for the selected filter
-    const categories = new Set<string>();
-    filteredData.employees.forEach(emp => {
-      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
-      if (fieldValue && fieldValue !== "Unknown") {
-        categories.add(fieldValue);
-      }
-    });
-
-    // If no filter selected or no categories, show total count
-    if (selectedFilter === "all" || categories.size === 0) {
-      const now = new Date();
-
-      // Generate data for the last 12 months
-      for (let i = 11; i >= 0; i--) {
-        const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-        const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
-
-        let count = 0;
-        for (const emp of filteredData.employees) {
-          const empStatus = emp.status || "active";
-          if (empStatus === "inactive") continue;
-
-          const join_date_str = emp.date_of_joining || emp.created_at;
-          if (join_date_str) {
-            try {
-              const join_date = new Date(join_date_str);
-              if (join_date <= monthEnd) {
-                count += 1;
-              }
-            } catch {
-              count += 1;
-            }
-          }
-        }
-
-        monthly_headcount.push({
-          month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
-          count,
-          month_number: targetDate.getMonth() + 1,
-          employees: filteredData.employees
-        });
-      }
-    } else {
-      // Generate data for each category - last 12 months
-      const now = new Date();
-
-      for (let i = 11; i >= 0; i--) {
-        const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-        const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
-
-        const monthData: { month: string; month_number: number; employees: Employee[] } = {
-          month: targetDate.toLocaleDateString('en-US', { month: 'short' }),
-          month_number: targetDate.getMonth() + 1,
-          employees: []
-        };
-
-        // Calculate count for each category
-        categories.forEach(category => {
-          let count = 0;
-          const categoryEmployees: Employee[] = [];
-
-          for (const emp of filteredData.employees) {
-            const empStatus = emp.status || "active";
-            if (empStatus === "inactive") continue;
-
-            const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
-            if (fieldValue === category) {
-              const join_date_str = emp.date_of_joining || emp.created_at;
-              if (join_date_str) {
-                try {
-                  const join_date = new Date(join_date_str);
-                  if (join_date <= monthEnd) {
-                    count += 1;
-                    categoryEmployees.push(emp);
-                  }
-                } catch {
-                  count += 1;
-                  categoryEmployees.push(emp);
-                }
-              }
-            }
-          }
-
-          monthData[category] = count;
-          monthData[`${category}_employees`] = categoryEmployees;
-        });
-
-        monthly_headcount.push(monthData);
-      }
-    }
-
-    setChartData(monthly_headcount);
-  };
-
-  // Calculate monthly new joiners for the last 12 months
-  const getMonthlyNewJoinersData = () => {
-    const filteredData = getFilteredDashboardData();
-    if (!filteredData) return [];
-
-    const now = new Date();
-    const monthlyData = [];
-
-    // Generate data for the last 12 months
-    for (let i = 11; i >= 0; i--) {
-      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-      const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
-
-      const newJoiners = filteredData.employees.filter(emp => {
-        const empStatus = emp.status || "active";
-        if (empStatus === "inactive") return false;
-
-        const joinDateStr = emp.date_of_joining || emp.created_at;
-        if (!joinDateStr) return false;
-
-        try {
-          const joinDate = new Date(joinDateStr);
-          return joinDate >= monthStart && joinDate <= monthEnd;
-        } catch {
-          return false;
-        }
-      });
-
-      monthlyData.push({
-        month: targetDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-        monthShort: targetDate.toLocaleDateString('en-US', { month: 'short' }),
-        newJoiners: newJoiners.length,
-        employees: newJoiners
-      });
-    }
-
-    return monthlyData;
-  };
-
-  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-
-  // Get categories for the selected filter
-  const getChartCategories = () => {
-    const filteredData = getFilteredDashboardData();
-    if (!filteredData || selectedFilter === "all") {
-      return [];
-    }
-
-    const categories = new Set<string>();
-    filteredData.employees.forEach(emp => {
-      const empStatus = emp.status || "active";
-      if (empStatus === "inactive") return;
-
-      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
-      if (fieldValue && fieldValue !== "Unknown") {
-        // Consolidate remote locations when filter is location
-        if (selectedFilter === "location") {
-          const normalizedValue = fieldValue.toLowerCase().trim();
-          if (normalizedValue.startsWith('remote -') || normalizedValue === 'remote') {
-            categories.add('Remote');
-          } else {
-            categories.add(fieldValue);
-          }
-        } else {
-          categories.add(fieldValue);
-        }
-      }
-    });
-
-    return Array.from(categories).sort();
-  };
-
-  // Get colors for different lines
-  const getLineColors = () => {
-    const colors = [
-      '#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00',
-      '#ff00ff', '#00ffff', '#ffff00', '#ff0000', '#0000ff'
-    ];
-    return colors;
-  };
-
-  // Generate stacked column data for monthly hires by category
-  const getStackedColumnData = () => {
-    const filteredData = getFilteredDashboardData();
-    if (!filteredData || selectedFilter === "all") {
-      return [];
-    }
-
-    const current_year = new Date().getFullYear();
-    const categories = new Set<string>();
-
-    // Get all unique categories for the selected filter
-    filteredData.employees.forEach(emp => {
-      const empStatus = emp.status || "active";
-      if (empStatus === "inactive") return;
-
-      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
-      if (fieldValue && fieldValue !== "Unknown") {
-        // Consolidate remote locations when filter is location
-        if (selectedFilter === "location") {
-          const normalizedValue = fieldValue.toLowerCase().trim();
-          if (normalizedValue.startsWith('remote -') || normalizedValue === 'remote') {
-            categories.add('Remote');
-          } else {
-            categories.add(fieldValue);
-          }
-        } else {
-          categories.add(fieldValue);
-        }
-      }
-    });
-
-    const monthlyData = [];
-    const now = new Date();
-
-    // Generate data for the last 12 months
-    for (let i = 11; i >= 0; i--) {
-      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthKey = targetDate.toISOString().slice(0, 7); // YYYY-MM format
-      const monthName = targetDate.toLocaleDateString('en-US', { month: 'short' });
-
-      const monthData: {
-        month: string;
-        monthName: string;
-        month_number: number;
-        employees: Employee[]
-        total: number;
-        [key: string]: any;
-
-      } = {
-        month: monthKey,
-        monthName: monthName,
-        month_number: targetDate.getMonth() + 1,
-        total: 0,
-        employees: []
-      };
-
-      // Calculate hires for each category in this month
-      categories.forEach(category => {
-        let hires = 0;
-        const categoryEmployees: Employee[] = [];
-
-        for (const emp of filteredData.employees) {
-          const empStatus = emp.status || "active";
-          if (empStatus === "inactive") continue;
-
-          const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
-
-          // Handle consolidated remote locations
-          let matchesCategory = false;
-          if (selectedFilter === "location" && category === "Remote") {
-            const normalizedValue = fieldValue?.toLowerCase().trim();
-            matchesCategory = normalizedValue?.startsWith('remote -') || normalizedValue === 'remote';
-          } else {
-            matchesCategory = fieldValue === category;
-          }
-
-          if (matchesCategory) {
-            const join_date_str = emp.date_of_joining || emp.created_at;
-            if (join_date_str) {
-              try {
-                const join_date = new Date(join_date_str);
-                const join_month = join_date.toISOString().slice(0, 7);
-                if (join_month === monthKey) {
-                  hires += 1;
-                  categoryEmployees.push(emp);
-                }
-              } catch {
-                // If date parsing fails, count as current month
-                hires += 1;
-                categoryEmployees.push(emp);
-              }
-            }
-          }
-        }
-
-        monthData[category] = hires;
-        monthData[`${category}_employees`] = categoryEmployees;
-        monthData.total += hires;
-      });
-
-      monthlyData.push(monthData);
-    }
-
-    return monthlyData;
-  };
-
-  // Get dynamic chart title based on selected filter
-  const getChartTitle = () => {
+    // Fast path: no category filter → use backend pre-computed monthly_headcount
     if (selectedFilter === "all") {
-      return "Monthly Headcount Trend - All Employee filter";
-    }
-    return `Monthly Headcount Trend - ${getFilterLabel(selectedFilter)}`;
-  };
-
-  // Get filtered employees based on selected filter
-  const getFilteredEmployees = () => {
-    const filteredData = getFilteredDashboardData();
-    if (!filteredData || selectedFilter === "all") {
-      return filteredData?.employees || [];
+      return (fd.monthly_headcount || []).map(mh => ({
+        ...mh,
+        employees: fd.employees,
+      }));
     }
 
-    return filteredData.employees.filter(emp => {
-      const empStatus = emp.status || "active";
-      if (empStatus === "inactive") return false;
-
-      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
-      return fieldValue && fieldValue !== "Unknown";
-    });
-  };
-
-  // Get category distribution for filtered data
-  const getCategoryDistribution = () => {
-    const filteredData = getFilteredDashboardData();
-    if (!filteredData || selectedFilter === "all") {
-      return null;
+    // Category filter active → derive from employees
+    const categories = new Set<string>();
+    for (const emp of fd.employees) {
+      const cat = resolveCategory(getEmployeeFilterValue(emp, selectedFilter));
+      if (cat) categories.add(cat);
     }
 
-    const filteredEmployees = getFilteredEmployees();
-    const distribution: { [key: string]: number } = {};
+    if (categories.size === 0) {
+      return (fd.monthly_headcount || []).map(mh => ({
+        ...mh,
+        employees: fd.employees,
+      }));
+    }
 
-    filteredEmployees.forEach(emp => {
-      const empStatus = emp.status || "active";
-      if (empStatus === "inactive") return;
-
-      const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
-      if (fieldValue && fieldValue !== "Unknown") {
-        // Consolidate remote locations when filter is location
-        if (selectedFilter === "location") {
-          const normalizedValue = fieldValue.toLowerCase().trim();
-          if (normalizedValue.startsWith('remote -') || normalizedValue === 'remote') {
-            distribution['Remote'] = (distribution['Remote'] || 0) + 1;
-          } else {
-            distribution[fieldValue] = (distribution[fieldValue] || 0) + 1;
-          }
-        } else {
-          distribution[fieldValue] = (distribution[fieldValue] || 0) + 1;
+    const monthly: ChartDataPoint[] = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const td = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const me = new Date(td.getFullYear(), td.getMonth() + 1, 0, 23, 59, 59, 999);
+      const md: any = { month: td.toLocaleDateString("en-US", { month: "short" }), month_number: td.getMonth() + 1, employees: [] };
+      categories.forEach(category => {
+        let c = 0; const ce: Employee[] = [];
+        for (const emp of fd.employees) {
+          if ((emp.status || "active") === "inactive") continue;
+          if (resolveCategory(getEmployeeFilterValue(emp, selectedFilter)) !== category) continue;
+          const jd = emp.date_of_joining || emp.created_at;
+          if (jd) { try { if (new Date(jd) <= me) { c++; ce.push(emp); } } catch { c++; ce.push(emp); } }
         }
-      }
-    });
+        md[category] = c;
+        md[`${category}_employees`] = ce;
+      });
+      monthly.push(md);
+    }
+    return monthly;
+  }, [filteredDashboardData, selectedFilter, resolveCategory]);
 
-    return Object.entries(distribution).map(([name, value]) => ({ name, value }));
+  const monthlyNewJoinersData = useMemo(() => {
+    if (!filteredDashboardData) return [];
+    const now = new Date();
+    const out: Array<{ month: string; monthShort: string; newJoiners: number; employees: Employee[] }> = [];
+    for (let i = 11; i >= 0; i--) {
+      const td = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ms = new Date(td.getFullYear(), td.getMonth(), 1);
+      const me = new Date(td.getFullYear(), td.getMonth() + 1, 0, 23, 59, 59, 999);
+      const nj = filteredDashboardData.employees.filter(emp => {
+        if ((emp.status || "active") === "inactive") return false;
+        const jd = emp.date_of_joining || emp.created_at;
+        if (!jd) return false;
+        try { const d = new Date(jd); return d >= ms && d <= me; } catch { return false; }
+      });
+      out.push({
+        month: td.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+        monthShort: td.toLocaleDateString("en-US", { month: "short" }),
+        newJoiners: nj.length,
+        employees: nj,
+      });
+    }
+    return out;
+  }, [filteredDashboardData]);
+
+  const chartCategories = useMemo(() => {
+    if (!filteredDashboardData || selectedFilter === "all") return [];
+    const cats = new Set<string>();
+    for (const emp of filteredDashboardData.employees) {
+      if ((emp.status || "active") === "inactive") continue;
+      const c = resolveCategory(getEmployeeFilterValue(emp, selectedFilter));
+      if (c) cats.add(c);
+    }
+    return Array.from(cats).sort();
+  }, [filteredDashboardData, selectedFilter, resolveCategory]);
+
+  const LINE_COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00', '#ff00ff', '#00ffff', '#ffff00', '#ff0000', '#0000ff'];
+
+  const stackedColumnData = useMemo(() => {
+    if (!filteredDashboardData || selectedFilter === "all") return [];
+    const cats = new Set<string>();
+    for (const emp of filteredDashboardData.employees) {
+      if ((emp.status || "active") === "inactive") continue;
+      const c = resolveCategory(getEmployeeFilterValue(emp, selectedFilter));
+      if (c) cats.add(c);
+    }
+    const out: any[] = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const td = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mk = td.toISOString().slice(0, 7);
+      const md: any = { month: mk, monthName: td.toLocaleDateString("en-US", { month: "short" }), month_number: td.getMonth() + 1, total: 0, employees: [] };
+      cats.forEach(category => {
+        let h = 0; const ce: Employee[] = [];
+        for (const emp of filteredDashboardData.employees) {
+          if ((emp.status || "active") === "inactive") continue;
+          const fv = getEmployeeFilterValue(emp, selectedFilter);
+          let match = false;
+          if (selectedFilter === "location" && category === "Remote") {
+            const nv = fv?.toLowerCase().trim();
+            match = !!(nv?.startsWith("remote -") || nv === "remote");
+          } else { match = fv === category; }
+          if (match) {
+            const jd = emp.date_of_joining || emp.created_at;
+            if (jd) { try { if (new Date(jd).toISOString().slice(0, 7) === mk) { h++; ce.push(emp); } } catch { h++; ce.push(emp); } }
+          }
+        }
+        md[category] = h;
+        md[`${category}_employees`] = ce;
+        md.total += h;
+      });
+      out.push(md);
+    }
+    return out;
+  }, [filteredDashboardData, selectedFilter, resolveCategory]);
+
+  const activeFilteredEmployees = useMemo(() => {
+    if (!filteredDashboardData || selectedFilter === "all") return filteredDashboardData?.employees || [];
+    return filteredDashboardData.employees.filter(emp => {
+      if ((emp.status || "active") === "inactive") return false;
+      return resolveCategory(getEmployeeFilterValue(emp, selectedFilter)) !== undefined;
+    });
+  }, [filteredDashboardData, selectedFilter, resolveCategory]);
+
+  const categoryDistribution = useMemo(() => {
+    if (!filteredDashboardData || selectedFilter === "all") return null;
+    const dist: Record<string, number> = {};
+    for (const emp of activeFilteredEmployees) {
+      if ((emp.status || "active") === "inactive") continue;
+      const c = resolveCategory(getEmployeeFilterValue(emp, selectedFilter));
+      if (c) dist[c] = (dist[c] || 0) + 1;
+    }
+    return Object.entries(dist).map(([name, value]) => ({ name, value }));
+  }, [filteredDashboardData, selectedFilter, activeFilteredEmployees, resolveCategory]);
+
+  const getChartTitle = () => {
+    if (selectedFilter === "all") return "Monthly Headcount Trend - All Employee filter";
+    return `Monthly Headcount Trend - ${getFilterLabel(selectedFilter)}`;
   };
 
   const handleChartClick = (data: any) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const clickedData = data.activePayload[0].payload;
 
-      // Check if it's from the new joiners chart
       if (clickedData.monthShort && clickedData.newJoiners !== undefined) {
-        // New joiners chart - show employees who joined in that month
-        setSelectedDataPoint({
-          month: clickedData.month,
-          count: clickedData.newJoiners,
-          month_number: 0, // Not used for new joiners
-          employees: clickedData.employees || []
-        });
+        setSelectedDataPoint({ month: clickedData.month, count: clickedData.newJoiners, month_number: 0, employees: clickedData.employees || [] });
         setFilteredEmployees(clickedData.employees || []);
         setShowModal(true);
       } else if (clickedData.month && selectedFilter === "all") {
-        // Monthly trend chart - show all employees
         setSelectedDataPoint(clickedData as ChartDataPoint);
         setFilteredEmployees(clickedData.employees || []);
         setShowModal(true);
       } else if (clickedData.month && selectedFilter !== "all" && !clickedData.monthName) {
-        // Monthly trend chart (not stacked column) - show employees for the clicked category
         const categoryName = data.activePayload[0].dataKey;
         const categoryEmployees = clickedData[`${categoryName}_employees`] || [];
-
-        setSelectedDataPoint({
-          month: `${clickedData.month} - ${categoryName}`,
-          count: clickedData[categoryName] || 0,
-          month_number: clickedData.month_number,
-          employees: categoryEmployees
-        });
+        setSelectedDataPoint({ month: `${clickedData.month} - ${categoryName}`, count: clickedData[categoryName] || 0, month_number: clickedData.month_number, employees: categoryEmployees });
         setFilteredEmployees(categoryEmployees);
         setShowModal(true);
       } else if (!clickedData.month) {
-        // Other charts - show employees for the clicked category
         const categoryName = clickedData.name;
-        const categoryEmployees = getFilteredEmployees().filter(emp => {
-          const fieldValue = getEmployeeFilterValue(emp, selectedFilter);
-          return fieldValue === categoryName;
-        });
-
-        setSelectedDataPoint({
-          month: `${getFilterLabel(selectedFilter)}: ${categoryName}`,
-          count: clickedData.value,
-          month_number: 0,
-          employees: categoryEmployees
-        });
+        const categoryEmployees = activeFilteredEmployees.filter(emp => getEmployeeFilterValue(emp, selectedFilter) === categoryName);
+        setSelectedDataPoint({ month: `${getFilterLabel(selectedFilter)}: ${categoryName}`, count: clickedData.value, month_number: 0, employees: categoryEmployees });
         setFilteredEmployees(categoryEmployees);
         setShowModal(true);
       }
-      // Note: Stacked column chart clicks are handled by individual Bar onClick handlers
     }
   };
 
@@ -838,7 +582,15 @@ export default function Dashboard() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-500 mb-4">Error: {error || 'Failed to load dashboard data'}</p>
-          <Button onClick={fetchDashboardData}>Retry</Button>
+          <Button onClick={() => {
+            setError(null);
+            setLoading(true);
+            fetchFromApi(-1)
+              .then((partial) => { setDashboardData(partial); setLoading(false); setIsLoadingMore(true); return fetchFromApi(); })
+              .then((full) => { if (full) { apiCache.set(CACHE_KEYS.DASHBOARD, full, DASHBOARD_CACHE_TTL); setDashboardData(full); } })
+              .catch((err) => setError(err instanceof Error ? err.message : 'Failed to fetch'))
+              .finally(() => { setLoading(false); setIsLoadingMore(false); });
+          }}>Retry</Button>
         </div>
       </div>
     );
@@ -956,9 +708,16 @@ export default function Dashboard() {
             </Select>
           </div>
 
+          {isLoadingMore && (
+            <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden />
+              Loading remaining employees for drill-down…
+            </div>
+          )}
+
           {/* Summary Cards */}
           {(() => {
-            const filteredData = getFilteredDashboardData();
+            const filteredData = filteredDashboardData;
             if (!filteredData) return null;
 
             return (
@@ -1035,7 +794,7 @@ export default function Dashboard() {
               <CardContent>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={getMonthlyNewJoinersData()} onClick={handleChartClick}>
+                    <BarChart data={monthlyNewJoinersData} onClick={handleChartClick}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis
                         dataKey="monthShort"
@@ -1141,7 +900,7 @@ export default function Dashboard() {
               <CardContent>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={getCategoryDistribution()} onClick={handleChartClick}>
+                    <BarChart data={categoryDistribution} onClick={handleChartClick}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
                       <YAxis />
@@ -1169,7 +928,7 @@ export default function Dashboard() {
               <CardContent>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={getStackedColumnData()} onClick={handleChartClick}>
+                    <BarChart data={stackedColumnData} onClick={handleChartClick}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" />
                       <YAxis />
@@ -1195,12 +954,12 @@ export default function Dashboard() {
                           return null;
                         }}
                       />
-                      {getChartCategories().map((category, index) => (
+                      {chartCategories.map((category, index) => (
                         <Bar
                           key={category}
                           dataKey={category}
                           stackId="a"
-                          fill={getLineColors()[index % getLineColors().length]}
+                          fill={LINE_COLORS[index % LINE_COLORS.length]}
                           onClick={(data, index, event) => {
                             // Custom click handler for each bar
                             const categoryName = category;
@@ -1227,7 +986,7 @@ export default function Dashboard() {
 
           {/* Charts Grid - Only show when no filter is applied */}
           {selectedFilter === "all" && (() => {
-            const filteredData = getFilteredDashboardData();
+            const filteredData = filteredDashboardData;
             if (!filteredData) return null;
 
             // ================= Prepare Data Once =================

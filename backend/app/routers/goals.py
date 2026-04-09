@@ -22,6 +22,10 @@ _employee_id_cache: Dict[str, tuple[str, float]] = {}  # email -> (employee_id, 
 _manager_check_cache: Dict[str, tuple[bool, float]] = {}  # f"{manager_id}:{employee_id}" -> (is_manager, timestamp)
 CACHE_DURATION = 300  # Cache for 5 minutes
 
+# Only these statuses can have milestone mutations.
+# "pending" / "pending_manager_approval" are review states and must be read-only.
+MILESTONE_EDITABLE_STATUSES = {"in_progress", "manager_reopened"}
+
 def clear_goals_caches():
     """Clear all caches (useful for testing or when employee data changes)"""
     global _employee_id_cache, _manager_check_cache
@@ -523,6 +527,12 @@ async def update_goal(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Cannot edit goal once it has been approved and is in progress"
                 )
+            # Before manager approval, reportee can edit proposal details but not milestones.
+            if "milestones" in goal_update.dict(exclude_unset=True):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Milestones can only be updated after manager approval"
+                )
         
         # Update goal
         update_data = {k: v for k, v in goal_update.dict().items() if v is not None}
@@ -656,6 +666,12 @@ async def create_milestone(
                     detail="You don't have permission to add milestones to this goal"
                 )
         
+        if goal.get("status") not in MILESTONE_EDITABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Milestones can only be added after manager approval"
+            )
+
         # Create milestone
         new_milestone = {
             "id": generate_id(),
@@ -731,6 +747,12 @@ async def update_milestone(
                     detail="You don't have permission to update milestones for this goal"
                 )
         
+        if goal.get("status") not in MILESTONE_EDITABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Milestones can only be updated after manager approval"
+            )
+
         # Find and update milestone
         milestones = goal.get("milestones", [])
         milestone_found = False
@@ -828,6 +850,12 @@ async def delete_milestone(
                 detail="You can only delete milestones from your own goals"
             )
         
+        if goal.get("status") not in MILESTONE_EDITABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Milestones can only be changed after manager approval"
+            )
+
         # Remove milestone
         milestones = goal.get("milestones", [])
         original_count = len(milestones)
