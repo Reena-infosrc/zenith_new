@@ -11,6 +11,18 @@ const statusStyles: Record<string, string> = {
   pending: "bg-muted text-muted-foreground border-border/60"
 };
 
+function normalizeGoalStatus(status: string): string {
+  const raw = (status || "").toLowerCase().trim().replace(/\s+/g, "_");
+  if (raw === "pending_manager_approval" || raw === "pending_approval" || raw === "pending-manager-approval") {
+    return "pending_manager_approval";
+  }
+  if (raw === "pending") return "pending";
+  if (raw === "in_progress") return "in_progress";
+  if (raw === "manager_reopened") return "manager_reopened";
+  if (raw === "completed") return "completed";
+  return raw || "pending";
+}
+
 function PendingApprovalRibbon() {
   return (
     <>
@@ -57,7 +69,7 @@ function PendingApprovalRibbon() {
 }
 
 const statusLabel = (status: string) => {
-  switch (status) {
+  switch (normalizeGoalStatus(status)) {
     case "completed":
       return "Completed";
     case "in_progress":
@@ -96,6 +108,8 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
     useImperativeHandle(ref, () => internalRef.current, []);
 
     const roundedCompletion = Math.round(goal.completion);
+    const normalizedStatus = normalizeGoalStatus(goal.status);
+    const isPendingApproval = normalizedStatus === "pending" || normalizedStatus === "pending_manager_approval";
 
     return (
       <button
@@ -113,14 +127,14 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
           "group relative w-full rounded-xl border border-border/40 bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-sm px-5 py-4 text-left shadow-lg transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 hover:-translate-y-0.5 hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-2 overflow-hidden",
           disabled && "opacity-60 cursor-not-allowed",
           isOpen && "border-primary/60 shadow-xl shadow-primary/10",
-          (goal.status === "pending" || goal.status === "pending_manager_approval") && "border-blue-400/40 shadow-blue-500/5",
+          isPendingApproval && "border-blue-400/40 shadow-blue-500/5",
           className
         )}
         aria-expanded={isOpen}
         aria-controls={controlsId}
       >
         {/* Corner ribbon for goals awaiting manager approval */}
-        {(goal.status === "pending" || goal.status === "pending_manager_approval") && <PendingApprovalRibbon />}
+        {isPendingApproval && <PendingApprovalRibbon />}
 
         {/* Hover gradient overlay */}
         <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary/5 via-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
@@ -163,9 +177,9 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
           <div className="flex items-center gap-2">
             <Badge className={cn(
               "border text-[10px] font-semibold px-2.5 py-1 shadow-sm",
-              statusStyles[goal.status] ?? statusStyles.pending
+              statusStyles[normalizedStatus] ?? statusStyles.pending
             )}>
-              {statusLabel(goal.status)}
+              {statusLabel(normalizedStatus)}
             </Badge>
           </div>
 

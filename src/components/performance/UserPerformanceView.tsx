@@ -125,6 +125,23 @@ const convertGoalToPerformanceGoal = (goal: Goal): PerformanceGoal => {
   };
 };
 
+const normalizeGoalStatus = (status: string | undefined): string => {
+  const raw = (status || "").toLowerCase().trim().replace(/\s+/g, "_");
+  if (raw === "pending_manager_approval" || raw === "pending_approval" || raw === "pending-manager-approval") {
+    return "pending_manager_approval";
+  }
+  if (raw === "pending") return "pending";
+  if (raw === "in_progress") return "in_progress";
+  if (raw === "manager_reopened") return "manager_reopened";
+  if (raw === "completed") return "completed";
+  return raw;
+};
+
+const isPendingApprovalStatus = (status: string | undefined): boolean => {
+  const s = normalizeGoalStatus(status);
+  return s === "pending" || s === "pending_manager_approval";
+};
+
 const resolveReviewStatus = (review?: any) =>
   review?.metadata?.status ||
   review?.status ||
@@ -245,7 +262,8 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   );
   const canEditMilestonesForPanelGoal = useMemo(() => {
     if (!selectedPanelGoal) return false;
-    return ["in_progress", "manager_reopened"].includes(selectedPanelGoal.status);
+    const normalized = normalizeGoalStatus(selectedPanelGoal.status);
+    return ["in_progress", "manager_reopened"].includes(normalized);
   }, [selectedPanelGoal]);
   const goalPanelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const goalPanelId = "goal-detail-panel";
@@ -664,6 +682,15 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
 
   // Handle milestone edit
   const handleMilestoneClick = (goalId: string, milestone: Milestone) => {
+    const targetGoal = goals.find((g) => g.id === goalId);
+    if (!targetGoal || !["in_progress", "manager_reopened"].includes(normalizeGoalStatus(targetGoal.status))) {
+      toast({
+        title: "Manager approval required",
+        description: "Milestones can be updated only after the manager approves the goal.",
+        variant: "destructive"
+      });
+      return;
+    }
     setSelectedMilestone({ goalId, milestone });
     setShowMilestoneDialog(true);
     setEvidenceFile(null);
@@ -807,7 +834,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   // Handle add milestone button click
   const handleAddMilestoneClick = (goalId: string) => {
     const targetGoal = goals.find((g) => g.id === goalId);
-    if (!targetGoal || !["in_progress", "manager_reopened"].includes(targetGoal.status)) {
+    if (!targetGoal || !["in_progress", "manager_reopened"].includes(normalizeGoalStatus(targetGoal.status))) {
       toast({
         title: "Manager approval required",
         description: "You can add milestones only after the manager approves this goal.",
@@ -1219,7 +1246,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
             </Card>
           ) : (
             <div className="space-y-5">
-              {goals.filter((goal) => goal.status === "pending").length > 0 && (
+              {goals.filter((goal) => isPendingApprovalStatus(goal.status)).length > 0 && (
                 <Card className="bg-blue-500/5 border-blue-500/20">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
@@ -1232,7 +1259,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
                   </CardHeader>
                   <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {goals
-                      .filter((goal) => goal.status === "pending")
+                      .filter((goal) => isPendingApprovalStatus(goal.status))
                       .map((goal) => (
                         <GoalSummaryCard
                           key={goal.id}
@@ -1253,10 +1280,10 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
                 </Card>
               )}
 
-              {goals.filter((goal) => goal.status !== "pending").length > 0 && (
+              {goals.filter((goal) => !isPendingApprovalStatus(goal.status)).length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {goals
-                    .filter((goal) => goal.status !== "pending")
+                    .filter((goal) => !isPendingApprovalStatus(goal.status))
                     .map((goal) => (
                       <GoalSummaryCard
                         key={goal.id}

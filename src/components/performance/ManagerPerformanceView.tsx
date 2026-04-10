@@ -1432,10 +1432,11 @@ export function ManagerPerformanceView() {
 
   const getGoalsSummary = (employeeId: string) => {
     const goals = getGoalsForEmployee(employeeId);
-    const active = goals.filter(g => ['in_progress', 'pending_manager_approval', 'pending', 'manager_reopened'].includes(g.status)).length;
+    const active = goals.filter(g => ['in_progress', 'manager_reopened'].includes(g.status)).length;
+    const pending = goals.filter(g => ['pending_manager_approval', 'pending'].includes(g.status)).length;
     const completed = goals.filter(g => g.status === 'completed').length;
     const total = goals.length;
-    return { total, active, completed };
+    return { total, active, pending, completed };
   };
 
   const getStatusBadge = (status: string) => {

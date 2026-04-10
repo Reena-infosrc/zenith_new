@@ -93,6 +93,21 @@ function mapEmployeeRow(emp: Record<string, unknown>): Employee {
   };
 }
 
+function invalidateEmployeesAndDashboardCache(): void {
+  apiCache.delete(CACHE_KEYS.EMPLOYEES);
+  apiCache.delete(CACHE_KEYS.DASHBOARD);
+  for (const key of apiCache.getStats().keys) {
+    if (key.startsWith(`${CACHE_KEYS.EMPLOYEES}-`)) {
+      apiCache.delete(key);
+    }
+  }
+}
+
+export type FetchEmployeesOptions = {
+  /** Skip cache short-circuit and refetch from API (stale-while-revalidate). */
+  revalidate?: boolean;
+};
+
 export function useEmployees() {
   const [employees, setEmployees] = useState<Employee[]>(globalEmployees);
   const [isLoading, setIsLoading] = useState<boolean>(globalLoading);
@@ -100,18 +115,24 @@ export function useEmployees() {
   const [error, setError] = useState<string | null>(globalError);
   const { toast } = useToast();
 
-  const fetchEmployees = async (sortBy?: string, sortOrder?: string) => {
+  const fetchEmployees = async (
+    sortBy?: string,
+    sortOrder?: string,
+    options?: FetchEmployeesOptions
+  ) => {
     const cacheKey = sortBy ? `${CACHE_KEYS.EMPLOYEES}-${sortBy}-${sortOrder}` : CACHE_KEYS.EMPLOYEES;
 
-    const cachedData = apiCache.get(cacheKey);
-    if (cachedData) {
-      globalEmployees = cachedData;
-      globalError = null;
-      setEmployees(cachedData);
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      setError(null);
-      return;
+    if (!options?.revalidate) {
+      const cachedData = apiCache.get(cacheKey);
+      if (cachedData) {
+        globalEmployees = cachedData;
+        globalError = null;
+        setEmployees(cachedData);
+        setIsLoading(false);
+        setIsLoadingMore(false);
+        setError(null);
+        return;
+      }
     }
 
     if (globalLoading && globalFetchPromise) {
@@ -123,7 +144,7 @@ export function useEmployees() {
       return;
     }
 
-    if (globalEmployees.length > 0 && !globalLoading) {
+    if (!options?.revalidate && globalEmployees.length > 0 && !globalLoading) {
       setEmployees(globalEmployees);
       setIsLoading(false);
       setIsLoadingMore(false);
@@ -132,11 +153,20 @@ export function useEmployees() {
     }
 
     const progressive = !sortBy && !sortOrder;
+    const revalidateWithData =
+      Boolean(options?.revalidate) && globalEmployees.length > 0;
+    const useProgressive = progressive && !revalidateWithData;
 
     globalLoading = true;
-    globalIsLoadingMore = false;
-    setIsLoading(true);
-    setIsLoadingMore(false);
+    if (revalidateWithData) {
+      globalIsLoadingMore = true;
+      setIsLoading(false);
+      setIsLoadingMore(true);
+    } else {
+      globalIsLoadingMore = false;
+      setIsLoading(true);
+      setIsLoadingMore(false);
+    }
     setError(null);
 
     globalFetchPromise = (async () => {
@@ -183,7 +213,25 @@ export function useEmployees() {
       };
 
       try {
-        if (progressive) {
+        if (progressive && revalidateWithData) {
+          const rows = await fetchPage(0, FULL_PAGE_LIMIT);
+          if (rows === null) {
+            globalError = globalError || 'Failed to refresh employees';
+            toast({
+              title: 'Could not refresh directory',
+              description: 'Showing cached data. Try again in a moment.',
+              variant: 'destructive',
+            });
+            return;
+          }
+          globalEmployees = rows;
+          globalError = null;
+          apiCache.set(cacheKey, rows);
+          window.dispatchEvent(new CustomEvent('employeesUpdated'));
+          return;
+        }
+
+        if (useProgressive) {
           const first = await fetchPage(0, FIRST_PAGE_LIMIT);
           if (first === null) {
             if (process.env.NODE_ENV === 'development') applyDevMock();
@@ -197,6 +245,7 @@ export function useEmployees() {
 
           globalEmployees = first;
           globalError = null;
+          apiCache.set(cacheKey, first);
           window.dispatchEvent(new CustomEvent('employeesUpdated'));
           setEmployees([...globalEmployees]);
           setIsLoading(false);
@@ -494,8 +543,7 @@ export function useEmployees() {
       // Dispatch event to notify other components
       window.dispatchEvent(new CustomEvent('employeesUpdated'));
       
-      // Clear cache to ensure fresh data on next fetch
-      apiCache.clear();
+      invalidateEmployeesAndDashboardCache();
       
       toast({
         title: 'Success',
@@ -570,8 +618,7 @@ export function useEmployees() {
       
       const result = await response.json();
       
-      // Refresh employee list
-      await fetchEmployees();  // Added await
+      await fetchEmployees(undefined, undefined, { revalidate: true });
       
       toast({
         title: 'Import successful',
@@ -600,6 +647,7 @@ export function useEmployees() {
       setIsLoading(false);
       setIsLoadingMore(false);
       setError(null);
+      void fetchEmployees(undefined, undefined, { revalidate: true });
       return;
     }
     if (globalEmployees.length > 0) {
@@ -656,9 +704,8 @@ export function useEmployees() {
 
       const result = await response.json();
       
-      // Clear cache and refresh data
-      apiCache.clear();
-      await fetchEmployees();
+      invalidateEmployeesAndDashboardCache();
+      await fetchEmployees(undefined, undefined, { revalidate: true });
       
       return result;
     } catch (error) {

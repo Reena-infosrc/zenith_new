@@ -143,8 +143,7 @@ export function FeatureFlagsProvider({ children }: { children: React.ReactNode }
   };
 
   const refreshFeatureFlags = async (): Promise<void> => {
-    // Clear cache and refetch
-    apiCache.clear();
+    apiCache.delete(CACHE_KEYS.FEATURE_FLAGS);
     await fetchFeatureFlags();
   };
 

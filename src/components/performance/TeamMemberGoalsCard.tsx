@@ -80,6 +80,7 @@ export interface TeamMemberGoalsCardProps {
   summary: {
     total: number;
     active: number;
+    pending?: number;
     completed: number;
   };
   goals: TeamGoal[];
@@ -238,12 +239,17 @@ export function TeamMemberGoalsCard({
                     {summary.active} Active
                   </Badge>
                 )}
+                {(summary.pending ?? 0) > 0 && (
+                  <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30 shadow-sm">
+                    {summary.pending} Pending
+                  </Badge>
+                )}
                 {summary.completed > 0 && (
                   <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/30 shadow-sm">
                     {summary.completed} Completed
                   </Badge>
                 )}
-                {summary.total > 0 && summary.active === 0 && summary.completed === 0 && (
+                {summary.total > 0 && summary.active === 0 && (summary.pending ?? 0) === 0 && summary.completed === 0 && (
                   <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30 shadow-sm">
                     {summary.total} Goal{summary.total !== 1 ? "s" : ""}
                   </Badge>

@@ -236,6 +236,14 @@ async def create_goal(
         now = datetime.utcnow().isoformat()
         goal_id = generate_id()
         
+        # Employees submit goals for approval first; milestones are only allowed
+        # after manager approval/in_progress. Block pre-approval milestone creation.
+        if is_self and goal.milestones:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Milestones can only be added after manager approval"
+            )
+
         # Convert milestones
         milestones = []
         if goal.milestones:

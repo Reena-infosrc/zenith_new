@@ -150,7 +150,9 @@ export default function Login() {
     // KMS decrypt) — let the destination page load them; blocking login on
     // those caused a 3-min wait.
     const preFetchFlags = async () => {
-      apiCache.clear();
+      // Keep heavy directory/dashboard payloads in localStorage across login so first paint
+      // is not empty; still drop other keys (e.g. stale feature-flags) before refetching.
+      apiCache.clearExcept([CACHE_KEYS.EMPLOYEES, CACHE_KEYS.DASHBOARD]);
       const token = localStorage.getItem('auth_token');
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;

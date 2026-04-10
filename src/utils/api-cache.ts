@@ -135,6 +135,37 @@ class APICache {
     }
   }
 
+  /** Remove all entries except the given logical keys (memory + localStorage). */
+  clearExcept(keepKeys: readonly string[]): void {
+    const keep = new Set(keepKeys);
+    for (const key of [...this.cache.keys()]) {
+      if (!keep.has(key)) {
+        this.cache.delete(key);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem(`${this.STORAGE_PREFIX}${key}`);
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const storageKey = localStorage.key(i);
+          if (!storageKey?.startsWith(this.STORAGE_PREFIX)) continue;
+          const originalKey = storageKey.slice(this.STORAGE_PREFIX.length);
+          if (!keep.has(originalKey)) keysToRemove.push(storageKey);
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+      } catch (e) {
+        console.warn('Failed to clear selective persistent cache');
+      }
+    }
+  }
+
   // Get cache statistics
   getStats(): { size: number; keys: string[] } {
     return {
