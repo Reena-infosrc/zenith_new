@@ -246,9 +246,13 @@ export function GoalDetailPanel({
   const goalManagerApproved = details?.managerApproved ?? activeSummary?.managerApproved;
   const goalManagerReopened = details?.managerReopened ?? activeSummary?.managerReopened;
 
+  // Prefer snapshot + loaded details both allowing edits (avoids details alone contradicting list)
   const showAddMilestoneAction =
     Boolean(onAddMilestone) &&
-    (!requireApprovedGoalForMilestones || canMutateMilestonesForStatus(goalStatus));
+    (!requireApprovedGoalForMilestones ||
+      (canMutateMilestonesForStatus(activeSummary?.status) &&
+        (!details || canMutateMilestonesForStatus(details.status)) &&
+        canMutateMilestonesForStatus(goalStatus)));
 
   // Use selectedGoalFromCategory as goalId if available, otherwise use prop goalId
   const activeGoalId = selectedGoalFromCategory || goalId;
@@ -740,8 +744,9 @@ export function GoalDetailPanel({
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <h3 className="text-sm font-semibold break-words">{goal.title}</h3>
                         <Badge
+                          variant="outline"
                           className={cn(
-                            "rounded-lg text-sm font-semibold px-3 py-1.5 min-h-9 flex-shrink-0 leading-tight",
+                            "rounded-lg border-2 text-sm font-semibold px-3 py-1.5 min-h-9 flex-shrink-0 leading-tight",
                             statusBadge(goal.status)
                           )}
                         >
@@ -788,8 +793,9 @@ export function GoalDetailPanel({
                               </h4>
                             </div>
                             <Badge
+                              variant="outline"
                               className={cn(
-                                "rounded-lg text-sm font-semibold px-3 py-1.5 min-h-9 leading-tight shadow-sm",
+                                "rounded-lg border-2 text-sm font-semibold px-3 py-1.5 min-h-9 leading-tight shadow-sm",
                                 statusBadge(goal.status)
                               )}
                             >
@@ -833,7 +839,9 @@ export function GoalDetailPanel({
                               )}
                               {onAddMilestone &&
                                 (!requireApprovedGoalForMilestones ||
-                                  canMutateMilestonesForStatus(goal.status)) && (
+                                  (canMutateMilestonesForStatus(goal.status) &&
+                                    (!goalDetails ||
+                                      canMutateMilestonesForStatus(goalDetails.status)))) && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1041,8 +1049,9 @@ export function GoalDetailPanel({
                   {goalTitle}
                 </h2>
                 <Badge
+                  variant="outline"
                   className={cn(
-                    "rounded-lg text-sm font-semibold px-3 py-1.5 min-h-9 flex-shrink-0 leading-tight",
+                    "rounded-lg border-2 text-sm font-semibold px-3 py-1.5 min-h-9 flex-shrink-0 leading-tight",
                     statusBadge(goalStatus)
                   )}
                 >

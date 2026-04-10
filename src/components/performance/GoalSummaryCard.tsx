@@ -171,8 +171,9 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
           {/* Status — large, high-contrast pill */}
           <div className="flex items-center gap-2 flex-wrap">
             <Badge
+              variant="outline"
               className={cn(
-                "rounded-lg text-sm font-semibold px-3.5 py-1.5 min-h-9 leading-tight tracking-tight",
+                "rounded-lg border-2 text-sm font-semibold px-3.5 py-1.5 min-h-9 leading-tight tracking-tight",
                 statusStyles[normalizedStatus] ?? statusStyles.pending
               )}
             >
