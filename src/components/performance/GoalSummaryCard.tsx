@@ -18,51 +18,6 @@ const statusStyles: Record<string, string> = {
     "bg-amber-400/20 text-amber-950 dark:text-amber-50 border-2 border-amber-500/65 shadow-sm"
 };
 
-function PendingApprovalRibbon() {
-  return (
-    <>
-      {/* Animated left-edge accent bar */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl z-10 pointer-events-none"
-        style={{
-          background: "linear-gradient(180deg, #3b82f6, #2563eb, #1d4ed8)",
-          animation: "pulse-glow 2s ease-in-out infinite",
-        }}
-      />
-      {/* Corner ribbon */}
-      <div className="absolute -top-[2px] -right-[2px] z-10 overflow-hidden w-28 h-28 pointer-events-none">
-        <div
-          className="absolute top-[14px] -right-[6px] w-[150%] text-center rotate-45 origin-center"
-          style={{
-            background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 40%, #1d4ed8 100%)",
-            boxShadow: "0 4px 14px rgba(37, 99, 235, 0.45), inset 0 1px 0 rgba(255,255,255,0.25)",
-            padding: "6px 0",
-          }}
-        >
-          <span className="text-white text-[9px] font-bold uppercase tracking-wider drop-shadow-sm">
-            Pending Approval
-          </span>
-        </div>
-        {/* Corner fold triangles */}
-        <div
-          className="absolute top-0 right-[88px] w-0 h-0"
-          style={{ borderStyle: "solid", borderWidth: "0 8px 8px 0", borderColor: "transparent #1e3a8a transparent transparent", opacity: 0.5 }}
-        />
-        <div
-          className="absolute top-[88px] right-0 w-0 h-0"
-          style={{ borderStyle: "solid", borderWidth: "0 0 8px 8px", borderColor: "transparent transparent transparent #1e3a8a", opacity: 0.5 }}
-        />
-      </div>
-      <style>{`
-        @keyframes pulse-glow {
-          0%, 100% { opacity: 0.7; box-shadow: 0 0 4px rgba(59, 130, 246, 0.3); }
-          50% { opacity: 1; box-shadow: 0 0 10px rgba(59, 130, 246, 0.6); }
-        }
-      `}</style>
-    </>
-  );
-}
-
 const statusLabel = (status: string) => {
   switch (normalizeGoalStatus(status)) {
     case "completed":
@@ -104,7 +59,6 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
 
     const roundedCompletion = Math.round(goal.completion);
     const normalizedStatus = normalizeGoalStatus(goal.status);
-    const isPendingApproval = normalizedStatus === "pending" || normalizedStatus === "pending_manager_approval";
 
     return (
       <button
@@ -122,15 +76,11 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
           "group relative w-full rounded-xl border border-border/40 bg-gradient-to-br from-background/80 via-background/60 to-background/80 backdrop-blur-sm px-5 py-4 text-left shadow-lg transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 hover:-translate-y-0.5 hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-2 overflow-hidden",
           disabled && "opacity-60 cursor-not-allowed",
           isOpen && "border-primary/60 shadow-xl shadow-primary/10",
-          isPendingApproval && "border-blue-400/40 shadow-blue-500/5",
           className
         )}
         aria-expanded={isOpen}
         aria-controls={controlsId}
       >
-        {/* Corner ribbon for goals awaiting manager approval */}
-        {isPendingApproval && <PendingApprovalRibbon />}
-
         {/* Hover gradient overlay */}
         <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary/5 via-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
         
