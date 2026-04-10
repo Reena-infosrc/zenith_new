@@ -159,7 +159,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   const { user } = useAuth();
   const { getEmployeeGoals, getGoal, createMilestone, updateMilestone, deleteMilestone, updateGoal, loading: goalsLoading } = useGoals();
   const { employees } = useEmployees();
-  const { getCachedData } = usePerformancePreload();
+  const { getCachedData, updateCachedGoals } = usePerformancePreload();
 
   const [goals, setGoals] = useState<PerformanceGoal[]>([]);
   const [currentEmployeeId, setCurrentEmployeeId] = useState<string | null>(providedEmployeeId || null);
@@ -280,11 +280,21 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
       }
 
       const updatedSummary = toGoalPanelSnapshot(updatedGoal);
+      const prevMs = prev.summary?.milestones ?? [];
+      const nextMs = updatedSummary.milestones ?? [];
+      const milestonesChanged =
+        prevMs.length !== nextMs.length ||
+        nextMs.some((m, i) => {
+          const p = prevMs[i];
+          return !p || p.id !== m.id || p.completed !== m.completed || p.completedDate !== m.completedDate;
+        });
       const hasChanged =
         !prev.summary ||
-        prev.summary.milestones?.length !== updatedSummary.milestones?.length ||
+        milestonesChanged ||
         prev.summary.completion !== updatedSummary.completion ||
-        prev.summary.status !== updatedSummary.status;
+        prev.summary.status !== updatedSummary.status ||
+        prev.summary.managerApproved !== updatedSummary.managerApproved ||
+        prev.summary.managerReopened !== updatedSummary.managerReopened;
 
       if (!hasChanged) {
         return prev;
@@ -325,62 +335,74 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     }
   }, [providedEmployeeId, user?.email, employees]);
 
-  // Track if goals have been loaded to prevent re-fetching on navigation
-  const goalsLoadedRef = useRef<string | null>(null);
-
-  // Fetch goals when employee ID is available - check cache first
+  // Load goals from API (force refresh) so reportees see manager approvals without stale preload/hook cache.
   useEffect(() => {
-    // Skip if already loaded for this employee
-    if (goalsLoadedRef.current === currentEmployeeId) {
-      return;
-    }
+    if (!currentEmployeeId || !user?.email) return;
+
+    let cancelled = false;
 
     const fetchGoals = async () => {
-      if (!currentEmployeeId || !user?.email) return;
-
       try {
         setLoading(true);
 
-        // Check cache first
         const cached = getCachedData(user.email);
         if (cached && cached.employeeId === currentEmployeeId && cached.goals.length > 0) {
-          console.log('📦 Using cached goals data - NO API CALL');
           const convertedGoals = cached.goals.map(convertGoalToPerformanceGoal);
-          // Only update state if goals have actually changed
-          setGoals(prevGoals => {
-            const goalsChanged = prevGoals.length !== convertedGoals.length ||
-              prevGoals.some((g, i) => g.id !== convertedGoals[i]?.id);
-            return goalsChanged ? convertedGoals : prevGoals;
-          });
-          refreshGoalPanelState(convertedGoals);
-          setLoading(false);
-          goalsLoadedRef.current = currentEmployeeId;
-          return;
+          if (!cancelled) {
+            setGoals(convertedGoals);
+            refreshGoalPanelState(convertedGoals);
+          }
         }
 
-        // Fetch from API if not cached (only once per employee)
-        goalsLoadedRef.current = currentEmployeeId;
-        const apiGoals = await getEmployeeGoals(currentEmployeeId);
+        const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
+        if (cancelled) return;
+
         const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
         setGoals(convertedGoals);
+        updateCachedGoals(user.email, currentEmployeeId, apiGoals);
         refreshGoalPanelState(convertedGoals);
       } catch (error) {
         console.error("Error fetching goals:", error);
-        goalsLoadedRef.current = null; // Allow retry on error
         toast({
           title: "Error",
           description: "Failed to load goals",
           variant: "destructive"
         });
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
-    if (currentEmployeeId) {
-      fetchGoals();
-    }
-  }, [currentEmployeeId, getEmployeeGoals, toast, refreshGoalPanelState, user?.email, getCachedData]);
+    fetchGoals();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentEmployeeId, getEmployeeGoals, toast, refreshGoalPanelState, user?.email, getCachedData, updateCachedGoals]);
+
+  // When returning to the tab, refresh goals so cross-session manager actions are reflected.
+  useEffect(() => {
+    if (!currentEmployeeId || !user?.email) return;
+
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void (async () => {
+        try {
+          const apiGoals = await getEmployeeGoals(currentEmployeeId, true);
+          const convertedGoals = apiGoals.map(convertGoalToPerformanceGoal);
+          setGoals(convertedGoals);
+          updateCachedGoals(user.email, currentEmployeeId, apiGoals);
+          refreshGoalPanelState(convertedGoals);
+        } catch (e) {
+          console.error("Error refreshing goals on visibility:", e);
+        }
+      })();
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [currentEmployeeId, user?.email, getEmployeeGoals, updateCachedGoals, refreshGoalPanelState]);
 
   // Track if reviews have been loaded to prevent re-fetching on navigation
   const reviewsLoadedRef = useRef<string | null>(null);

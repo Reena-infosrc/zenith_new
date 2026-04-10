@@ -2728,7 +2728,7 @@ export function ManagerPerformanceView() {
                     // Approve the goal via API
                     const isProposed = selectedGoalForApproval.goal.status === 'pending';
                     const updatedGoal = await updateGoal(selectedGoalForApproval.goal.id, {
-                      managerApproved: !isProposed,
+                      managerApproved: true,
                       status: isProposed ? 'in_progress' : 'completed'
                     });
 
