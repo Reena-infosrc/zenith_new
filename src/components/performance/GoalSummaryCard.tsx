@@ -2,26 +2,21 @@ import { forwardRef, useImperativeHandle, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, ChevronRight } from "lucide-react";
+import { normalizeGoalStatus } from "@/utils/goal-status";
 
+/** High-contrast pills: yellow = draft/pending, green = active, red/orange = attention, emerald = done */
 const statusStyles: Record<string, string> = {
-  completed: "bg-green-500/10 text-green-600 border-green-500/20",
-  in_progress: "bg-blue-500/10 text-blue-600 border-blue-500/20",
-  pending_manager_approval: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-  manager_reopened: "bg-orange-500/10 text-orange-600 border-orange-500/20",
-  pending: "bg-muted text-muted-foreground border-border/60"
+  completed:
+    "bg-emerald-500/15 text-emerald-800 dark:text-emerald-100 border-2 border-emerald-500/55 shadow-sm",
+  in_progress:
+    "bg-green-600/15 text-green-800 dark:text-green-100 border-2 border-green-500/60 shadow-sm",
+  pending_manager_approval:
+    "bg-orange-500/15 text-orange-900 dark:text-orange-100 border-2 border-orange-500/55 shadow-sm",
+  manager_reopened:
+    "bg-red-500/15 text-red-900 dark:text-red-100 border-2 border-red-500/55 shadow-sm",
+  pending:
+    "bg-amber-400/20 text-amber-950 dark:text-amber-50 border-2 border-amber-500/65 shadow-sm"
 };
-
-function normalizeGoalStatus(status: string): string {
-  const raw = (status || "").toLowerCase().trim().replace(/\s+/g, "_");
-  if (raw === "pending_manager_approval" || raw === "pending_approval" || raw === "pending-manager-approval") {
-    return "pending_manager_approval";
-  }
-  if (raw === "pending") return "pending";
-  if (raw === "in_progress") return "in_progress";
-  if (raw === "manager_reopened") return "manager_reopened";
-  if (raw === "completed") return "completed";
-  return raw || "pending";
-}
 
 function PendingApprovalRibbon() {
   return (
@@ -173,12 +168,14 @@ export const GoalSummaryCard = forwardRef<HTMLButtonElement, GoalSummaryCardProp
             </div>
           </div>
 
-          {/* Status Badge */}
-          <div className="flex items-center gap-2">
-            <Badge className={cn(
-              "border text-[10px] font-semibold px-2.5 py-1 shadow-sm",
-              statusStyles[normalizedStatus] ?? statusStyles.pending
-            )}>
+          {/* Status — large, high-contrast pill */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge
+              className={cn(
+                "rounded-lg text-sm font-semibold px-3.5 py-1.5 min-h-9 leading-tight tracking-tight",
+                statusStyles[normalizedStatus] ?? statusStyles.pending
+              )}
+            >
               {statusLabel(normalizedStatus)}
             </Badge>
           </div>

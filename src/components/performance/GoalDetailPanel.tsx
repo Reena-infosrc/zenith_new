@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { canMutateMilestonesForStatus, normalizeGoalStatus } from "@/utils/goal-status";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { Goal, Milestone } from "@/hooks/use-goals";
 import {
@@ -73,6 +74,8 @@ export interface GoalDetailPanelProps {
   onGoalUpdate?: () => Promise<void> | void;
   onDeleteGoal?: (goalId: string) => Promise<void> | void;
   panelId?: string;
+  /** When true (employee view), hide milestone actions until goal is in progress or reopened. */
+  requireApprovedGoalForMilestones?: boolean;
 }
 
 
@@ -81,22 +84,26 @@ const MAX_INITIAL_MILESTONES = 10;
 const MILESTONE_INCREMENT = 10;
 
 const statusBadge = (status: string) => {
-  switch (status) {
+  const n = normalizeGoalStatus(status);
+  switch (n) {
     case "completed":
-      return "bg-green-500/10 text-green-600 border-green-500/20";
+      return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-100 border-2 border-emerald-500/55 shadow-sm";
     case "in_progress":
-      return "bg-blue-500/10 text-blue-600 border-blue-500/20";
+      return "bg-green-600/15 text-green-800 dark:text-green-100 border-2 border-green-500/60 shadow-sm";
     case "pending_manager_approval":
-      return "bg-blue-500/10 text-blue-600 border-blue-500/20";
+      return "bg-orange-500/15 text-orange-900 dark:text-orange-100 border-2 border-orange-500/55 shadow-sm";
     case "manager_reopened":
-      return "bg-orange-500/10 text-orange-600 border-orange-500/20";
+      return "bg-red-500/15 text-red-900 dark:text-red-100 border-2 border-red-500/55 shadow-sm";
+    case "pending":
+      return "bg-amber-400/20 text-amber-950 dark:text-amber-50 border-2 border-amber-500/65 shadow-sm";
     default:
-      return "bg-muted text-muted-foreground border-border/50";
+      return "bg-muted text-muted-foreground border-2 border-border/60";
   }
 };
 
 const statusLabel = (status: string) => {
-  switch (status) {
+  const n = normalizeGoalStatus(status);
+  switch (n) {
     case "completed":
       return "Completed";
     case "in_progress":
@@ -105,6 +112,8 @@ const statusLabel = (status: string) => {
       return "Pending Manager Approval";
     case "manager_reopened":
       return "Reopened";
+    case "pending":
+      return "Pending";
     default:
       return "Pending";
   }
@@ -183,7 +192,8 @@ export function GoalDetailPanel({
   onGoalClosed,
   onGoalUpdate,
   onDeleteGoal,
-  panelId
+  panelId,
+  requireApprovedGoalForMilestones = false
 }: GoalDetailPanelProps) {
 
 
@@ -236,6 +246,9 @@ export function GoalDetailPanel({
   const goalManagerApproved = details?.managerApproved ?? activeSummary?.managerApproved;
   const goalManagerReopened = details?.managerReopened ?? activeSummary?.managerReopened;
 
+  const showAddMilestoneAction =
+    Boolean(onAddMilestone) &&
+    (!requireApprovedGoalForMilestones || canMutateMilestonesForStatus(goalStatus));
 
   // Use selectedGoalFromCategory as goalId if available, otherwise use prop goalId
   const activeGoalId = selectedGoalFromCategory || goalId;
@@ -726,7 +739,12 @@ export function GoalDetailPanel({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <h3 className="text-sm font-semibold break-words">{goal.title}</h3>
-                        <Badge className={cn("border text-[11px] flex-shrink-0", statusBadge(goal.status))}>
+                        <Badge
+                          className={cn(
+                            "rounded-lg text-sm font-semibold px-3 py-1.5 min-h-9 flex-shrink-0 leading-tight",
+                            statusBadge(goal.status)
+                          )}
+                        >
                           {statusLabel(goal.status)}
                         </Badge>
                       </div>
@@ -769,7 +787,12 @@ export function GoalDetailPanel({
                                 Status
                               </h4>
                             </div>
-                            <Badge className={cn("border text-[11px] font-medium shadow-sm", statusBadge(goal.status))}>
+                            <Badge
+                              className={cn(
+                                "rounded-lg text-sm font-semibold px-3 py-1.5 min-h-9 leading-tight shadow-sm",
+                                statusBadge(goal.status)
+                              )}
+                            >
                               {statusLabel(goal.status)}
                             </Badge>
                           </div>
@@ -808,7 +831,9 @@ export function GoalDetailPanel({
                                   Edit Goal
                                 </Button>
                               )}
-                              {onAddMilestone && (
+                              {onAddMilestone &&
+                                (!requireApprovedGoalForMilestones ||
+                                  canMutateMilestonesForStatus(goal.status)) && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1015,7 +1040,12 @@ export function GoalDetailPanel({
                 >
                   {goalTitle}
                 </h2>
-                <Badge className={cn("border text-xs flex-shrink-0", statusBadge(goalStatus))}>
+                <Badge
+                  className={cn(
+                    "rounded-lg text-sm font-semibold px-3 py-1.5 min-h-9 flex-shrink-0 leading-tight",
+                    statusBadge(goalStatus)
+                  )}
+                >
                   {statusLabel(goalStatus)}
                 </Badge>
               </div>
@@ -1144,8 +1174,8 @@ export function GoalDetailPanel({
               Edit Goal
             </Button>
           )}
-          {onAddMilestone && activeGoalId && (
-            <Button variant="outline" size="sm" onClick={() => onAddMilestone(activeGoalId)}>
+          {showAddMilestoneAction && activeGoalId && (
+            <Button variant="outline" size="sm" onClick={() => onAddMilestone!(activeGoalId)}>
               Add Milestone
             </Button>
           )}

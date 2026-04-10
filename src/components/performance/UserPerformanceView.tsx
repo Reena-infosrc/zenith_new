@@ -69,6 +69,11 @@ import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
 import { calculateGoalDistribution } from "@/utils/goal-distribution";
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
+import {
+  normalizeGoalStatus,
+  isPendingApprovalStatus,
+  canMutateMilestonesForStatus
+} from "@/utils/goal-status";
 
 interface PerformanceGoal {
   id: string;
@@ -123,23 +128,6 @@ const convertGoalToPerformanceGoal = (goal: Goal): PerformanceGoal => {
     managerApproved: goal.managerApproved,
     managerReopened: goal.managerReopened
   };
-};
-
-const normalizeGoalStatus = (status: string | undefined): string => {
-  const raw = (status || "").toLowerCase().trim().replace(/\s+/g, "_");
-  if (raw === "pending_manager_approval" || raw === "pending_approval" || raw === "pending-manager-approval") {
-    return "pending_manager_approval";
-  }
-  if (raw === "pending") return "pending";
-  if (raw === "in_progress") return "in_progress";
-  if (raw === "manager_reopened") return "manager_reopened";
-  if (raw === "completed") return "completed";
-  return raw;
-};
-
-const isPendingApprovalStatus = (status: string | undefined): boolean => {
-  const s = normalizeGoalStatus(status);
-  return s === "pending" || s === "pending_manager_approval";
 };
 
 const resolveReviewStatus = (review?: any) =>
@@ -262,8 +250,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   );
   const canEditMilestonesForPanelGoal = useMemo(() => {
     if (!selectedPanelGoal) return false;
-    const normalized = normalizeGoalStatus(selectedPanelGoal.status);
-    return ["in_progress", "manager_reopened"].includes(normalized);
+    return canMutateMilestonesForStatus(selectedPanelGoal.status);
   }, [selectedPanelGoal]);
   const goalPanelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const goalPanelId = "goal-detail-panel";
@@ -636,17 +623,20 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   const inProgressGoals = goals.filter(g => g.status === 'in_progress').length;
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    const n = normalizeGoalStatus(status);
+    switch (n) {
       case 'completed':
-        return <Badge className="bg-green-500/10 text-green-600 border-green-500/20"><CheckCircle2 className="h-3 w-3 mr-1" />Completed</Badge>;
+        return <Badge className="bg-emerald-500/15 text-emerald-800 dark:text-emerald-100 border-2 border-emerald-500/55 px-3 py-1.5 text-sm font-semibold"><CheckCircle2 className="h-3.5 w-3.5 mr-1" />Completed</Badge>;
       case 'in_progress':
-        return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20"><Clock className="h-3 w-3 mr-1" />In Progress</Badge>;
+        return <Badge className="bg-green-600/15 text-green-800 dark:text-green-100 border-2 border-green-500/60 px-3 py-1.5 text-sm font-semibold"><Clock className="h-3.5 w-3.5 mr-1" />In Progress</Badge>;
       case 'pending_manager_approval':
-        return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20"><Send className="h-3 w-3 mr-1" />Pending Approval</Badge>;
+        return <Badge className="bg-orange-500/15 text-orange-900 dark:text-orange-100 border-2 border-orange-500/55 px-3 py-1.5 text-sm font-semibold"><Send className="h-3.5 w-3.5 mr-1" />Pending Approval</Badge>;
+      case 'pending':
+        return <Badge className="bg-amber-400/20 text-amber-950 dark:text-amber-50 border-2 border-amber-500/65 px-3 py-1.5 text-sm font-semibold">Pending</Badge>;
       case 'manager_reopened':
-        return <Badge className="bg-orange-500/10 text-orange-600 border-orange-500/20"><RefreshCw className="h-3 w-3 mr-1" />Reopened</Badge>;
+        return <Badge className="bg-red-500/15 text-red-900 dark:text-red-100 border-2 border-red-500/55 px-3 py-1.5 text-sm font-semibold"><RefreshCw className="h-3.5 w-3.5 mr-1" />Reopened</Badge>;
       default:
-        return <Badge variant="outline">Pending</Badge>;
+        return <Badge className="bg-amber-400/20 text-amber-950 dark:text-amber-50 border-2 border-amber-500/65 px-3 py-1.5 text-sm font-semibold">Pending</Badge>;
     }
   };
 
@@ -683,7 +673,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   // Handle milestone edit
   const handleMilestoneClick = (goalId: string, milestone: Milestone) => {
     const targetGoal = goals.find((g) => g.id === goalId);
-    if (!targetGoal || !["in_progress", "manager_reopened"].includes(normalizeGoalStatus(targetGoal.status))) {
+    if (!targetGoal || !canMutateMilestonesForStatus(targetGoal.status)) {
       toast({
         title: "Manager approval required",
         description: "Milestones can be updated only after the manager approves the goal.",
@@ -834,7 +824,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   // Handle add milestone button click
   const handleAddMilestoneClick = (goalId: string) => {
     const targetGoal = goals.find((g) => g.id === goalId);
-    if (!targetGoal || !["in_progress", "manager_reopened"].includes(normalizeGoalStatus(targetGoal.status))) {
+    if (!targetGoal || !canMutateMilestonesForStatus(targetGoal.status)) {
       toast({
         title: "Manager approval required",
         description: "You can add milestones only after the manager approves this goal.",
@@ -1683,7 +1673,8 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           onClose={handleCloseGoalPanel}
           getGoal={getGoal}
           onAddMilestone={canEditMilestonesForPanelGoal ? handleAddMilestoneClick : undefined}
-          onMilestoneClick={handleMilestoneClick}
+          onMilestoneClick={canEditMilestonesForPanelGoal ? handleMilestoneClick : undefined}
+          requireApprovedGoalForMilestones
           onSubmitGoal={handleSubmitGoal}
           isSubmittingGoal={submittingGoalId === goalPanelState.goalId}
           triggerRef={goalPanelTriggerRef}

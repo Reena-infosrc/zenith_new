@@ -26,6 +26,20 @@ CACHE_DURATION = 300  # Cache for 5 minutes
 # "pending" / "pending_manager_approval" are review states and must be read-only.
 MILESTONE_EDITABLE_STATUSES = {"in_progress", "manager_reopened"}
 
+
+def _norm_goal_status(raw: Optional[str]) -> str:
+    """Normalize status strings from API/UI (spacing, casing, legacy variants)."""
+    if not raw:
+        return ""
+    s = str(raw).strip().lower().replace(" ", "_").replace("-", "_")
+    if s == "inprogress":
+        return "in_progress"
+    return s
+
+
+def _milestone_edits_allowed(goal_status: Optional[str]) -> bool:
+    return _norm_goal_status(goal_status) in MILESTONE_EDITABLE_STATUSES
+
 def clear_goals_caches():
     """Clear all caches (useful for testing or when employee data changes)"""
     global _employee_id_cache, _manager_check_cache
@@ -674,7 +688,7 @@ async def create_milestone(
                     detail="You don't have permission to add milestones to this goal"
                 )
         
-        if goal.get("status") not in MILESTONE_EDITABLE_STATUSES:
+        if not _milestone_edits_allowed(goal.get("status")):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Milestones can only be added after manager approval"
@@ -755,7 +769,7 @@ async def update_milestone(
                     detail="You don't have permission to update milestones for this goal"
                 )
         
-        if goal.get("status") not in MILESTONE_EDITABLE_STATUSES:
+        if not _milestone_edits_allowed(goal.get("status")):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Milestones can only be updated after manager approval"
@@ -858,7 +872,7 @@ async def delete_milestone(
                 detail="You can only delete milestones from your own goals"
             )
         
-        if goal.get("status") not in MILESTONE_EDITABLE_STATUSES:
+        if not _milestone_edits_allowed(goal.get("status")):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Milestones can only be changed after manager approval"
