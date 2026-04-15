@@ -276,47 +276,50 @@ export default function Login() {
       // Check 3: Is there already an account from a previous session?
       const hasExistingAccount = accounts && accounts.length > 0;
 
-      // If we have a login_hint OR an existing account, try ssoSilent
-      if (loginHint || hasExistingAccount) {
-        // Don't re-attempt if user explicitly logged out
-        const hasLoggedOut = sessionStorage.getItem('user_logged_out');
-        if (hasLoggedOut) {
-          sessionStorage.removeItem('user_logged_out');
+      // Check 4: Did the user originate from SharePoint? (naked redirect without login_hint)
+      const referrer = document.referrer || '';
+      const isFromSharePoint = referrer.toLowerCase().includes('sharepoint.com');
+
+      // Always try ssoSilent on mount. This ensures seamless "zero-click" SSO
+      // from naked intranet links (e.g. SharePoint apps without login_hint).
+      // Don't re-attempt if user explicitly logged out
+      const hasLoggedOut = sessionStorage.getItem('user_logged_out');
+      if (hasLoggedOut) {
+        sessionStorage.removeItem('user_logged_out');
+        return;
+      }
+
+      setIsSsoAttempting(true);
+
+      try {
+        const ssoResult = await attemptSsoSilent(
+          loginHint || undefined,
+        );
+
+        if (ssoResult?.accessToken && ssoResult?.idToken) {
+          await completeLoginWithToken(
+            ssoResult.accessToken,
+            ssoResult.idToken,
+          );
+          return; // Success — navigation handled by completeLoginWithToken
+        } else if (loginHint || isFromSharePoint) {
+          // Fallback: If ssoSilent returned null (e.g., 3rd-party cookies blocked)
+          // and we originated from SharePoint or have a login_hint, forcefully redirect to identity provider
+          console.info("[SSO] ssoSilent returned null, falling back to loginRedirect for bypass");
+          await instance.loginRedirect({ scopes: [...LOGIN_SCOPES], loginHint: loginHint || undefined });
           return;
         }
-
-        setIsSsoAttempting(true);
-
-        try {
-          const ssoResult = await attemptSsoSilent(
-            loginHint || undefined,
-          );
-
-          if (ssoResult?.accessToken && ssoResult?.idToken) {
-            await completeLoginWithToken(
-              ssoResult.accessToken,
-              ssoResult.idToken,
-            );
-            return; // Success — navigation handled by completeLoginWithToken
-          } else if (loginHint) {
-            // Fallback: If ssoSilent returned null (e.g., 3rd-party cookies blocked)
-            // and we have a strict login_hint from SharePoint, forcefully redirect to identity provider
-            console.info("[SSO] ssoSilent returned null, falling back to loginRedirect for bypass");
-            await instance.loginRedirect({ scopes: [...LOGIN_SCOPES], loginHint });
-            return;
-          }
-        } catch (error) {
-          console.info("[SSO] Silent login failed:", error);
-          if (loginHint) {
-            // Fallback: If ssoSilent threw an error
-            console.info("[SSO] ssoSilent threw an error, falling back to loginRedirect for bypass");
-            await instance.loginRedirect({ scopes: [...LOGIN_SCOPES], loginHint });
-            return;
-          }
+      } catch (error) {
+        console.info("[SSO] Silent login failed:", error);
+        if (loginHint || isFromSharePoint) {
+          // Fallback: If ssoSilent threw an error
+          console.info("[SSO] ssoSilent threw an error, falling back to loginRedirect for bypass");
+          await instance.loginRedirect({ scopes: [...LOGIN_SCOPES], loginHint: loginHint || undefined });
+          return;
         }
-
-        setIsSsoAttempting(false);
       }
+
+      setIsSsoAttempting(false);
     };
 
     doSsoAttempt();
