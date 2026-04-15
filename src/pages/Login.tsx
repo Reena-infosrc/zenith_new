@@ -298,9 +298,21 @@ export default function Login() {
               ssoResult.idToken,
             );
             return; // Success — navigation handled by completeLoginWithToken
+          } else if (loginHint) {
+            // Fallback: If ssoSilent returned null (e.g., 3rd-party cookies blocked)
+            // and we have a strict login_hint from SharePoint, forcefully redirect to identity provider
+            console.info("[SSO] ssoSilent returned null, falling back to loginRedirect for bypass");
+            await instance.loginRedirect({ scopes: [...LOGIN_SCOPES], loginHint });
+            return;
           }
         } catch (error) {
-          console.info("[SSO] Silent login failed, showing login button:", error);
+          console.info("[SSO] Silent login failed:", error);
+          if (loginHint) {
+            // Fallback: If ssoSilent threw an error
+            console.info("[SSO] ssoSilent threw an error, falling back to loginRedirect for bypass");
+            await instance.loginRedirect({ scopes: [...LOGIN_SCOPES], loginHint });
+            return;
+          }
         }
 
         setIsSsoAttempting(false);
