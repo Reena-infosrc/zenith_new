@@ -371,6 +371,15 @@ def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = False) -> 
         doc["department"] = ""
     if not doc.get("position"):
         doc["position"] = ""
+        
+    # Pydantic validation safeguards for required fields
+    if not doc.get("name"):
+        doc["name"] = doc.get("first_name") or doc.get("email") or "Unknown Employee"
+    if not doc.get("created_at"):
+        doc["created_at"] = time.strftime("%Y-%m-%d")
+    if not doc.get("updated_at"):
+        doc["updated_at"] = doc.get("created_at")
+        
     return doc
 
 
