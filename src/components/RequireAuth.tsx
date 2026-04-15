@@ -61,7 +61,7 @@ export default function RequireAuth({ children }: RequireAuthProps) {
   // We rely completely on the MSAL session as the source of truth for persistent auth.
   // The actual backend JWT is stored in memory and acquired automatically on demand.
   if (!hasMsalAccount) {
-    return <Navigate to="/" replace state={{ from: location }} />;
+    return <Navigate to={`/${location.search}`} replace state={{ from: location }} />;
   }
 
   return <>{children}</>;
