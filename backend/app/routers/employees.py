@@ -371,15 +371,6 @@ def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = False) -> 
         doc["department"] = ""
     if not doc.get("position"):
         doc["position"] = ""
-        
-    # Pydantic validation safeguards for required fields
-    if not doc.get("name"):
-        doc["name"] = doc.get("first_name") or doc.get("email") or "Unknown Employee"
-    if not doc.get("created_at"):
-        doc["created_at"] = time.strftime("%Y-%m-%d")
-    if not doc.get("updated_at"):
-        doc["updated_at"] = doc.get("created_at")
-        
     return doc
 
 
@@ -499,9 +490,9 @@ async def get_employees(
             parsed = [
                 d for d in parsed
                 if (
-                    search_lower in (d.get("name") or "").lower()
-                    or search_lower in (d.get("position") or "").lower()
-                    or search_lower in (d.get("email") or "").lower()
+                    search_lower in d.get("name", "").lower()
+                    or search_lower in d.get("position", "").lower()
+                    or search_lower in d.get("email", "").lower()
                 )
             ]
 
@@ -510,7 +501,7 @@ async def get_employees(
             reverse_order = sort_order and sort_order.lower() == "desc"
             
             if sort_by == "name":
-                parsed.sort(key=lambda x: (x.get("name") or "").lower(), reverse=reverse_order)
+                parsed.sort(key=lambda x: x.get("name", "").lower(), reverse=reverse_order)
             elif sort_by == "date_of_joining":
                 def get_date_key(emp):
                     date_str = emp.get("date_of_joining", "")
