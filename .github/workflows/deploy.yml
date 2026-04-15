@@ -151,6 +151,7 @@ jobs:
           ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          SECURITY_SECRET_KEY: ${{ secrets.SECURITY_SECRET_KEY }}
           AZURE_MSAL_CLIENT_ID: ${{ secrets.AZURE_MSAL_CLIENT_ID }}
           AZURE_MSAL_TENANT_ID: ${{ secrets.AZURE_MSAL_TENANT_ID }}
 
