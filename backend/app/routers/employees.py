@@ -490,9 +490,9 @@ async def get_employees(
             parsed = [
                 d for d in parsed
                 if (
-                    search_lower in d.get("name", "").lower()
-                    or search_lower in d.get("position", "").lower()
-                    or search_lower in d.get("email", "").lower()
+                    search_lower in (d.get("name") or "").lower()
+                    or search_lower in (d.get("position") or "").lower()
+                    or search_lower in (d.get("email") or "").lower()
                 )
             ]
 
@@ -501,7 +501,7 @@ async def get_employees(
             reverse_order = sort_order and sort_order.lower() == "desc"
             
             if sort_by == "name":
-                parsed.sort(key=lambda x: x.get("name", "").lower(), reverse=reverse_order)
+                parsed.sort(key=lambda x: (x.get("name") or "").lower(), reverse=reverse_order)
             elif sort_by == "date_of_joining":
                 def get_date_key(emp):
                     date_str = emp.get("date_of_joining", "")
