@@ -83,7 +83,7 @@ export default function Directory() {
     updateEmployee,
     importEmployeesFromCsv,
     bulkUpdateEmployeeNames
-  } = useEmployees();
+  } = useEmployees({ includeInactive: isAdmin });
 
   const { stats: dashboardStats } = useDashboardStats();
 

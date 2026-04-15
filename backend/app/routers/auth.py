@@ -23,6 +23,9 @@ from ..security import (
     get_current_user,
     jwks_validator,
     require_admin_user,
+    oauth2_scheme,
+    SECRET_KEY,
+    ALGORITHM,
 )
 from ..security_config import allow_unverified_msal_exchange, debug_endpoints_enabled
 from ..rate_limit import limiter
@@ -81,21 +84,60 @@ async def login(request: Request, user_data: UserLogin):
 @limiter.limit("60/minute")
 async def refresh_access_token(
     request: Request,
-    current_user=Depends(get_current_active_user),
+    token: str = Depends(oauth2_scheme),
 ):
-    """Refresh access token for authenticated user"""
+    """Refresh access token for authenticated user (supports expired tokens)"""
     try:
-        # Create new token with extended expiration
+        # Decode but explicitly IGNORE expiration to allow refresh of expired tokens
+        payload = jose_jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False}
+        )
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+            
+        import time
+        current_time = int(time.time())
+        
+        # 1. Enforce strict 15-minute refresh window
+        exp_timestamp = payload.get("exp")
+        if not exp_timestamp:
+            raise HTTPException(status_code=401, detail="Invalid token payload: missing exp")
+            
+        time_since_expired = current_time - exp_timestamp
+        if time_since_expired > (15 * 60):
+            raise HTTPException(
+                status_code=401, 
+                detail="Refresh window exceeded. Session is permanently expired."
+            )
+            
+        # 2. Enforce Absolute session lifetime (1 hour max from initial MSAL login)
+        iat_timestamp = payload.get("iat")
+        if iat_timestamp:
+            session_age = current_time - iat_timestamp
+            if session_age > (60 * 60):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Absolute session lifetime exceeded. Please securely re-authenticate."
+                )
+        else:
+            # Fallback for old tokens missing iat
+            iat_timestamp = current_time
+            
+        # Create new token with extended expiration, preserving the original iat
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
-            data={"sub": current_user["username"]}, expires_delta=access_token_expires
+            data={"sub": username, "iat": iat_timestamp}, 
+            expires_delta=access_token_expires
         )
         return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error refreshing token: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while refreshing token"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token signature"
         )
 
 @router.post("/msal-token", response_model=Token)

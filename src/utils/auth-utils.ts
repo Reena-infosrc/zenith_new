@@ -1,33 +1,53 @@
 /**
- * Authentication utilities for handling JWT tokens and automatic refresh
+ * Authentication utilities for handling JWT tokens and automatic refresh.
+ *
+ * Token resolution priority in getValidToken():
+ * 1. Valid (non-expired) backend JWT in memory
+ * 2. Refresh the backend JWT via /api/auth/refresh-token
+ * 3. Fallback: acquire a fresh token from the MSAL session (ssoSilent / acquireTokenSilent)
+ *    and exchange it for a new backend JWT
  */
 
 import { API_BASE_URL } from '@/config/api';
+import { msalInstance, acquireBackendToken } from '@/auth/msal';
 
 export interface TokenResponse {
   access_token: string;
   token_type: string;
 }
 
+// In-memory storage for the backend JWT to prevent XSS theft 
+let memoryAuthToken: string | null = null;
+
+export function setMemoryAuthToken(token: string | null) {
+  memoryAuthToken = token;
+}
+
+export function clearAuthMemory() {
+  memoryAuthToken = null;
+}
+
 /**
- * Check if a JWT token is expired
+ * Check if a JWT token is expired.
+ * Returns true if expired or unparseable.
  */
 export function isTokenExpired(token: string): boolean {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const currentTime = Math.floor(Date.now() / 1000);
-    return payload.exp < currentTime;
+    // Add 60-second buffer to avoid race conditions with nearly-expired tokens
+    return payload.exp < currentTime + 60;
   } catch (error) {
     return true; // Assume expired if we can't parse
   }
 }
 
 /**
- * Refresh the access token
+ * Refresh the access token via the backend refresh endpoint.
  */
 export async function refreshAccessToken(): Promise<string | null> {
   try {
-    const currentToken = localStorage.getItem('auth_token');
+    const currentToken = memoryAuthToken;
     if (!currentToken) {
       return null;
     }
@@ -41,12 +61,9 @@ export async function refreshAccessToken(): Promise<string | null> {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
       // If credentials are invalid (401/403), clear token and force logout
       if (response.status === 401 || response.status === 403) {
-        try {
-          localStorage.removeItem('auth_token');
-        } catch {}
+        clearAuthMemory();
         // best-effort redirect to login/root so RequireAuth kicks in
         try {
           if (typeof window !== 'undefined') {
@@ -58,7 +75,7 @@ export async function refreshAccessToken(): Promise<string | null> {
     }
 
     const tokenData: TokenResponse = await response.json();
-    localStorage.setItem('auth_token', tokenData.access_token);
+    setMemoryAuthToken(tokenData.access_token);
     return tokenData.access_token;
   } catch (error) {
     return null;
@@ -66,26 +83,52 @@ export async function refreshAccessToken(): Promise<string | null> {
 }
 
 /**
- * Get a valid access token, refreshing if necessary
+ * Get a valid access token, refreshing if necessary.
+ *
+ * Resolution order:
+ * 1. Non-expired token in memory → return immediately
+ * 2. Expired token → attempt backend refresh
+ * 3. No token or refresh failed → attempt MSAL silent acquire + backend exchange
+ *    (this keeps API calls working when the user has a valid MSAL session
+ *    but the backend JWT has expired and refresh also failed)
  */
 export async function getValidToken(): Promise<string | null> {
-  const currentToken = localStorage.getItem('auth_token');
-  
-  if (!currentToken) {
-    return null;
+  const currentToken = memoryAuthToken;
+
+  // Fast path: valid token in storage
+  if (currentToken && !isTokenExpired(currentToken)) {
+    return currentToken;
   }
 
-  // Check if token is expired
-  if (isTokenExpired(currentToken)) {
-    const newToken = await refreshAccessToken();
-    return newToken;
+  // Try backend refresh first (uses the existing backend JWT)
+  if (currentToken) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) return refreshed;
   }
 
-  return currentToken;
+  // Fallback: acquire a fresh token from the MSAL session.
+  // This covers the case where the backend JWT has fully expired but the
+  // user still has a valid Microsoft session (e.g., they're signed in via
+  // SharePoint / Microsoft 365).
+  try {
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      const backendToken = await acquireBackendToken(accounts[0]);
+      if (backendToken) {
+        return backendToken;
+      }
+    }
+  } catch (error) {
+    console.warn('[auth-utils] MSAL fallback token acquisition failed:', error);
+  }
+
+  return null;
 }
 
 /**
- * Make an authenticated request with automatic token refresh
+ * Make an authenticated request with automatic token refresh.
+ *
+ * On 401 responses, attempts a single token refresh + retry before giving up.
  */
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await getValidToken();

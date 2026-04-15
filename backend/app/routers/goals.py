@@ -25,6 +25,7 @@ CACHE_DURATION = 300  # Cache for 5 minutes
 # Only these statuses can have milestone mutations.
 # "pending" / "pending_manager_approval" are review states and must be read-only.
 MILESTONE_EDITABLE_STATUSES = {"in_progress", "manager_reopened"}
+MAX_MILESTONES_PER_GOAL = 5
 
 
 def _norm_goal_status(raw: Optional[str]) -> str:
@@ -256,6 +257,11 @@ async def create_goal(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Milestones can only be added after manager approval"
+            )
+        if goal.milestones and len(goal.milestones) > MAX_MILESTONES_PER_GOAL:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A goal can have at most {MAX_MILESTONES_PER_GOAL} milestones"
             )
 
         # Convert milestones
@@ -570,6 +576,11 @@ async def update_goal(
 
         # Recalculate completion if milestones are updated
         if "milestones" in update_data and update_data["milestones"]:
+            if len(update_data["milestones"]) > MAX_MILESTONES_PER_GOAL:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"A goal can have at most {MAX_MILESTONES_PER_GOAL} milestones"
+                )
             completed_count = sum(1 for m in update_data["milestones"] if m.get("completed", False))
             total_count = len(update_data["milestones"])
             update_data["completion"] = (completed_count / total_count * 100) if total_count > 0 else 0.0
@@ -681,14 +692,21 @@ async def create_milestone(
         user_employee_id = await get_employee_id_from_user(current_user)
         
         # Check permissions
-        if goal.get("employeeId") != user_employee_id:
-            if not user_employee_id or not await is_manager_of_employee(user_employee_id, goal.get("employeeId")):
+        is_owner = goal.get("employeeId") == user_employee_id
+        is_manager = False
+        if not is_owner:
+            is_manager = bool(
+                user_employee_id and await is_manager_of_employee(user_employee_id, goal.get("employeeId"))
+            )
+            if not is_manager:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="You don't have permission to add milestones to this goal"
                 )
-        
-        if not _milestone_edits_allowed(goal.get("status")):
+
+        # Reportees can add milestones only when goal is editable.
+        # Managers can add milestones for their direct reports in any review state.
+        if not is_manager and not _milestone_edits_allowed(goal.get("status")):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Milestones can only be added after manager approval"
@@ -710,6 +728,11 @@ async def create_milestone(
         
         # Add milestone to goal
         milestones = goal.get("milestones", [])
+        if len(milestones) >= MAX_MILESTONES_PER_GOAL:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You can add up to {MAX_MILESTONES_PER_GOAL} milestones per goal"
+            )
         milestones.append(new_milestone)
         
         # Recalculate completion

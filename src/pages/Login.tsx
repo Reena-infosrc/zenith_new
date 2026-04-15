@@ -9,6 +9,13 @@ import { useMsal } from "@azure/msal-react";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { Loader2 } from "lucide-react";
 import { API_BASE_URL } from "@/config/api";
+import {
+  extractLoginHintFromUrl,
+  attemptSsoSilent,
+  getRedirectResult,
+  LOGIN_SCOPES,
+} from "@/auth/msal";
+import { setMemoryAuthToken, clearAuthMemory, getValidToken } from "@/utils/auth-utils";
 
 const INTRO_VIDEO_SOURCES = [
   "/video/Start.mp4",
@@ -27,6 +34,8 @@ export default function Login() {
   const [loginClicked, setLoginClicked] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessingLogin, setIsProcessingLogin] = useState(false);
+  // NEW: Track whether an SSO silent attempt is in progress (shows spinner, hides button)
+  const [isSsoAttempting, setIsSsoAttempting] = useState(false);
   const navigate = useNavigate();
   const { featureFlagStatus, isLoading: flagsLoading } = useFeatureFlags();
   const { instance, accounts } = useMsal();
@@ -34,6 +43,8 @@ export default function Login() {
   const introVideoRef = useRef<HTMLVideoElement>(null);
   const loginVideoRef = useRef<HTMLVideoElement>(null);
   const loginCompletedRef = useRef(false);
+  // NEW: Prevent duplicate SSO attempts
+  const ssoAttemptedRef = useRef(false);
   
   // Set a timeout to navigate to first available module if video playback takes too long
   useEffect(() => {
@@ -103,8 +114,9 @@ export default function Login() {
     const profile = await graphRes.json();
 
     // First, clear any old/invalid tokens
-    localStorage.removeItem('auth_token');
-    
+    clearAuthMemory();
+    let backendAuthToken = "";
+
     // Exchange MSAL ID token for backend token (backend validates by audience=client_id; access token has audience=graph.microsoft.com)
     try {
       const backendRes = await fetch(`${API_BASE_URL}/auth/msal-token`, {
@@ -119,31 +131,29 @@ export default function Login() {
       if (backendRes.ok) {
         const tokenData = await backendRes.json();
         
-        // Store the backend token instead of MSAL token
-        localStorage.setItem('auth_token', tokenData.access_token);
+        // Store the backend token in secure memory
+        backendAuthToken = tokenData.access_token;
+        setMemoryAuthToken(backendAuthToken);
         
         // Token stored successfully
       } else {
         const errorText = await backendRes.text();
-        localStorage.removeItem('auth_token');
+        clearAuthMemory();
         loginCompletedRef.current = false;
         setIsProcessingLogin(false);
         alert('Authentication failed. Please try again.');
         return;
       }
     } catch (error) {
-      localStorage.removeItem('auth_token');
+      clearAuthMemory();
       loginCompletedRef.current = false;
       setIsProcessingLogin(false);
       alert('Authentication failed. Please try again.');
       return;
     }
 
-    // Wait a moment to ensure token is stored before proceeding
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // Verify token is still stored after the delay
-    const finalToken = localStorage.getItem('auth_token');
+    // Wait a moment to ensure state updates
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Pre-fetch only feature-flags (tiny, fast) so the router knows which
     // modules are enabled. Employees + dashboard are heavy (full table scan +
@@ -153,9 +163,8 @@ export default function Login() {
       // Keep heavy directory/dashboard payloads in localStorage across login so first paint
       // is not empty; still drop other keys (e.g. stale feature-flags) before refetching.
       apiCache.clearExcept([CACHE_KEYS.EMPLOYEES, CACHE_KEYS.DASHBOARD]);
-      const token = localStorage.getItem('auth_token');
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (backendAuthToken) headers['Authorization'] = `Bearer ${backendAuthToken}`;
 
       try {
         const res = await fetch(`${API_BASE_URL}/feature-flags/`, { headers });
@@ -203,13 +212,13 @@ export default function Login() {
     
     try {
       // Prefer redirect to avoid popup/cookie issues
-      await instance.loginRedirect({ scopes: ["User.Read"] });
+      await instance.loginRedirect({ scopes: [...LOGIN_SCOPES] });
       // Flow continues after redirect back
     } catch (err: unknown) {
       clearTimeout(loadingTimeout);
       // Fallback to popup if redirect fails for some reason
       try {
-        const loginResponse = await instance.loginPopup({ scopes: ["User.Read"] });
+        const loginResponse = await instance.loginPopup({ scopes: [...LOGIN_SCOPES] });
         await completeLoginWithToken(
           loginResponse.accessToken,
           loginResponse.idToken,
@@ -224,14 +233,94 @@ export default function Login() {
     }
   };
 
+  // -----------------------------------------------------------------------
+  // NEW: SSO Silent Login Attempt on Mount
+  //
+  // When the URL contains ?login_hint=user@company.com (set by SharePoint),
+  // attempt ssoSilent() to authenticate the user without any prompt.
+  // This is the core of the zero-login UX from SharePoint.
+  //
+  // Also handles the redirect result from initializeMsal() — if the user
+  // was returning from a loginRedirect(), the redirect result is already
+  // captured and we just need to complete the login.
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    // Only attempt once per page load
+    if (ssoAttemptedRef.current || loginCompletedRef.current) return;
+    ssoAttemptedRef.current = true;
+
+    const doSsoAttempt = async () => {
+      // Check 1: Was there a redirect result from initializeMsal()?
+      // (This handles the return from loginRedirect — already processed
+      // by handleRedirectPromise in msal.ts, but we still need to
+      // exchange tokens and navigate.)
+      const redirectResult = getRedirectResult();
+      if (redirectResult?.accessToken && redirectResult?.idToken) {
+        setIsSsoAttempting(true);
+        try {
+          await completeLoginWithToken(
+            redirectResult.accessToken,
+            redirectResult.idToken,
+          );
+          return; // Done — completeLoginWithToken handles navigation
+        } catch (error) {
+          console.error("[SSO] Failed to complete redirect login:", error);
+          setIsSsoAttempting(false);
+          // Fall through to try ssoSilent
+        }
+      }
+
+      // Check 2: Is there a login_hint in the URL? (SharePoint flow)
+      const loginHint = extractLoginHintFromUrl();
+
+      // Check 3: Is there already an account from a previous session?
+      const hasExistingAccount = accounts && accounts.length > 0;
+
+      // If we have a login_hint OR an existing account, try ssoSilent
+      if (loginHint || hasExistingAccount) {
+        // Don't re-attempt if user explicitly logged out
+        const hasLoggedOut = sessionStorage.getItem('user_logged_out');
+        if (hasLoggedOut) {
+          sessionStorage.removeItem('user_logged_out');
+          return;
+        }
+
+        setIsSsoAttempting(true);
+
+        try {
+          const ssoResult = await attemptSsoSilent(
+            loginHint || undefined,
+          );
+
+          if (ssoResult?.accessToken && ssoResult?.idToken) {
+            await completeLoginWithToken(
+              ssoResult.accessToken,
+              ssoResult.idToken,
+            );
+            return; // Success — navigation handled by completeLoginWithToken
+          }
+        } catch (error) {
+          console.info("[SSO] Silent login failed, showing login button:", error);
+        }
+
+        setIsSsoAttempting(false);
+      }
+    };
+
+    doSsoAttempt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // After redirect, if we have an account, acquire token silently and continue
+  // (This handles the case where the user returns from loginRedirect but
+  // the redirect result was not captured — e.g., page state was lost.)
   useEffect(() => {
     const acquireAndProceed = async () => {
       // Already completed or in progress — skip
       if (loginCompletedRef.current) return;
 
       if (!accounts || accounts.length === 0) {
-        if (!loginClicked && !isProcessingLogin) {
+        if (!loginClicked && !isProcessingLogin && !isSsoAttempting) {
           setIsLoading(false);
         }
         return;
@@ -247,7 +336,7 @@ export default function Login() {
       
       try {
         const result = await instance.acquireTokenSilent({
-          scopes: ["User.Read"],
+          scopes: [...LOGIN_SCOPES],
           account: accounts[0],
         });
         await completeLoginWithToken(result.accessToken, result.idToken);
@@ -265,6 +354,10 @@ export default function Login() {
   // Animation elements for the background
   const circles = Array.from({ length: 6 }, (_, i) => i);
   
+  // Show a full-screen loading state during SSO attempt to prevent
+  // the login button from flashing before SSO completes (zero-flicker UX)
+  const showingSsoLoader = isSsoAttempting && !loginClicked;
+
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-hr-primary/10 to-hr-secondary/5 dark:from-slate-900 dark:to-slate-800 py-4">
       {/* Background Animation Elements */}
@@ -341,24 +434,34 @@ export default function Login() {
             
             <div className="glass-effect rounded-xl p-6 sm:p-8 dark:bg-gray-800/30 dark:border-gray-700/30">
               <div className="space-y-6">
-                <Button 
-                  type="button" 
-                  className="w-full bg-gradient-hr-primary hover:opacity-90" 
-                  size="lg"
-                  onClick={handleLogin}
-                  disabled={isLoading || isProcessingLogin || loginClicked}
-                >
-                  {(isLoading || isProcessingLogin) ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Signing In...
-                    </>
-                  ) : loginClicked ? (
-                    "Signed In"
-                  ) : (
-                    "Sign in with Microsoft"
-                  )}
-                </Button>
+                {showingSsoLoader ? (
+                  /* SSO in progress — show a spinner instead of the login button */
+                  <div className="flex flex-col items-center justify-center py-4 space-y-3">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">
+                      Signing you in automatically...
+                    </p>
+                  </div>
+                ) : (
+                  <Button 
+                    type="button" 
+                    className="w-full bg-gradient-hr-primary hover:opacity-90" 
+                    size="lg"
+                    onClick={handleLogin}
+                    disabled={isLoading || isProcessingLogin || loginClicked}
+                  >
+                    {(isLoading || isProcessingLogin) ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Signing In...
+                      </>
+                    ) : loginClicked ? (
+                      "Signed In"
+                    ) : (
+                      "Sign in with Microsoft"
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           </div>

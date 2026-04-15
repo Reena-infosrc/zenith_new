@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiCache, CACHE_KEYS } from '@/utils/api-cache';
 import { API_BASE_URL } from '@/config/api';
+import { getValidToken } from '@/utils/auth-utils';
 
 // Feature flag status types
 export type FeatureFlagStatus = 'enabled' | 'disabled' | 'hidden';
@@ -67,7 +68,7 @@ export function useFeatureFlags() {
     }
     
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = await getValidToken();
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -292,7 +293,7 @@ export function useFeatureFlags() {
   // Update feature flag status
   const updateFeatureFlag = async (flagId: string, status: FeatureFlagStatus): Promise<boolean> => {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = await getValidToken();
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };

@@ -32,6 +32,7 @@ import {
 } from "@/lib/utils";
 import { exportEmployeesToCSV } from "@/utils/csvExport";
 import { API_BASE_URL } from "@/config/api";
+import { getValidToken } from "@/utils/auth-utils";
 
 interface Employee {
   id: string;
@@ -195,7 +196,7 @@ export default function Dashboard() {
   }, []);
 
   const fetchFromApi = useCallback(async (employeeLimit?: number): Promise<DashboardData> => {
-    const token = localStorage.getItem('auth_token');
+    const token = await getValidToken();
     const headers: HeadersInit = { 'Content-Type': 'application/json' };
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;

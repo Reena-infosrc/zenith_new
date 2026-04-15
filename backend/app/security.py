@@ -52,23 +52,12 @@ class JWKSValidator:
             if not kid:
                 raise JWTError("Token header missing 'kid'")
 
-            # Inspect token for logging and to resolve tenant/issuer (e.g. multi-tenant or "common")
             unverified = jwt.get_unverified_claims(token)
-            token_tenant = unverified.get("tid")
-            token_aud = unverified.get("aud")
-            token_iss = unverified.get("iss", "")
-            logger.debug(
-                "JWKS validate: token aud/iss/tid present (details at debug only)"
-            )
+            logger.debug("JWKS validate: checking token headers")
+
+            # STRICT FIX: Always use the configured tenant_id. Do NOT trust the token's tid.
             jwks_tenant = tenant_id
-            if token_tenant and ("login.microsoftonline.com" in token_iss):
-                jwks_tenant = token_tenant
-            # Use token's issuer so we match exactly; normalize trailing slash for comparison
-            if token_iss and token_iss.startswith("https://login.microsoftonline.com"):
-                expected_issuer = token_iss.rstrip("/")
-            else:
-                expected_issuer = f"https://login.microsoftonline.com/{jwks_tenant}/v2.0".rstrip("/")
-            logger.debug("JWKS validate: issuer resolution complete")
+            expected_issuer = f"https://login.microsoftonline.com/{tenant_id}/v2.0"
 
             jwks = self._fetch_jwks(jwks_tenant)
             if not jwks:
@@ -106,9 +95,10 @@ class JWKSValidator:
                 logger.error(f"Issuer mismatch: token iss={token_iss_val!r}, expected={expected_issuer_norm!r}")
                 return None
 
-            # Validate audience: ID token aud=client_id, access token aud=https://graph.microsoft.com; aud can be string or list
+            # STRICT FIX: Only allow the specific client_id or custom API scope. NEVER "https://graph.microsoft.com"
+            # to prevent cross-app Graph token replay.
             token_aud_val = payload.get("aud")
-            allowed_audiences = (client_id, "https://graph.microsoft.com")
+            allowed_audiences = (client_id, f"api://{client_id}")
             if isinstance(token_aud_val, list):
                 aud_ok = any(a in token_aud_val for a in allowed_audiences)
             else:
@@ -131,7 +121,7 @@ jwks_validator = JWKSValidator()
 # Security configuration
 SECRET_KEY = get_jwt_secret_key()
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours for development
+ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes for strict security
 
 # Update CryptContext configuration
 pwd_context = CryptContext(
@@ -195,11 +185,18 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create access token."""
     to_encode = data.copy()
+    now = datetime.utcnow()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = now + timedelta(minutes=15)
+        
     to_encode.update({"exp": expire})
+    
+    # Add iat to track absolute session lifetime across refreshes
+    if "iat" not in to_encode:
+        to_encode.update({"iat": now})
+        
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

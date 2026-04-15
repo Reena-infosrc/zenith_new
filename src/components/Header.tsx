@@ -17,6 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { useFeatureFlags } from "@/contexts/FeatureFlagsContext";
 import { useMsal } from "@azure/msal-react";
 import { useEmployees } from "@/hooks/use-employees";
+import { clearAuthMemory } from "@/utils/auth-utils";
 
 type HeaderProps = {
   onMenuToggle: () => void;
@@ -54,7 +55,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
       sessionStorage.setItem('user_logged_out', 'true');
 
       // Clear app auth state
-      localStorage.removeItem('auth_token');
+      clearAuthMemory();
 
       // Clear MSAL session and redirect to logout
       await instance.logoutRedirect({
@@ -63,7 +64,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
       });
     } catch (error) {
       // Fallback: just clear local state and navigate
-      localStorage.removeItem('auth_token');
+      clearAuthMemory();
       navigate('/');
     }
   };

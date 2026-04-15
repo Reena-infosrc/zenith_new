@@ -102,6 +102,8 @@ interface Milestone {
   userComment?: string; // User's comment when completing/reopening
 }
 
+const MAX_MILESTONES_PER_GOAL = 5;
+
 // Helper to convert API Goal to PerformanceGoal
 const convertGoalToPerformanceGoal = (goal: Goal): PerformanceGoal => {
   return {
@@ -854,6 +856,14 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
       });
       return;
     }
+    if ((targetGoal.milestones?.length || 0) >= MAX_MILESTONES_PER_GOAL) {
+      toast({
+        title: "Milestone limit reached",
+        description: `You can add up to ${MAX_MILESTONES_PER_GOAL} milestones per goal.`,
+        variant: "destructive"
+      });
+      return;
+    }
     setSelectedGoalForMilestone(goalId);
     setNewMilestoneTitle("");
     setNewMilestoneDueDate("");
@@ -863,6 +873,15 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   // Handle adding a new milestone
   const handleAddMilestone = async () => {
     if (!selectedGoalForMilestone) return;
+    const targetGoal = goals.find((g) => g.id === selectedGoalForMilestone);
+    if ((targetGoal?.milestones?.length || 0) >= MAX_MILESTONES_PER_GOAL) {
+      toast({
+        title: "Milestone limit reached",
+        description: `You can add up to ${MAX_MILESTONES_PER_GOAL} milestones per goal.`,
+        variant: "destructive"
+      });
+      return;
+    }
 
     // Validate inputs
     if (!newMilestoneTitle.trim()) {
@@ -1920,7 +1939,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           <DialogHeader>
             <DialogTitle>Add New Milestone</DialogTitle>
             <DialogDescription>
-              Add a new milestone to track progress towards your goal
+              Add a new milestone to track progress towards your goal (up to {MAX_MILESTONES_PER_GOAL} milestones).
             </DialogDescription>
           </DialogHeader>
 

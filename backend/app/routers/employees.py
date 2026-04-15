@@ -400,6 +400,7 @@ async def get_employees(
         None,
         description="Filter by Azure Entra usage location (ISO 3166 alpha-2), e.g. IN or US",
     ),
+    include_inactive: bool = Query(False),
     sort_by: Optional[str] = Query(None, description="Sort by field: name, date_of_joining"),
     sort_order: Optional[str] = Query("asc", description="Sort order: asc, desc"),
     current_user: dict = Depends(get_current_active_user)
@@ -467,6 +468,13 @@ async def get_employees(
                 len(parsed),
                 need_count,
             )
+
+        # Always filter out inactive employees unless explicitly requested
+        if not include_inactive:
+            parsed = [
+                d for d in parsed
+                if (d.get("status") or "active").lower() != "inactive"
+            ]
 
         # Filter by Entra usage location (DynamoDB usage_location)
         if usage_location:

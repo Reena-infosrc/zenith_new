@@ -139,6 +139,8 @@ interface Milestone {
   userComment?: string;
 }
 
+const MAX_MILESTONES_PER_GOAL = 5;
+
 interface Goal {
   id: string;
   employeeId: string;
@@ -1473,6 +1475,24 @@ export function ManagerPerformanceView() {
     return null;
   };
 
+  const getGoalMilestoneCount = (goalId: string): number => {
+    const cachedGoal = allGoalsCache.current.get(goalId);
+    if (cachedGoal) {
+      return cachedGoal.milestones?.length || 0;
+    }
+    const ownGoal = myGoals.find((g) => g.id === goalId);
+    if (ownGoal) {
+      return ownGoal.milestones?.length || 0;
+    }
+    for (const goals of employeeGoals.values()) {
+      const found = goals.find((g) => g.id === goalId);
+      if (found) {
+        return found.milestones?.length || 0;
+      }
+    }
+    return 0;
+  };
+
   // Milestone handlers for manager's own goals and team member goals
   const handleMilestoneClick = (goalId: string, milestone: Milestone) => {
     setSelectedMilestone({ goalId, milestone });
@@ -1628,6 +1648,14 @@ export function ManagerPerformanceView() {
   };
 
   const handleAddMilestoneClick = (goalId: string) => {
+    if (getGoalMilestoneCount(goalId) >= MAX_MILESTONES_PER_GOAL) {
+      toast({
+        title: "Milestone limit reached",
+        description: `You can add up to ${MAX_MILESTONES_PER_GOAL} milestones per goal.`,
+        variant: "destructive"
+      });
+      return;
+    }
     setSelectedGoalForMilestone(goalId);
     setNewMilestoneTitle("");
     setNewMilestoneDueDate("");
@@ -1636,6 +1664,14 @@ export function ManagerPerformanceView() {
 
   const handleAddMilestone = async () => {
     if (!selectedGoalForMilestone) return;
+    if (getGoalMilestoneCount(selectedGoalForMilestone) >= MAX_MILESTONES_PER_GOAL) {
+      toast({
+        title: "Milestone limit reached",
+        description: `You can add up to ${MAX_MILESTONES_PER_GOAL} milestones per goal.`,
+        variant: "destructive"
+      });
+      return;
+    }
 
     if (!newMilestoneTitle.trim()) {
       toast({
@@ -3017,7 +3053,7 @@ export function ManagerPerformanceView() {
           <DialogHeader>
             <DialogTitle>Add New Milestone</DialogTitle>
             <DialogDescription>
-              Add a new milestone to track progress towards your goal
+              Add a new milestone to track progress towards your goal (up to {MAX_MILESTONES_PER_GOAL} milestones).
             </DialogDescription>
           </DialogHeader>
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useToast } from './use-toast';
 import { apiCache, CACHE_KEYS } from '@/utils/api-cache';
 import { API_BASE_URL } from '@/config/api';
+import { getValidToken } from '@/utils/auth-utils';
 
 // Global state to prevent multiple simultaneous API calls
 let globalEmployees: Employee[] = [];
@@ -108,8 +109,15 @@ export type FetchEmployeesOptions = {
   revalidate?: boolean;
 };
 
-export function useEmployees() {
-  const [employees, setEmployees] = useState<Employee[]>(globalEmployees);
+export function useEmployees(options?: { includeInactive?: boolean }) {
+  const includeInactive = options?.includeInactive ?? false;
+
+  const filterInactive = (empList: Employee[]) => {
+    if (includeInactive) return empList;
+    return empList.filter(emp => (emp.status || 'active').toLowerCase() !== 'inactive');
+  };
+
+  const [employees, setEmployees] = useState<Employee[]>(filterInactive(globalEmployees));
   const [isLoading, setIsLoading] = useState<boolean>(globalLoading);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(globalIsLoadingMore);
   const [error, setError] = useState<string | null>(globalError);
@@ -127,7 +135,7 @@ export function useEmployees() {
       if (cachedData) {
         globalEmployees = cachedData;
         globalError = null;
-        setEmployees(cachedData);
+        setEmployees(filterInactive(cachedData));
         setIsLoading(false);
         setIsLoadingMore(false);
         setError(null);
@@ -137,7 +145,7 @@ export function useEmployees() {
 
     if (globalLoading && globalFetchPromise) {
       await globalFetchPromise;
-      setEmployees(globalEmployees);
+      setEmployees(filterInactive(globalEmployees));
       setIsLoading(globalLoading);
       setIsLoadingMore(globalIsLoadingMore);
       setError(globalError);
@@ -145,7 +153,7 @@ export function useEmployees() {
     }
 
     if (!options?.revalidate && globalEmployees.length > 0 && !globalLoading) {
-      setEmployees(globalEmployees);
+      setEmployees(filterInactive(globalEmployees));
       setIsLoading(false);
       setIsLoadingMore(false);
       setError(null);
@@ -170,7 +178,7 @@ export function useEmployees() {
     setError(null);
 
     globalFetchPromise = (async () => {
-      const token = localStorage.getItem('auth_token');
+      const token = await getValidToken();
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -178,6 +186,7 @@ export function useEmployees() {
         const params = new URLSearchParams();
         params.append('skip', String(skip));
         params.append('limit', String(limit));
+        if (includeInactive) params.append('include_inactive', 'true');
         if (sortBy) params.append('sort_by', sortBy);
         if (sortOrder) params.append('sort_order', sortOrder);
         const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, { headers });
@@ -247,7 +256,7 @@ export function useEmployees() {
           globalError = null;
           apiCache.set(cacheKey, first);
           window.dispatchEvent(new CustomEvent('employeesUpdated'));
-          setEmployees([...globalEmployees]);
+          setEmployees(filterInactive([...globalEmployees]));
           setIsLoading(false);
           globalIsLoadingMore = true;
           setIsLoadingMore(true);
@@ -312,7 +321,7 @@ export function useEmployees() {
 
     await globalFetchPromise;
 
-    setEmployees(globalEmployees);
+    setEmployees(filterInactive(globalEmployees));
     setIsLoading(false);
     setIsLoadingMore(false);
     setError(globalError);
@@ -370,7 +379,7 @@ export function useEmployees() {
       });
 
       // Get authentication token
-      const token = localStorage.getItem('auth_token');
+      const token = await getValidToken();
       
       // Build headers - don't set Content-Type for FormData, browser will set it with boundary
       const headers: HeadersInit = {};
@@ -410,7 +419,7 @@ export function useEmployees() {
       
       // Update global state
       globalEmployees = [...globalEmployees, newEmployee];
-      setEmployees(globalEmployees);
+      setEmployees(filterInactive(globalEmployees));
       
       // Invalidate caches since a new employee might have new client or status
       // This will trigger a refresh of the clients and employee statuses lists
@@ -448,7 +457,7 @@ export function useEmployees() {
       };
 
       // Get authentication token
-      const token = localStorage.getItem('auth_token');
+      const token = await getValidToken();
       
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
@@ -538,7 +547,7 @@ export function useEmployees() {
       globalEmployees = globalEmployees.map(emp => 
         emp.id === id ? updatedEmployee : emp
       );
-      setEmployees(globalEmployees);
+      setEmployees(filterInactive(globalEmployees));
       
       // Dispatch event to notify other components
       window.dispatchEvent(new CustomEvent('employeesUpdated'));
@@ -574,7 +583,7 @@ export function useEmployees() {
       
       // Update global state
       globalEmployees = globalEmployees.filter(emp => emp.id !== id);
-      setEmployees(globalEmployees);
+      setEmployees(filterInactive(globalEmployees));
       
       toast({
         title: 'Success',
@@ -599,7 +608,7 @@ export function useEmployees() {
       formData.append('file', file);
       
       // Get authentication token
-      const token = localStorage.getItem('auth_token');
+      const token = await getValidToken();
       
       const headers: HeadersInit = {};
       if (token) {
@@ -643,7 +652,7 @@ export function useEmployees() {
     const cached = apiCache.get(cacheKey);
     if (cached) {
       globalEmployees = cached;
-      setEmployees(cached);
+      setEmployees(filterInactive(cached));
       setIsLoading(false);
       setIsLoadingMore(false);
       setError(null);
@@ -651,20 +660,20 @@ export function useEmployees() {
       return;
     }
     if (globalEmployees.length > 0) {
-      setEmployees(globalEmployees);
+      setEmployees(filterInactive(globalEmployees));
       setIsLoading(false);
       setIsLoadingMore(globalIsLoadingMore);
       setError(globalError);
       return;
     }
     fetchEmployees();
-  }, []);
+  }, [includeInactive]);
 
   // Sync local state with global state when global state changes
   // Use a custom event system to notify components of global state changes
   useEffect(() => {
     const handleGlobalStateChange = () => {
-      setEmployees([...globalEmployees]);
+      setEmployees(filterInactive([...globalEmployees]));
       setIsLoading(globalLoading);
       setIsLoadingMore(globalIsLoadingMore);
       setError(globalError);
@@ -676,7 +685,7 @@ export function useEmployees() {
     return () => {
       window.removeEventListener('employeesUpdated', handleGlobalStateChange);
     };
-  }, [employees.length, globalLoading, globalError]);
+  }, [employees.length, globalLoading, globalError, includeInactive]);
 
   const clearCache = () => {
     apiCache.clear();

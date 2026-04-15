@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { apiCache, CACHE_KEYS } from '@/utils/api-cache';
+import { getValidToken } from '@/utils/auth-utils';
 import { API_BASE_URL } from '@/config/api';
 
 // Feature flag status types
@@ -81,7 +82,7 @@ export function FeatureFlagsProvider({ children }: { children: React.ReactNode }
     }
     
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = await getValidToken();
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
