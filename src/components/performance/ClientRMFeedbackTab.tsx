@@ -11,7 +11,8 @@ import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2, Pencil, Star, ExternalLink } from "lucide-react";
+import { useEmployees } from "@/hooks/use-employees";
+import { Loader2, Pencil, Star, ExternalLink, Users, Network } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -132,11 +133,21 @@ function FieldShell({
 
 type Props = {
   currentEmployeeId?: string | null;
+  /** When set (e.g. from My Team), pre-select this reportee in the manager form. */
+  initialReporteeId?: string | null;
+  /**
+   * Manager-only (embedded in Manager Performance): under My Goals use "self" so this tab shows
+   * read-only feedback from the manager's own line manager. Use "team-submit" when opening from
+   * a My Team card to show the submission form for that reportee.
+   * Omit for normal employee Performance (legacy behavior).
+   */
+  clientRmSurface?: "self" | "team-submit";
 };
 
-export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
+export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clientRmSurface }: Props) {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { employees } = useEmployees();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -165,7 +176,9 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
   const [startedAt, setStartedAt] = useState<string | null>(null);
 
   const managerEmail = user?.email || "";
-  const showManagerEditor = hasTeamMembers && !isLeadership;
+  /** Under My Goals, managers see read-only feedback about themselves; submit flow is from My Team only. */
+  const showManagerEditor =
+    clientRmSurface === "self" ? false : hasTeamMembers && !isLeadership;
   const showLeadershipRouting = isLeadership;
 
   const periodById = useMemo(() => {
@@ -219,8 +232,10 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
   const loadSubmissions = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (hasTeamMembers && !isLeadership) {
-        // Manager: server returns this manager's submissions (and scoped rows).
+      const loadAsManagerSubmitter =
+        clientRmSurface === "self" ? false : hasTeamMembers && !isLeadership;
+      if (loadAsManagerSubmitter) {
+        // Manager submitter: server returns this manager's submissions (scoped).
       } else if (currentEmployeeId) {
         params.set("employee_id", currentEmployeeId);
       }
@@ -233,7 +248,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
     } catch {
       // keep view resilient
     }
-  }, [hasTeamMembers, isLeadership, currentEmployeeId]);
+  }, [clientRmSurface, hasTeamMembers, isLeadership, currentEmployeeId]);
 
   useEffect(() => {
     loadData();
@@ -242,6 +257,13 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
   useEffect(() => {
     loadSubmissions();
   }, [loadSubmissions]);
+
+  useEffect(() => {
+    if (!initialReporteeId || reportees.length === 0) return;
+    if (reportees.some((r) => r.id === initialReporteeId)) {
+      setReporteeId(initialReporteeId);
+    }
+  }, [initialReporteeId, reportees]);
 
   const resetManagerForm = () => {
     setEditingId(null);
@@ -348,6 +370,19 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
     return submissions.filter((s) => s.employee_id === currentEmployeeId);
   }, [submissions, currentEmployeeId]);
 
+  /** Same `reporting_to` link as Directory org chart → "Reports to" (line manager). */
+  const lineManager = useMemo(() => {
+    if (!currentEmployeeId || !employees.length) return null;
+    const me = employees.find((e) => e.id === currentEmployeeId);
+    const mgrId = me?.reporting_to?.trim();
+    if (!mgrId) return null;
+    return employees.find((e) => e.id === mgrId) ?? null;
+  }, [currentEmployeeId, employees]);
+
+  const showReadOnlyReportingContext =
+    !showManagerEditor && (clientRmSurface === "self" || clientRmSurface === undefined);
+  const showTeamSubmitContext = showManagerEditor && clientRmSurface === "team-submit" && Boolean(selectedReportee);
+
   if (loading) {
     return (
       <Card className="border-border/60 shadow-md">
@@ -374,6 +409,55 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
               <ExternalLink className="h-4 w-4 mr-2" />
               Open Monthly Feedback reports
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Org alignment (same reporting_to as Directory org chart) — mirrors annual review “cycle context” clarity */}
+      {showReadOnlyReportingContext && lineManager && (
+        <Card className="border-border/60 bg-muted/20 shadow-sm">
+          <CardHeader className="py-4">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Network className="h-4 w-4 text-primary shrink-0" />
+              Reporting line
+            </CardTitle>
+            <CardDescription>
+              Feedback below is submitted about you by your line manager (reporting relationship from the employee
+              directory / org chart).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 pb-4">
+            <div className="flex items-center gap-3 rounded-lg border bg-background/80 px-3 py-2.5 text-sm">
+              <span className="text-muted-foreground shrink-0">Reports to</span>
+              <span className="font-medium">{lineManager.name}</span>
+              <span className="text-muted-foreground hidden sm:inline">· {lineManager.position}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {showTeamSubmitContext && selectedReportee && (
+        <Card className="border-primary/25 bg-primary/5 shadow-sm">
+          <CardHeader className="py-4">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary shrink-0" />
+              Direct report (My Team roster)
+            </CardTitle>
+            <CardDescription>
+              Same list as Performance → My Team and the org chart: employees whose{" "}
+              <span className="font-medium text-foreground">reporting_to</span> is your employee record.
+              {reportees.length > 0 ? ` You have ${reportees.length} direct report${reportees.length === 1 ? "" : "s"}.` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0 pb-4">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-background/80 px-3 py-2.5 text-sm">
+              <span className="font-semibold">{selectedReportee.name}</span>
+              {selectedReportee.employee_id ? (
+                <Badge variant="secondary" className="font-normal">
+                  {selectedReportee.employee_id}
+                </Badge>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -603,12 +687,18 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h3 className="text-lg font-semibold tracking-tight">
-                {isLeadership ? "Your feedback (read-only)" : "Monthly feedback history"}
+                {isLeadership
+                  ? "Your feedback (read-only)"
+                  : clientRmSurface === "self"
+                    ? "Feedback from your line manager"
+                    : "Monthly feedback history"}
               </h3>
               <p className="text-sm text-muted-foreground">
                 {isLeadership
                   ? "Organization-wide reporting is available from Monthly Feedback reports."
-                  : "Submitted by your reporting manager. This view is read-only for employees."}
+                  : clientRmSurface === "self"
+                    ? "Your line manager submits this assessment. Read-only here. To give feedback for a direct report, use Client RM Feedback on their card under My Team."
+                    : "Submitted by your reporting manager. This view is read-only for employees."}
               </p>
             </div>
           </div>

@@ -317,6 +317,8 @@ export function ManagerPerformanceView() {
   const [activeFilter, setActiveFilter] = useState<ManagerFilter | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [viewMode, setViewMode] = useState<'my-team' | 'my-goals'>('my-team');
+  /** Pre-select reportee in My Goals → Client RM Feedback when opened from a team card. */
+  const [clientRmTargetReporteeId, setClientRmTargetReporteeId] = useState<string | null>(null);
   const [showReviewWorkspace, setShowReviewWorkspace] = useState(false);
   const [reviewEmployee, setReviewEmployee] = useState<Employee | null>(null);
   const [hasReviewData, setHasReviewData] = useState(false);
@@ -1816,6 +1818,9 @@ export function ManagerPerformanceView() {
       <Tabs value={viewMode} onValueChange={(v) => {
         preserveScroll();
         setViewMode(v as any);
+        if (v === 'my-team') {
+          setClientRmTargetReporteeId(null);
+        }
         // When switching to "my-team" tab, ensure all team goals are loaded
         if (v === 'my-team' && currentManagerEmployeeId && directReports.length > 0) {
           // Check if any team member goals are missing and fetch them
@@ -2310,6 +2315,10 @@ export function ManagerPerformanceView() {
                         setReviewEmployee(employee);
                         setShowReviewWorkspace(true);
                       }}
+                      onClientRmFeedback={() => {
+                        setClientRmTargetReporteeId(employee.id);
+                        setViewMode("my-goals");
+                      }}
                       activeGoalId={goalPanelState.open ? goalPanelState.goalId : null}
                       panelId={goalPanelId}
                       reviewStatus={employeeReviewStatuses.get(employee.id) || 'not_started'}
@@ -2332,7 +2341,12 @@ export function ManagerPerformanceView() {
 
         <TabsContent value="my-goals" className="space-y-4">
           {/* Use the same UserPerformanceView component for consistency */}
-          <UserPerformanceView employeeId={currentManagerEmployeeId} />
+          <UserPerformanceView
+            employeeId={currentManagerEmployeeId}
+            initialPerformanceTab={clientRmTargetReporteeId ? "client-rm-feedback" : undefined}
+            clientRmInitialReporteeId={clientRmTargetReporteeId}
+            clientRmSurface={clientRmTargetReporteeId ? "team-submit" : "self"}
+          />
         </TabsContent>
 
         {/* Feedback tab content - commented out/hidden */}

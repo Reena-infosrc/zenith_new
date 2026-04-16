@@ -147,6 +147,8 @@ interface GrowthData {
   goalsCompleted: number;
 }
 
+type PerformanceMainTab = "overview" | "goals" | "annual-review" | "client-rm-feedback";
+
 interface UserPerformanceViewProps {
   /**
    * Optional employee ID to use instead of finding from current user.
@@ -154,9 +156,20 @@ interface UserPerformanceViewProps {
    * If not provided, the component will find the employee ID from the current user.
    */
   employeeId?: string | null;
+  /** When set (e.g. manager deep-link from My Team), open this sub-tab under My Goals. */
+  initialPerformanceTab?: PerformanceMainTab;
+  /** Pre-select this reportee in Client RM Feedback (managers with direct reports). */
+  clientRmInitialReporteeId?: string | null;
+  /** Manager Performance: My Goals = read-only about self; team card = submit for reportee. */
+  clientRmSurface?: "self" | "team-submit";
 }
 
-export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerformanceViewProps = {}) {
+export function UserPerformanceView({
+  employeeId: providedEmployeeId,
+  initialPerformanceTab,
+  clientRmInitialReporteeId,
+  clientRmSurface,
+}: UserPerformanceViewProps = {}) {
   const { preserveScroll } = usePreserveScroll();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -202,6 +215,13 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   const [loadingManagerReview, setLoadingManagerReview] = useState(false);
   const [clientRmNotificationCount, setClientRmNotificationCount] = useState(0);
   const [clientRmOpenPeriodActive, setClientRmOpenPeriodActive] = useState(false);
+  const [activePerformanceTab, setActivePerformanceTab] = useState<PerformanceMainTab>("overview");
+
+  useEffect(() => {
+    if (initialPerformanceTab && clientRmInitialReporteeId) {
+      setActivePerformanceTab(initialPerformanceTab);
+    }
+  }, [initialPerformanceTab, clientRmInitialReporteeId]);
 
   const currentEmployeeSummary = useMemo(() => {
     if (!currentEmployeeId) return null;
@@ -1076,9 +1096,14 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
         </Card>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4" onValueChange={() => {
-        preserveScroll();
-      }}>
+      <Tabs
+        value={activePerformanceTab}
+        onValueChange={(v) => {
+          preserveScroll();
+          setActivePerformanceTab(v as PerformanceMainTab);
+        }}
+        className="space-y-4"
+      >
         <TabsList className="bg-muted/50 backdrop-blur-sm">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="goals">Goals & Timeline</TabsTrigger>
@@ -1743,7 +1768,11 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
         </TabsContent>
 
         <TabsContent value="client-rm-feedback" className="space-y-4">
-          <ClientRMFeedbackTab currentEmployeeId={currentEmployeeId} />
+          <ClientRMFeedbackTab
+            currentEmployeeId={currentEmployeeId}
+            initialReporteeId={clientRmInitialReporteeId}
+            clientRmSurface={clientRmSurface}
+          />
         </TabsContent>
 
         <GoalDetailPanel

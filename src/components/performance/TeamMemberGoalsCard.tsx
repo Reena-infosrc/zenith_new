@@ -13,7 +13,8 @@ import {
   HelpCircle,
   AlertCircle,
   Bell,
-  CheckCircle2
+  CheckCircle2,
+  MessageSquare
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +94,8 @@ export interface TeamMemberGoalsCardProps {
   onOpenGoal: (goal: TeamGoal, employee: TeamMember, trigger: HTMLButtonElement | null) => void;
   onOpenCategoryGoals?: (category: string, goals: TeamGoal[], employee: TeamMember, trigger: HTMLButtonElement | null) => void;
   onViewReviews?: () => void;
+  /** Opens Client RM Feedback for this team member (manager Performance). */
+  onClientRmFeedback?: () => void;
   activeGoalId?: string | null;
   panelId?: string;
   reviewStatus?: 'not_started' | 'self_submitted' | 'manager_reviewing' | 'clarification_requested' | 'clarification_responded' | 'needs_clarification' | 'manager_submitted' | 'hr_approved';
@@ -111,6 +114,7 @@ export function TeamMemberGoalsCard({
   onOpenGoal,
   onOpenCategoryGoals,
   onViewReviews,
+  onClientRmFeedback,
   activeGoalId = null,
   panelId,
   reviewStatus
@@ -308,6 +312,19 @@ export function TeamMemberGoalsCard({
             <span className="text-sm">View Reviews</span>
           </Button>
         </div>
+        {onClientRmFeedback && (
+          <Button
+            variant="outline"
+            className="w-full h-10 border-border/50 hover:bg-primary/5 hover:border-primary/30 transition-all"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClientRmFeedback();
+            }}
+          >
+            <MessageSquare className="h-4 w-4 mr-2" />
+            <span className="text-sm">Client RM Feedback</span>
+          </Button>
+        )}
       </div>
     </div>
   );
