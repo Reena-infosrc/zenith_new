@@ -51,6 +51,10 @@ class ClientRMFeedbackNotificationSummary(BaseModel):
     reportee_unread_count: int = 0
     hr_new_count: int = 0
     leadership_new_count: int = 0
+    open_period_count: int = Field(
+        default=0,
+        description="Number of feedback periods currently in open status (cycle initiated).",
+    )
 
 
 class ClientRMFeedbackMeContext(BaseModel):

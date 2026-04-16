@@ -8,8 +8,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Download, Eye, Loader2, Search, Star } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Download, Eye, Loader2, Plus, Search, Star } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 type Period = {
   period_id: string;
@@ -39,7 +40,9 @@ type FeedbackSubmission = {
   updated_at?: string;
 };
 
-const RATING_FIELDS: { key: string; label: string }[] = [
+type RatingFieldDef = { key: string; label: string; legacyKey?: string };
+
+const RATING_FIELDS: RatingFieldDef[] = [
   { key: "quality_of_deliverables", label: "Quality of Deliverables" },
   { key: "adherence_to_deadlines", label: "Adherence to Deadlines" },
   { key: "technical_competency", label: "Technical Competency" },
@@ -51,11 +54,22 @@ const RATING_FIELDS: { key: string; label: string }[] = [
   { key: "responsiveness_to_work_assignments", label: "Responsiveness to Work Assignments" },
   { key: "clarity_in_communication", label: "Clarity in Communication" },
   { key: "responsiveness_to_emails_calls", label: "Responsiveness to Emails/Calls" },
-  { key: "business_domain_understanding", label: "Business/Domain Understanding" },
+  {
+    key: "understanding_of_requirements_2",
+    label: "Understanding of Requirements (secondary)",
+    legacyKey: "business_domain_understanding",
+  },
   { key: "status_reporting_updates", label: "Status Reporting and Updates" },
   { key: "team_collaboration", label: "Team Collaboration" },
   { key: "participation_in_discussions", label: "Participation in Discussions" },
 ];
+
+function pickRatingValue(ratings: Record<string, number> | undefined, f: RatingFieldDef): number {
+  const r = ratings || {};
+  if (typeof r[f.key] === "number") return r[f.key];
+  if (f.legacyKey && typeof r[f.legacyKey] === "number") return r[f.legacyKey];
+  return 0;
+}
 
 function Stars({ value }: { value: number }) {
   const v = Math.max(0, Math.min(5, value || 0));
@@ -96,7 +110,7 @@ const CSV_COLUMNS: { key: string; header: string }[] = [
   { key: "responsiveness_to_work_assignments", header: "Responsiveness to Work Assignments" },
   { key: "clarity_in_communication", header: "Clarity in Communication" },
   { key: "responsiveness_to_emails_calls", header: "Responsiveness to Emails/Calls" },
-  { key: "business_domain_understanding", header: "Business/Domain Understanding" },
+  { key: "understanding_of_requirements_2", header: "Understanding of Requirements (secondary)" },
   { key: "status_reporting_updates", header: "Status Reporting and Updates" },
   { key: "team_collaboration", header: "Team Collaboration" },
   { key: "participation_in_discussions", header: "Participation in Discussions" },
@@ -139,26 +153,74 @@ const statusBadge = (status: Period["period_status"]) => {
 };
 
 export function MonthlyFeedbackManagement() {
+  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [periodId, setPeriodId] = useState<string>("all");
   const [submissions, setSubmissions] = useState<FeedbackSubmission[]>([]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<FeedbackSubmission | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newStart, setNewStart] = useState("");
+  const [newEnd, setNewEnd] = useState("");
+  const [newStatus, setNewStatus] = useState<Period["period_status"]>("open");
 
   const load = async () => {
     setLoading(true);
     try {
-      const [periodsRes, submissionsRes] = await Promise.all([
+      const [ctxRes, periodsRes, submissionsRes] = await Promise.all([
+        authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`),
         authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/periods`),
         authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/submissions`),
       ]);
+      if (ctxRes.ok) {
+        const ctx = await ctxRes.json();
+        setIsAdmin(Boolean(ctx?.is_admin));
+      }
       const periodsData = periodsRes.ok ? await periodsRes.json() : [];
       const submissionsData = submissionsRes.ok ? await submissionsRes.json() : [];
       setPeriods(Array.isArray(periodsData) ? periodsData : []);
       setSubmissions(Array.isArray(submissionsData) ? submissionsData : []);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreatePeriod = async () => {
+    if (!newLabel.trim() || !newStart || !newEnd) {
+      toast({ title: "Missing fields", description: "Label, start date, and end date are required.", variant: "destructive" });
+      return;
+    }
+    setCreating(true);
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/periods`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: newLabel.trim(),
+          start_date: newStart,
+          end_date: newEnd,
+          status: newStatus,
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || "Create failed");
+      }
+      toast({ title: "Period created" });
+      setCreateOpen(false);
+      setNewLabel("");
+      setNewStart("");
+      setNewEnd("");
+      setNewStatus("open");
+      await load();
+    } catch {
+      toast({ title: "Could not create period", description: "Admin access required.", variant: "destructive" });
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -202,7 +264,10 @@ export function MonthlyFeedbackManagement() {
     const filename = `monthly_feedback_${periodLabelSafe}.csv`;
     const headers = CSV_COLUMNS.map((c) => c.header);
     const rows = exportRows.map((x) => {
-      const ratings = x.ratings || {};
+      const ratings = { ...(x.ratings || {}) };
+      if (ratings.understanding_of_requirements_2 === undefined && ratings.business_domain_understanding !== undefined) {
+        ratings.understanding_of_requirements_2 = ratings.business_domain_understanding;
+      }
       const rowObj: Record<string, unknown> = {
         ...x,
         ...ratings,
@@ -225,6 +290,69 @@ export function MonthlyFeedbackManagement() {
 
   return (
     <div className="space-y-4">
+      {isAdmin && (
+        <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent shadow-sm">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 space-y-0">
+            <div>
+              <CardTitle className="text-base">Monthly feedback periods</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Open a new cycle so managers can submit structured feedback for their teams.
+              </p>
+            </div>
+            <Button onClick={() => setCreateOpen(true)} className="shrink-0">
+              <Plus className="h-4 w-4 mr-2" />
+              Create period
+            </Button>
+          </CardHeader>
+        </Card>
+      )}
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create monthly feedback period</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Period label *</Label>
+              <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="e.g. April 2026" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Start date *</Label>
+                <Input type="date" value={newStart} onChange={(e) => setNewStart(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>End date *</Label>
+                <Input type="date" value={newEnd} onChange={(e) => setNewEnd(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={newStatus} onValueChange={(v) => setNewStatus(v as Period["period_status"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="open">Open (managers can submit)</SelectItem>
+                  <SelectItem value="closed">Closed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreatePeriod} disabled={creating}>
+              {creating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
         <CardHeader>
           <CardTitle>Monthly Feedback Periods</CardTitle>
@@ -415,7 +543,7 @@ export function MonthlyFeedbackManagement() {
                   {RATING_FIELDS.map((f) => (
                     <div key={f.key} className="space-y-1">
                       <Label>{f.label}</Label>
-                      <Stars value={Number(selected.ratings?.[f.key] || 0)} />
+                      <Stars value={pickRatingValue(selected.ratings, f)} />
                     </div>
                   ))}
                   <div className="md:col-span-2">

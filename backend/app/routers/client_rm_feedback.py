@@ -212,10 +212,8 @@ async def remove_leadership_access(
 @router.post("/periods", status_code=201)
 async def create_period(
     payload: ClientRMFeedbackPeriodCreate,
-    current_user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(require_admin_user),
 ):
-    if not await _can_view_all_async(current_user):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
     table = await get_client_rm_feedback_table()
     now = _now_iso()
     item = {
@@ -249,10 +247,8 @@ async def list_periods(current_user: dict = Depends(get_current_active_user)):
 async def update_period(
     period_id: str,
     payload: ClientRMFeedbackPeriodUpdate,
-    current_user: dict = Depends(get_current_active_user),
+    _: dict = Depends(require_admin_user),
 ):
-    if not await _can_view_all_async(current_user):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
     table = await get_client_rm_feedback_table()
     response = await table.scan(
         FilterExpression=Attr("entity_type").eq("period") & Attr("period_id").eq(period_id)
@@ -472,11 +468,9 @@ async def get_notification_summary(current_user: dict = Depends(get_current_acti
     all_items = await table.scan(FilterExpression=Attr("entity_type").eq("submission"))
     submissions = [parse_dynamodb_item(i) for i in all_items.get("Items", [])]
     periods = await table.scan(FilterExpression=Attr("entity_type").eq("period"))
-    open_period_ids = {
-        parse_dynamodb_item(p).get("period_id")
-        for p in periods.get("Items", [])
-        if parse_dynamodb_item(p).get("period_status") == "open"
-    }
+    period_items = [parse_dynamodb_item(p) for p in periods.get("Items", [])]
+    open_period_ids = {p.get("period_id") for p in period_items if p.get("period_status") == "open"}
+    open_period_count = sum(1 for p in period_items if p.get("period_status") == "open")
 
     manager_pending_count = 0
     reportee_unread_count = 0
@@ -509,4 +503,5 @@ async def get_notification_summary(current_user: dict = Depends(get_current_acti
         reportee_unread_count=reportee_unread_count,
         hr_new_count=hr_new_count,
         leadership_new_count=leadership_new_count,
+        open_period_count=open_period_count,
     )

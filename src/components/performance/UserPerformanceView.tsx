@@ -201,6 +201,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   const [managerReviewData, setManagerReviewData] = useState<any | null>(null);
   const [loadingManagerReview, setLoadingManagerReview] = useState(false);
   const [clientRmNotificationCount, setClientRmNotificationCount] = useState(0);
+  const [clientRmOpenPeriodActive, setClientRmOpenPeriodActive] = useState(false);
 
   const currentEmployeeSummary = useMemo(() => {
     if (!currentEmployeeId) return null;
@@ -637,6 +638,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
         const data = await response.json();
         const count = Number(data.manager_pending_count || 0) + Number(data.reportee_unread_count || 0);
         setClientRmNotificationCount(count);
+        setClientRmOpenPeriodActive(Number(data.open_period_count || 0) > 0);
       } catch {
         // Keep performance page resilient when feedback module is unavailable.
       }
@@ -1081,8 +1083,17 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="goals">Goals & Timeline</TabsTrigger>
           <TabsTrigger value="annual-review">Annual Review</TabsTrigger>
-          <TabsTrigger value="client-rm-feedback" className="relative">
-            Client RM Feedback
+          <TabsTrigger value="client-rm-feedback" className="relative pr-6">
+            <span className="relative inline-flex items-center">
+              Client RM Feedback
+              {clientRmOpenPeriodActive && (
+                <span
+                  className="absolute -right-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.85)] animate-pulse"
+                  aria-hidden
+                  title="A monthly feedback period is open"
+                />
+              )}
+            </span>
             {clientRmNotificationCount > 0 && (
               <span className="ml-2 inline-flex min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-xs items-center justify-center">
                 {clientRmNotificationCount > 99 ? "99+" : clientRmNotificationCount}
