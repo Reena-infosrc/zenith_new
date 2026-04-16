@@ -28,6 +28,7 @@ export default function Performance() {
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoadingViewMode, setIsLoadingViewMode] = useState(false);
+  const [isLeadershipUser, setIsLeadershipUser] = useState(false);
   const hasCheckedViewMode = useRef(false);
   const previousPathname = useRef<string | null>(null);
   
@@ -39,7 +40,8 @@ export default function Performance() {
   
   // Only set activeModule to "Performance" when not in admin view
   // Admin view should not highlight the Performance sidebar item
-  const activeModule = viewMode === 'admin' ? '' : 'Performance';
+  // Leadership uses the admin-style view but should still highlight Performance.
+  const activeModule = viewMode === 'admin' && !isLeadershipUser ? '' : 'Performance';
   
   // Check team members and set view mode if no URL param is provided
   // OPTIMIZED: Always use preload cache first, never make API call if cache exists
@@ -59,6 +61,7 @@ export default function Performance() {
         const cachedLeadership = leadershipCache.get(user.email);
         const nowLead = Date.now();
         if (cachedLeadership && (nowLead - cachedLeadership.timestamp < LEADERSHIP_CACHE_TTL)) {
+          setIsLeadershipUser(Boolean(cachedLeadership.isLeadership));
           if (cachedLeadership.isLeadership) {
             setViewMode('admin');
             setSearchParams({ view: 'admin' }, { replace: true });
@@ -71,6 +74,7 @@ export default function Performance() {
             const data = await res.json();
             const isLeadership = Boolean(data?.is_leadership);
             leadershipCache.set(user.email, { isLeadership, timestamp: nowLead });
+            setIsLeadershipUser(isLeadership);
             if (isLeadership) {
               setViewMode('admin');
               setSearchParams({ view: 'admin' }, { replace: true });

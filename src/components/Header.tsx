@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { MenuIcon, BellIcon, LogOut, FileText, MessageSquare } from "lucide-react";
+import { MenuIcon, BellIcon, LogOut, MessageSquare, ChevronDown } from "lucide-react";
 import { ModeToggle } from "@/components/ModeToggle";
 import { AdminPortal } from "@/components/AdminPortal";
 import { SearchDropdown } from "@/components/SearchDropdown";
@@ -131,12 +131,13 @@ export function Header({ onMenuToggle }: HeaderProps) {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
+                  size="sm"
                   className="hover:bg-accent/50 transition-colors"
                   aria-label="Reports"
                   title="Reports"
                 >
-                  <FileText className="w-5 h-5" />
+                  <span className="text-sm font-medium">Reports</span>
+                  <ChevronDown className="w-4 h-4 ml-1 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
