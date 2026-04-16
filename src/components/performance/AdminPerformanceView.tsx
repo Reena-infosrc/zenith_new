@@ -1,18 +1,37 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { 
   Calendar,
   CheckCircle,
-  BarChart3
+  BarChart3,
+  MessageSquare
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AdminReviewCycles } from "./AdminReviewCycles";
 import { ManagerSignOff } from "./ManagerSignOff";
 import { PerformanceDashboard } from "./PerformanceDashboard";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
+import { MonthlyFeedbackManagement } from "./MonthlyFeedbackManagement";
+import { authenticatedFetch } from "@/utils/auth-utils";
+import { API_BASE_URL } from "@/config/api";
 
 export function AdminPerformanceView() {
   const moduleRef = useRef<HTMLDivElement>(null);
   const { preserveScroll } = usePreserveScroll();
+  const [isLeadership, setIsLeadership] = useState(false);
+
+  useEffect(() => {
+    const loadRole = async () => {
+      try {
+        const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setIsLeadership(Boolean(data?.is_leadership) && !Boolean(data?.is_admin));
+      } catch {
+        // keep resilient
+      }
+    };
+    loadRole();
+  }, []);
 
 
   const handleTabClick = () => {
@@ -36,34 +55,50 @@ export function AdminPerformanceView() {
 
   return (
     <div ref={moduleRef} className="space-y-6" data-performance-module>
-      <Tabs defaultValue="dashboard" className="space-y-4" onValueChange={() => {
+      <Tabs defaultValue={isLeadership ? "monthly-feedback" : "dashboard"} className="space-y-4" onValueChange={() => {
         preserveScroll();
       }}>
         <TabsList className="sticky top-16 z-40 bg-muted/50 backdrop-blur-sm flex-wrap">
-          <TabsTrigger value="dashboard" onClick={handleTabClick}>
-            <BarChart3 className="h-4 w-4 mr-2" />
-            Dashboard
-          </TabsTrigger>
-          <TabsTrigger value="cycles" onClick={handleTabClick}>
-            <Calendar className="h-4 w-4 mr-2" />
-            Cycles
-          </TabsTrigger>
-          <TabsTrigger value="signoff" onClick={handleTabClick}>
-            <CheckCircle className="h-4 w-4 mr-2" />
-            Sign-Off
+          {!isLeadership && (
+            <>
+              <TabsTrigger value="dashboard" onClick={handleTabClick}>
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Dashboard
+              </TabsTrigger>
+              <TabsTrigger value="cycles" onClick={handleTabClick}>
+                <Calendar className="h-4 w-4 mr-2" />
+                Cycles
+              </TabsTrigger>
+              <TabsTrigger value="signoff" onClick={handleTabClick}>
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Sign-Off
+              </TabsTrigger>
+            </>
+          )}
+          <TabsTrigger value="monthly-feedback" onClick={handleTabClick}>
+            <MessageSquare className="h-4 w-4 mr-2" />
+            Monthly Feedback
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="dashboard" className="space-y-4">
-          <PerformanceDashboard />
-        </TabsContent>
+        {!isLeadership && (
+          <>
+            <TabsContent value="dashboard" className="space-y-4">
+              <PerformanceDashboard />
+            </TabsContent>
 
-        <TabsContent value="cycles" className="space-y-4">
-          <AdminReviewCycles />
-        </TabsContent>
+            <TabsContent value="cycles" className="space-y-4">
+              <AdminReviewCycles />
+            </TabsContent>
 
-        <TabsContent value="signoff" className="space-y-4">
-          <ManagerSignOff />
+            <TabsContent value="signoff" className="space-y-4">
+              <ManagerSignOff />
+            </TabsContent>
+          </>
+        )}
+
+        <TabsContent value="monthly-feedback" className="space-y-4">
+          <MonthlyFeedbackManagement />
         </TabsContent>
       </Tabs>
     </div>

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, UserPlus } from "lucide-react";
+import { Search, Trash2, UserPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { API_BASE_URL } from "@/config/api";
 import { authenticatedFetch } from "@/utils/auth-utils";
@@ -14,12 +14,25 @@ type Props = {
   onClose?: () => void;
 };
 
+type Employee = {
+  id: string;
+  employeeId?: string;
+  employee_id?: string;
+  name: string;
+  email?: string;
+  department?: string;
+  position?: string;
+};
+
 export function ClientRMFeedbackAccess({ onClose }: Props) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [emails, setEmails] = useState<string[]>([]);
   const [newEmail, setNewEmail] = useState("");
   const [saving, setSaving] = useState(false);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
   const normalizedEmails = useMemo(
     () => emails.map((e) => e.trim().toLowerCase()).filter(Boolean),
@@ -44,12 +57,24 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
     }
   }, [toast]);
 
+  const fetchEmployees = useCallback(async () => {
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/employees/`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setEmployees(Array.isArray(data) ? data : []);
+    } catch {
+      // keep screen usable even if employee list fails
+    }
+  }, []);
+
   useEffect(() => {
     fetchEmails();
+    fetchEmployees();
   }, [fetchEmails]);
 
   const addEmail = async () => {
-    const email = newEmail.trim().toLowerCase();
+    const email = (selectedEmployee?.email || newEmail).trim().toLowerCase();
     if (!email) return;
     if (normalizedEmails.includes(email)) {
       toast({ title: "Already added", description: "That email is already in the list." });
@@ -67,6 +92,8 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
       }
       toast({ title: "Added", description: "Leadership email added successfully." });
       setNewEmail("");
+      setSelectedEmployee(null);
+      setSearchTerm("");
       fetchEmails();
     } catch (e) {
       toast({
@@ -104,6 +131,19 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
     }
   };
 
+  const filteredEmployees = useMemo(() => {
+    if (!searchTerm) return employees.slice(0, 30);
+    const s = searchTerm.toLowerCase();
+    return employees
+      .filter((e) => {
+        const id = (e.employeeId || e.employee_id || "").toLowerCase();
+        const name = (e.name || "").toLowerCase();
+        const email = (e.email || "").toLowerCase();
+        return id.includes(s) || name.includes(s) || email.includes(s);
+      })
+      .slice(0, 50);
+  }, [employees, searchTerm]);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center gap-3 flex-wrap">
@@ -123,22 +163,85 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
           <CardTitle>Add Leadership Email</CardTitle>
           <CardDescription>Only these emails will have leadership visibility for monthly feedback/reviews.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col md:flex-row gap-3 items-end">
-          <div className="w-full space-y-2">
-            <Label>Email</Label>
-            <Input
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              placeholder="leader.name@infoservices.com"
-              inputMode="email"
-              autoCapitalize="none"
-              autoCorrect="off"
-            />
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Lookup Employee (recommended)</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by name, email, or employee ID..."
+                className="pl-10"
+              />
+            </div>
+            <div className="max-h-56 overflow-y-auto border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Employee ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredEmployees.map((e) => (
+                    <TableRow key={e.id}>
+                      <TableCell>{e.employeeId || e.employee_id || "—"}</TableCell>
+                      <TableCell>{e.name}</TableCell>
+                      <TableCell>{e.email || "—"}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedEmployee(e);
+                            if (e.email) setNewEmail(e.email);
+                          }}
+                        >
+                          Select
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredEmployees.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                        No employees found.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
-          <Button onClick={addEmail} disabled={saving || !newEmail.trim()}>
-            <UserPlus className="h-4 w-4 mr-2" />
-            Add
-          </Button>
+
+          <div className="flex flex-col md:flex-row gap-3 items-end">
+            <div className="w-full space-y-2">
+              <Label>Email *</Label>
+              <Input
+                value={newEmail}
+                onChange={(e) => {
+                  setNewEmail(e.target.value);
+                  setSelectedEmployee(null);
+                }}
+                placeholder="leader.name@infoservices.com"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+              />
+              {selectedEmployee?.name && (
+                <p className="text-xs text-muted-foreground">
+                  Selected: <span className="font-medium">{selectedEmployee.name}</span>
+                </p>
+              )}
+            </div>
+            <Button onClick={addEmail} disabled={saving || !newEmail.trim()}>
+              <UserPlus className="h-4 w-4 mr-2" />
+              Add
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

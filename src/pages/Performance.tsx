@@ -19,6 +19,8 @@ type ViewMode = 'admin' | 'manager' | 'user';
 const viewModeCache = new Map<string, { viewMode: ViewMode; timestamp: number }>();
 const VIEW_MODE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const pendingViewModeChecks = new Map<string, Promise<ViewMode>>();
+const leadershipCache = new Map<string, { isLeadership: boolean; timestamp: number }>();
+const LEADERSHIP_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export default function Performance() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -56,6 +58,36 @@ export default function Performance() {
         setViewMode('user');
         hasCheckedViewMode.current = true;
         return;
+      }
+
+      // PRIORITY 0: Leadership access should see admin-style Performance Management
+      // (but AdminPerformanceView will restrict leadership to Monthly Feedback only).
+      try {
+        const cachedLeadership = leadershipCache.get(user.email);
+        const nowLead = Date.now();
+        if (cachedLeadership && (nowLead - cachedLeadership.timestamp < LEADERSHIP_CACHE_TTL)) {
+          if (cachedLeadership.isLeadership) {
+            setViewMode('admin');
+            setSearchParams({ view: 'admin' }, { replace: true });
+            hasCheckedViewMode.current = true;
+            return;
+          }
+        } else {
+          const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`);
+          if (res.ok) {
+            const data = await res.json();
+            const isLeadership = Boolean(data?.is_leadership);
+            leadershipCache.set(user.email, { isLeadership, timestamp: nowLead });
+            if (isLeadership) {
+              setViewMode('admin');
+              setSearchParams({ view: 'admin' }, { replace: true });
+              hasCheckedViewMode.current = true;
+              return;
+            }
+          }
+        }
+      } catch {
+        // If leadership check fails, fall back to normal behavior.
       }
       
       // PRIORITY 1: Check preload cache first (from use-performance-preload hook)

@@ -70,6 +70,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
   const [reportees, setReportees] = useState<Reportee[]>([]);
   const [canViewAll, setCanViewAll] = useState(false);
   const [hasTeamMembers, setHasTeamMembers] = useState(false);
+  const [isLeadership, setIsLeadership] = useState(false);
   const [submissions, setSubmissions] = useState<FeedbackSubmission[]>([]);
 
   const [periodId, setPeriodId] = useState<string>("");
@@ -110,6 +111,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
       const periodsData = await periodsRes.json();
       setCanViewAll(Boolean(contextData.can_view_all));
       setHasTeamMembers(Boolean(contextData.has_team_members));
+      setIsLeadership(Boolean(contextData.is_leadership));
       setReportees(contextData.reportees || []);
       setPeriods(periodsData || []);
       if (contextData.reportees?.length) {
@@ -216,7 +218,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
 
   return (
     <div className="space-y-4">
-      {(hasTeamMembers || canViewAll) && (
+      {hasTeamMembers && !isLeadership && (
         <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
           <CardHeader>
             <CardTitle>Submit Client Reporting Manager Feedback</CardTitle>
@@ -309,7 +311,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId }: Props) {
 
       <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
         <CardHeader>
-          <CardTitle>Feedback Records</CardTitle>
+          <CardTitle>Monthly Feedback History</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {submissions.length === 0 && (

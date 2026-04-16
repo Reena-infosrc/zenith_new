@@ -59,4 +59,6 @@ class ClientRMFeedbackMeContext(BaseModel):
     has_team_members: bool = False
     team_count: int = 0
     can_view_all: bool = False
+    is_admin: bool = False
+    is_leadership: bool = False
     reportees: List[Dict[str, Any]] = []

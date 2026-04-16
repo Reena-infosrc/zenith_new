@@ -131,10 +131,18 @@ def _validate_ratings(ratings: Dict[str, int]) -> None:
 async def get_me_context(current_user: dict = Depends(get_current_active_user)):
     user_email = _normalize_email(current_user.get("email") or current_user.get("username"))
     if not user_email:
-        return ClientRMFeedbackMeContext(can_view_all=await _can_view_all_async(current_user))
+        return ClientRMFeedbackMeContext(
+            can_view_all=await _can_view_all_async(current_user),
+            is_admin=_is_admin(current_user),
+            is_leadership=False,
+        )
     employee = await _get_employee_by_email(user_email)
     if not employee:
-        return ClientRMFeedbackMeContext(can_view_all=await _can_view_all_async(current_user))
+        return ClientRMFeedbackMeContext(
+            can_view_all=await _can_view_all_async(current_user),
+            is_admin=_is_admin(current_user),
+            is_leadership=await _is_leadership_email(user_email),
+        )
     reportees = await _get_direct_reports(employee.get("id"))
     return ClientRMFeedbackMeContext(
         employee_id=employee.get("id"),
@@ -142,6 +150,8 @@ async def get_me_context(current_user: dict = Depends(get_current_active_user)):
         has_team_members=len(reportees) > 0,
         team_count=len(reportees),
         can_view_all=await _can_view_all_async(current_user),
+        is_admin=_is_admin(current_user),
+        is_leadership=await _is_leadership_email(user_email),
         reportees=reportees,
     )
 

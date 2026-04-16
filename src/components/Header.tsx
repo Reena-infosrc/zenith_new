@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { MenuIcon, BellIcon, LogOut } from "lucide-react";
+import { MenuIcon, BellIcon, LogOut, Crown } from "lucide-react";
 import { ModeToggle } from "@/components/ModeToggle";
 import { AdminPortal } from "@/components/AdminPortal";
 import { SearchDropdown } from "@/components/SearchDropdown";
@@ -17,7 +17,8 @@ import { useNavigate } from "react-router-dom";
 import { useFeatureFlags } from "@/contexts/FeatureFlagsContext";
 import { useMsal } from "@azure/msal-react";
 import { useEmployees } from "@/hooks/use-employees";
-import { clearAuthMemory } from "@/utils/auth-utils";
+import { authenticatedFetch, clearAuthMemory } from "@/utils/auth-utils";
+import { API_BASE_URL } from "@/config/api";
 
 type HeaderProps = {
   onMenuToggle: () => void;
@@ -25,6 +26,7 @@ type HeaderProps = {
 
 export function Header({ onMenuToggle }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false);
+  const [isLeadership, setIsLeadership] = useState(false);
   const navigate = useNavigate();
   const { isEnabled, isHidden } = useFeatureFlags();
   const { instance, accounts } = useMsal();
@@ -48,6 +50,21 @@ export function Header({ onMenuToggle }: HeaderProps) {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    const fetchLeadershipFlag = async () => {
+      if (!userEmail) return;
+      try {
+        const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setIsLeadership(Boolean(data.is_leadership));
+      } catch {
+        // keep header resilient
+      }
+    };
+    fetchLeadershipFlag();
+  }, [userEmail]);
 
   const handleSignOut = async () => {
     try {
@@ -130,6 +147,12 @@ export function Header({ onMenuToggle }: HeaderProps) {
                   <p className="font-semibold text-sm truncate">{username}</p>
                   <p className="text-xs text-muted-foreground break-all leading-relaxed">{displayEmailOrId}</p>
                 </div>
+                {isLeadership && (
+                  <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/15 text-amber-700 border border-amber-500/30">
+                    <Crown className="w-3.5 h-3.5" />
+                    <span className="text-xs font-semibold">Leadership</span>
+                  </div>
+                )}
               </DropdownMenuLabel>
 
               <DropdownMenuSeparator />
