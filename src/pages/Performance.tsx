@@ -45,13 +45,6 @@ export default function Performance() {
   // OPTIMIZED: Always use preload cache first, never make API call if cache exists
   useEffect(() => {
     const checkTeamMembersAndSetView = async () => {
-      // If view is explicitly set in URL, use it (no API call needed)
-      if (urlViewMode && ['admin', 'manager', 'user'].includes(urlViewMode)) {
-        setViewMode(urlViewMode);
-        hasCheckedViewMode.current = true;
-        return;
-      }
-      
       // If no view param, check cache first, then API to determine view mode
       if (!user?.email) {
         // Default to user view if no user
@@ -88,6 +81,13 @@ export default function Performance() {
         }
       } catch {
         // If leadership check fails, fall back to normal behavior.
+      }
+
+      // If view is explicitly set in URL (and not overridden by leadership), use it.
+      if (urlViewMode && ['admin', 'manager', 'user'].includes(urlViewMode)) {
+        setViewMode(urlViewMode);
+        hasCheckedViewMode.current = true;
+        return;
       }
       
       // PRIORITY 1: Check preload cache first (from use-performance-preload hook)

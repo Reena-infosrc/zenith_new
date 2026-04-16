@@ -18,6 +18,7 @@ export function AdminPerformanceView() {
   const moduleRef = useRef<HTMLDivElement>(null);
   const { preserveScroll } = usePreserveScroll();
   const [isLeadership, setIsLeadership] = useState(false);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "cycles" | "signoff" | "monthly-feedback">("dashboard");
 
   useEffect(() => {
     const loadRole = async () => {
@@ -25,7 +26,11 @@ export function AdminPerformanceView() {
         const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`);
         if (!res.ok) return;
         const data = await res.json();
-        setIsLeadership(Boolean(data?.is_leadership) && !Boolean(data?.is_admin));
+        const leadership = Boolean(data?.is_leadership) && !Boolean(data?.is_admin);
+        setIsLeadership(leadership);
+        // CRITICAL: Tabs defaultValue won't update after async role detection.
+        // Keep tabs controlled and force leadership into monthly feedback.
+        setActiveTab(leadership ? "monthly-feedback" : "dashboard");
       } catch {
         // keep resilient
       }
@@ -55,9 +60,16 @@ export function AdminPerformanceView() {
 
   return (
     <div ref={moduleRef} className="space-y-6" data-performance-module>
-      <Tabs defaultValue={isLeadership ? "monthly-feedback" : "dashboard"} className="space-y-4" onValueChange={() => {
-        preserveScroll();
-      }}>
+      <Tabs
+        value={activeTab}
+        className="space-y-4"
+        onValueChange={(v) => {
+          preserveScroll();
+          // Prevent leadership from switching to hidden tabs via stale state.
+          if (isLeadership && v !== "monthly-feedback") return;
+          setActiveTab(v as any);
+        }}
+      >
         <TabsList className="sticky top-16 z-40 bg-muted/50 backdrop-blur-sm flex-wrap">
           {!isLeadership && (
             <>

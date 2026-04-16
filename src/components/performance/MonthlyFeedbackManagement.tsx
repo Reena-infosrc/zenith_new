@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { Button } from "@/components/ui/button";
-import { Download, Loader2, Search } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Download, Eye, Loader2, Search, Star } from "lucide-react";
 
 type Period = {
   period_id: string;
@@ -37,6 +38,39 @@ type FeedbackSubmission = {
   submitted_at?: string;
   updated_at?: string;
 };
+
+const RATING_FIELDS: { key: string; label: string }[] = [
+  { key: "quality_of_deliverables", label: "Quality of Deliverables" },
+  { key: "adherence_to_deadlines", label: "Adherence to Deadlines" },
+  { key: "technical_competency", label: "Technical Competency" },
+  { key: "problem_solving_skills", label: "Problem-Solving Skills" },
+  { key: "productivity_efficiency", label: "Productivity & Efficiency" },
+  { key: "accuracy_attention_to_detail", label: "Accuracy and Attention to Detail" },
+  { key: "ability_to_work_independently", label: "Ability to Work Independently" },
+  { key: "understanding_of_requirements", label: "Understanding of Requirements" },
+  { key: "responsiveness_to_work_assignments", label: "Responsiveness to Work Assignments" },
+  { key: "clarity_in_communication", label: "Clarity in Communication" },
+  { key: "responsiveness_to_emails_calls", label: "Responsiveness to Emails/Calls" },
+  { key: "business_domain_understanding", label: "Business/Domain Understanding" },
+  { key: "status_reporting_updates", label: "Status Reporting and Updates" },
+  { key: "team_collaboration", label: "Team Collaboration" },
+  { key: "participation_in_discussions", label: "Participation in Discussions" },
+];
+
+function Stars({ value }: { value: number }) {
+  const v = Math.max(0, Math.min(5, value || 0));
+  return (
+    <div className="flex items-center gap-1">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Star
+          key={i}
+          className={i <= v ? "h-4 w-4 fill-amber-500 text-amber-500" : "h-4 w-4 text-muted-foreground/30"}
+        />
+      ))}
+      <span className="text-sm font-semibold text-muted-foreground ml-2">{v}/5</span>
+    </div>
+  );
+}
 
 const CSV_COLUMNS: { key: string; header: string }[] = [
   { key: "id", header: "ID" },
@@ -110,6 +144,7 @@ export function MonthlyFeedbackManagement() {
   const [periodId, setPeriodId] = useState<string>("all");
   const [submissions, setSubmissions] = useState<FeedbackSubmission[]>([]);
   const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<FeedbackSubmission | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -278,6 +313,7 @@ export function MonthlyFeedbackManagement() {
                   <TableHead>Manager</TableHead>
                   <TableHead className="text-right">Overall</TableHead>
                   <TableHead className="text-right">Updated</TableHead>
+                  <TableHead className="text-right">View</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -294,11 +330,16 @@ export function MonthlyFeedbackManagement() {
                     <TableCell className="text-right text-xs text-muted-foreground">
                       {(x.updated_at || x.submitted_at || "").toString().slice(0, 10) || "—"}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => setSelected(x)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">
                       No monthly feedback records found.
                     </TableCell>
                   </TableRow>
@@ -308,6 +349,98 @@ export function MonthlyFeedbackManagement() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Monthly Feedback (Read-only)</DialogTitle>
+          </DialogHeader>
+          {selected && (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Employee & Context</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Employee</Label>
+                    <div className="mt-1 font-medium">{selected.employee_name}</div>
+                    <div className="text-xs text-muted-foreground">{selected.employee_code || selected.employee_id}</div>
+                  </div>
+                  <div>
+                    <Label>Submitted by</Label>
+                    <div className="mt-1 font-medium">{selected.manager_name}</div>
+                    <div className="text-xs text-muted-foreground">{selected.manager_email || "—"}</div>
+                  </div>
+                  <div>
+                    <Label>Billing Status</Label>
+                    <div className="mt-1">{selected.billing_status}</div>
+                  </div>
+                  <div>
+                    <Label>Period</Label>
+                    <div className="mt-1">{selectedPeriod?.label || selected.period_id}</div>
+                  </div>
+                  <div>
+                    <Label>Client Name</Label>
+                    <div className="mt-1">{selected.client_name}</div>
+                  </div>
+                  <div>
+                    <Label>Project Name</Label>
+                    <div className="mt-1">{selected.project_name}</div>
+                  </div>
+                  <div>
+                    <Label>Client Reporting Manager Name</Label>
+                    <div className="mt-1">{selected.client_reporting_manager_name || "—"}</div>
+                  </div>
+                  <div>
+                    <Label>Info Services Reporting Manager Name</Label>
+                    <div className="mt-1">{selected.info_services_reporting_manager_name || "—"}</div>
+                  </div>
+                  <div>
+                    <Label>Completion time</Label>
+                    <div className="mt-1">{selected.submitted_at || "—"}</div>
+                  </div>
+                  <div>
+                    <Label>Last modified time</Label>
+                    <div className="mt-1">{selected.updated_at || "—"}</div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Ratings</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {RATING_FIELDS.map((f) => (
+                    <div key={f.key} className="space-y-1">
+                      <Label>{f.label}</Label>
+                      <Stars value={Number(selected.ratings?.[f.key] || 0)} />
+                    </div>
+                  ))}
+                  <div className="md:col-span-2">
+                    <Label>Overall Satisfaction with Employee Performance</Label>
+                    <div className="mt-2">
+                      <Stars value={Number(selected.overall_satisfaction || 0)} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Additional Feedback</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                    {selected.additional_feedback || "—"}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
