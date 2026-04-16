@@ -1,6 +1,11 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+
+def _norm_employee_id(value: Any) -> str:
+    """Stable string id for DynamoDB / query comparisons (avoids reportee/admin visibility misses)."""
+    return str(value or "").strip()
+
 from boto3.dynamodb.conditions import Attr
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -108,7 +113,7 @@ async def _get_direct_reports(manager_employee_id: str) -> List[Dict[str, Any]]:
             continue
         reportees.append(
             {
-                "id": parsed.get("id"),
+                "id": _norm_employee_id(parsed.get("id")),
                 "employee_id": parsed.get("employee_id"),
                 "name": parsed.get("name"),
                 "email": parsed.get("email"),
@@ -272,7 +277,8 @@ async def update_period(
 
 async def _is_direct_report(manager_employee_id: str, employee_id: str) -> bool:
     reportees = await _get_direct_reports(manager_employee_id)
-    return any(r.get("id") == employee_id for r in reportees)
+    target = _norm_employee_id(employee_id)
+    return any(_norm_employee_id(r.get("id")) == target for r in reportees)
 
 
 @router.post("/submissions", status_code=201)
@@ -404,32 +410,36 @@ async def list_submissions(
     reportee_ids = set()
     if requester_employee_id:
         reportees = await _get_direct_reports(requester_employee_id)
-        reportee_ids = {r.get("id") for r in reportees}
+        reportee_ids = {_norm_employee_id(r.get("id")) for r in reportees if r.get("id")}
 
     response = await table.scan(
         FilterExpression=Attr("entity_type").eq("submission")
     )
     all_items = [parse_dynamodb_item(i) for i in response.get("Items", [])]
     filtered: List[Dict[str, Any]] = []
+    q_emp = _norm_employee_id(employee_id) if employee_id else ""
+    req_eid = _norm_employee_id(requester_employee_id)
     for item in all_items:
         if period_id and item.get("period_id") != period_id:
             continue
-        if employee_id and item.get("employee_id") != employee_id:
+        subj_emp = _norm_employee_id(item.get("employee_id"))
+        if q_emp and subj_emp != q_emp:
             continue
 
         if can_view_all:
             filtered.append(item)
             continue
 
-        if requester_employee_id and item.get("employee_id") == requester_employee_id:
+        # Reportee: read-only access to submissions about themselves (subject = requester)
+        if req_eid and subj_emp == req_eid:
             filtered.append(item)
             continue
 
-        if item.get("manager_email") == user_email:
+        if _normalize_email(item.get("manager_email") or "") == user_email:
             filtered.append(item)
             continue
 
-        if item.get("employee_id") in reportee_ids:
+        if subj_emp in reportee_ids:
             filtered.append(item)
             continue
 
@@ -450,7 +460,10 @@ async def mark_submission_seen(
     user_email = _normalize_email(current_user.get("email") or current_user.get("username"))
     requester = await _get_employee_by_email(user_email) if user_email else None
     requester_employee_id = requester.get("id") if requester else None
-    if item.get("employee_id") != requester_employee_id and not await _can_view_all_async(current_user):
+    if (
+        _norm_employee_id(item.get("employee_id")) != _norm_employee_id(requester_employee_id)
+        and not await _can_view_all_async(current_user)
+    ):
         raise HTTPException(status_code=403, detail="Not authorized")
     item["reportee_seen"] = True
     item["updated_at"] = _now_iso()
@@ -478,18 +491,20 @@ async def get_notification_summary(current_user: dict = Depends(get_current_acti
     leadership_new_count = 0
 
     if requester_employee_id:
+        req_eid = _norm_employee_id(requester_employee_id)
         reportees = await _get_direct_reports(requester_employee_id)
-        reportee_ids = {r.get("id") for r in reportees}
+        reportee_ids = {_norm_employee_id(r.get("id")) for r in reportees if r.get("id")}
         submitted_in_open = {
-            s.get("employee_id")
+            _norm_employee_id(s.get("employee_id"))
             for s in submissions
-            if s.get("period_id") in open_period_ids and s.get("manager_employee_id") == requester_employee_id
+            if s.get("period_id") in open_period_ids
+            and _norm_employee_id(s.get("manager_employee_id")) == req_eid
         }
         manager_pending_count = max(0, len(reportee_ids - submitted_in_open))
         reportee_unread_count = sum(
             1
             for s in submissions
-            if s.get("employee_id") == requester_employee_id and not s.get("reportee_seen")
+            if _norm_employee_id(s.get("employee_id")) == req_eid and not s.get("reportee_seen")
         )
 
     if can_view_all:

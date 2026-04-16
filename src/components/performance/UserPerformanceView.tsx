@@ -1769,6 +1769,11 @@ export function UserPerformanceView({
 
         <TabsContent value="client-rm-feedback" className="space-y-4">
           <ClientRMFeedbackTab
+            key={
+              clientRmSurface === "team-submit" && clientRmInitialReporteeId
+                ? `crm-team-${clientRmInitialReporteeId}`
+                : "crm-default"
+            }
             currentEmployeeId={currentEmployeeId}
             initialReporteeId={clientRmInitialReporteeId}
             clientRmSurface={clientRmSurface}

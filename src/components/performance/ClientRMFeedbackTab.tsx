@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -49,6 +49,8 @@ type FeedbackSubmission = {
   started_at?: string;
   submitted_at?: string;
   updated_at?: string;
+  /** Set when the reportee has opened the record (server). */
+  reportee_seen?: boolean;
 };
 
 /** Industry-standard title aligned to the original Info Services form. */
@@ -136,10 +138,9 @@ type Props = {
   /** When set (e.g. from My Team), pre-select this reportee in the manager form. */
   initialReporteeId?: string | null;
   /**
-   * Manager-only (embedded in Manager Performance): under My Goals use "self" so this tab shows
-   * read-only feedback from the manager's own line manager. Use "team-submit" when opening from
-   * a My Team card to show the submission form for that reportee.
-   * Omit for normal employee Performance (legacy behavior).
+   * Manager-only (embedded in Manager Performance): "self" = read-only feedback from your line manager
+   * on My Goals. "team-submit" = submit form for one reportee (My Team card only); there is no
+   * multi-reportee picker. Omit for normal employee Performance.
    */
   clientRmSurface?: "self" | "team-submit";
 };
@@ -176,9 +177,12 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
   const [startedAt, setStartedAt] = useState<string | null>(null);
 
   const managerEmail = user?.email || "";
-  /** Under My Goals, managers see read-only feedback about themselves; submit flow is from My Team only. */
+  /**
+   * Submit form only when opened from My Team (team-submit). No multi-reportee dropdown on My Goals.
+   * Under My Goals with surface "self", managers see read-only feedback from their own line manager.
+   */
   const showManagerEditor =
-    clientRmSurface === "self" ? false : hasTeamMembers && !isLeadership;
+    clientRmSurface === "team-submit" && hasTeamMembers && !isLeadership;
   const showLeadershipRouting = isLeadership;
 
   const periodById = useMemo(() => {
@@ -191,7 +195,14 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
 
   const selectedReportee = useMemo(() => reportees.find((r) => r.id === reporteeId), [reportees, reporteeId]);
 
-  const loadData = async () => {
+  /** Submissions shown below the form: only for the reportee in this session. */
+  const managerSubmissionsForView = useMemo(() => {
+    if (!showManagerEditor || !reporteeId) return [];
+    const rid = String(reporteeId);
+    return submissions.filter((s) => String(s.employee_id ?? "") === rid);
+  }, [showManagerEditor, reporteeId, submissions]);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [contextRes, periodsRes] = await Promise.all([
@@ -209,10 +220,13 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       setIsLeadership(Boolean(contextData.is_leadership));
       setIsAdmin(Boolean(contextData.is_admin));
       setSelfName(String(contextData.employee_name || user?.name || ""));
-      setReportees(contextData.reportees || []);
+      const reps: Reportee[] = contextData.reportees || [];
+      setReportees(reps);
       setPeriods(periodsData || []);
-      if (contextData.reportees?.length) {
-        setReporteeId(contextData.reportees[0].id);
+      if (reps.length) {
+        const preferred =
+          initialReporteeId && reps.some((r) => r.id === initialReporteeId) ? initialReporteeId : reps[0].id;
+        setReporteeId(preferred);
       }
       if (periodsData?.length) {
         const open = periodsData.find((p: Period) => p.period_status === "open");
@@ -227,13 +241,15 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
     } finally {
       setLoading(false);
     }
-  };
+  }, [initialReporteeId, toast, user?.name]);
 
   const loadSubmissions = useCallback(async () => {
     try {
       const params = new URLSearchParams();
       const loadAsManagerSubmitter =
-        clientRmSurface === "self" ? false : hasTeamMembers && !isLeadership;
+        clientRmSurface === "self"
+          ? false
+          : clientRmSurface === "team-submit" && hasTeamMembers && !isLeadership;
       if (loadAsManagerSubmitter) {
         // Manager submitter: server returns this manager's submissions (scoped).
       } else if (currentEmployeeId) {
@@ -252,20 +268,13 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   useEffect(() => {
     loadSubmissions();
   }, [loadSubmissions]);
 
-  useEffect(() => {
-    if (!initialReporteeId || reportees.length === 0) return;
-    if (reportees.some((r) => r.id === initialReporteeId)) {
-      setReporteeId(initialReporteeId);
-    }
-  }, [initialReporteeId, reportees]);
-
-  const resetManagerForm = () => {
+  const resetManagerForm = useCallback(() => {
     setEditingId(null);
     setStartedAt(null);
     setBillingStatus("billable");
@@ -276,7 +285,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
     setAdditionalFeedback("");
     setOverallSatisfaction(3);
     setRatings(RATING_FIELDS.reduce((acc, f) => ({ ...acc, [f.key]: 3 }), {} as Record<string, number>));
-  };
+  }, []);
 
   const loadSubmissionForEdit = (s: FeedbackSubmission) => {
     setEditingId(s.id);
@@ -367,8 +376,44 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
 
   const reporteeRows = useMemo(() => {
     if (!currentEmployeeId) return [];
-    return submissions.filter((s) => s.employee_id === currentEmployeeId);
+    const selfId = String(currentEmployeeId);
+    return submissions.filter((s) => String(s.employee_id ?? "") === selfId);
   }, [submissions, currentEmployeeId]);
+
+  const markSeenAttempted = useRef<Set<string>>(new Set());
+
+  /** When the tab is shown again (e.g. after manager submitted), pull latest for reportee read-only. */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") loadSubmissions();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [loadSubmissions]);
+
+  /** Reportee read-only: mark server-side seen so notifications stay accurate. */
+  useEffect(() => {
+    if (showManagerEditor || !currentEmployeeId) return;
+    const unseen = reporteeRows.filter(
+      (s) => !s.reportee_seen && !markSeenAttempted.current.has(s.id)
+    );
+    if (unseen.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const s of unseen) {
+        if (cancelled) break;
+        const res = await authenticatedFetch(
+          `${API_BASE_URL}/client-rm-feedback/submissions/${s.id}/mark-seen`,
+          { method: "POST" }
+        );
+        if (res.ok) markSeenAttempted.current.add(s.id);
+      }
+      if (!cancelled) await loadSubmissions();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reporteeRows, showManagerEditor, currentEmployeeId, loadSubmissions]);
 
   /** Same `reporting_to` link as Directory org chart → "Reports to" (line manager). */
   const lineManager = useMemo(() => {
@@ -381,7 +426,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
 
   const showReadOnlyReportingContext =
     !showManagerEditor && (clientRmSurface === "self" || clientRmSurface === undefined);
-  const showTeamSubmitContext = showManagerEditor && clientRmSurface === "team-submit" && Boolean(selectedReportee);
+  const showTeamSubmitContext = showManagerEditor && Boolean(selectedReportee);
 
   if (loading) {
     return (
@@ -467,6 +512,23 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
           <div className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent px-6 py-5 border-b">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
+                {showManagerEditor && selectedReportee && (
+                  <div className="mb-4 rounded-lg border border-primary/35 bg-background/80 px-4 py-3 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">Individual session</p>
+                    <p className="text-lg font-semibold text-foreground mt-0.5">
+                      Feedback for {selectedReportee.name}
+                      {selectedReportee.employee_id ? (
+                        <span className="text-muted-foreground font-normal text-base ml-2">
+                          ({selectedReportee.employee_id})
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1.5 max-w-xl">
+                      Only this person is in scope here—same idea as opening a review for one team member. Use another
+                      team card to work on someone else.
+                    </p>
+                  </div>
+                )}
                 <p className="text-xs font-semibold tracking-widest text-primary uppercase">Confidential</p>
                 <CardTitle className="text-xl md:text-2xl mt-1">{FORM_TITLE}</CardTitle>
                 <CardDescription className="mt-2 max-w-2xl">
@@ -528,22 +590,17 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                 </div>
                 <div className="space-y-2">
                   <Label>Employee *</Label>
-                  <Select value={reporteeId} onValueChange={setReporteeId}>
-                    <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Select reportee" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {reportees.map((r) => (
-                        <SelectItem key={r.id} value={r.id}>
-                          {r.name}
-                          {r.employee_id ? ` (${r.employee_id})` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="rounded-md border border-primary/25 bg-muted/30 px-3 py-2.5 text-sm">
+                    <span className="font-semibold">{selectedReportee?.name ?? "—"}</span>
+                    {selectedReportee?.employee_id ? (
+                      <span className="text-muted-foreground ml-2">· {selectedReportee.employee_id}</span>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Employee is fixed for this session. Return to My Team and choose another card to submit for a
+                      different reportee.
+                    </p>
+                  </div>
                 </div>
-                <FieldShell label="Employee name">{selectedReportee?.name || "—"}</FieldShell>
-                <FieldShell label="Employee ID">{selectedReportee?.employee_id || selectedReportee?.id || "—"}</FieldShell>
               </div>
             </section>
 
@@ -706,17 +763,21 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
         {showManagerEditor && (
           <div>
             <h3 className="text-lg font-semibold tracking-tight mb-1">Submitted feedback</h3>
-            <p className="text-sm text-muted-foreground mb-4">Read-only copies of what you have submitted for your team.</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              {selectedReportee
+                ? `Read-only history for ${selectedReportee.name} in this session only.`
+                : "Read-only copies of submissions for this session."}
+            </p>
           </div>
         )}
-          {(showManagerEditor ? submissions : reporteeRows).length === 0 ? (
+          {(showManagerEditor ? managerSubmissionsForView : reporteeRows).length === 0 ? (
             <Card className="border-dashed">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
                 No feedback records yet for this view.
               </CardContent>
             </Card>
           ) : (
-            (showManagerEditor ? submissions : reporteeRows).map((entry) => {
+            (showManagerEditor ? managerSubmissionsForView : reporteeRows).map((entry) => {
               const period = periodById.get(entry.period_id);
               return (
                 <Card key={entry.id} className="border-border/60 shadow-md overflow-hidden">
