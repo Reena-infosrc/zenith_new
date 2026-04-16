@@ -47,9 +47,9 @@ export default function Performance() {
     const checkTeamMembersAndSetView = async () => {
       // If no view param, check cache first, then API to determine view mode
       if (!user?.email) {
-        // Default to user view if no user
+        // User info (email) can be async right after refresh/login.
+        // Don't "finalize" view mode yet, or leadership/admin detection won't run.
         setViewMode('user');
-        hasCheckedViewMode.current = true;
         return;
       }
 

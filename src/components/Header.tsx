@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { MenuIcon, BellIcon, LogOut, Crown } from "lucide-react";
+import { MenuIcon, BellIcon, LogOut, Crown, MessageSquare } from "lucide-react";
 import { ModeToggle } from "@/components/ModeToggle";
 import { AdminPortal } from "@/components/AdminPortal";
 import { SearchDropdown } from "@/components/SearchDropdown";
@@ -127,8 +127,19 @@ export function Header({ onMenuToggle }: HeaderProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center space-x-2 hover:bg-accent/50 transition-colors">
-                <div className="w-8 h-8 rounded-full bg-gradient-hr-primary flex items-center justify-center text-white">
-                  {username.charAt(0).toUpperCase()}
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full bg-gradient-hr-primary flex items-center justify-center text-white">
+                    {username.charAt(0).toUpperCase()}
+                  </div>
+                  {isLeadership && (
+                    <span
+                      className="absolute -top-1 -right-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white shadow-sm ring-2 ring-background"
+                      aria-label="Leadership access"
+                      title="Leadership access"
+                    >
+                      <Crown className="w-3 h-3" />
+                    </span>
+                  )}
                 </div>
                 <span className="text-sm font-medium hidden sm:inline">{username}</span>
               </Button>
@@ -156,6 +167,19 @@ export function Header({ onMenuToggle }: HeaderProps) {
               </DropdownMenuLabel>
 
               <DropdownMenuSeparator />
+
+              {isLeadership && (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => navigate("/performance?view=admin")}
+                    className="flex items-center gap-2 p-3 hover:bg-accent/30 transition-colors cursor-pointer"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span className="text-sm">Monthly Feedback</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
 
               <DropdownMenuItem
                 onClick={handleSignOut}
