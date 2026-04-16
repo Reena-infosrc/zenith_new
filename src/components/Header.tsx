@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import { MenuIcon, BellIcon, LogOut, Crown, MessageSquare } from "lucide-react";
+import { MenuIcon, BellIcon, LogOut, FileText, MessageSquare } from "lucide-react";
 import { ModeToggle } from "@/components/ModeToggle";
 import { AdminPortal } from "@/components/AdminPortal";
 import { SearchDropdown } from "@/components/SearchDropdown";
@@ -27,6 +27,7 @@ type HeaderProps = {
 export function Header({ onMenuToggle }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [isLeadership, setIsLeadership] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const navigate = useNavigate();
   const { isEnabled, isHidden } = useFeatureFlags();
   const { instance, accounts } = useMsal();
@@ -59,6 +60,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
         if (!res.ok) return;
         const data = await res.json();
         setIsLeadership(Boolean(data.is_leadership));
+        setIsAdmin(Boolean(data.is_admin));
       } catch {
         // keep header resilient
       }
@@ -104,7 +106,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
 
         {/* Admin Portal positioned before notifications - controlled by feature flag */}
         <div className="flex items-center gap-3 w-56 justify-end">
-          {!isHidden('admin_portal') && (
+          {!isHidden('admin_portal') && isAdmin && (
             <AdminPortal disabled={!isEnabled('admin_portal')} />
           )}
 
@@ -123,23 +125,46 @@ export function Header({ onMenuToggle }: HeaderProps) {
 
           <ModeToggle />
 
+          {/* Leadership Reports Dropdown (separate from profile) */}
+          {isLeadership && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hover:bg-accent/50 transition-colors"
+                  aria-label="Reports"
+                  title="Reports"
+                >
+                  <FileText className="w-5 h-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="min-w-48 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 shadow-lg"
+                sideOffset={8}
+              >
+                <DropdownMenuLabel className="px-3 py-2 text-xs text-muted-foreground">
+                  Reports
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => navigate("/performance?view=admin")}
+                  className="flex items-center gap-2 p-3 hover:bg-accent/30 transition-colors cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="text-sm">Monthly Feedback</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           {/* User Profile Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center space-x-2 hover:bg-accent/50 transition-colors">
-                <div className="relative">
-                  <div className="w-8 h-8 rounded-full bg-gradient-hr-primary flex items-center justify-center text-white">
-                    {username.charAt(0).toUpperCase()}
-                  </div>
-                  {isLeadership && (
-                    <span
-                      className="absolute -top-1 -right-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white shadow-sm ring-2 ring-background"
-                      aria-label="Leadership access"
-                      title="Leadership access"
-                    >
-                      <Crown className="w-3 h-3" />
-                    </span>
-                  )}
+                <div className="w-8 h-8 rounded-full bg-gradient-hr-primary flex items-center justify-center text-white">
+                  {username.charAt(0).toUpperCase()}
                 </div>
                 <span className="text-sm font-medium hidden sm:inline">{username}</span>
               </Button>
@@ -158,28 +183,9 @@ export function Header({ onMenuToggle }: HeaderProps) {
                   <p className="font-semibold text-sm truncate">{username}</p>
                   <p className="text-xs text-muted-foreground break-all leading-relaxed">{displayEmailOrId}</p>
                 </div>
-                {isLeadership && (
-                  <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-amber-500/15 text-amber-700 border border-amber-500/30">
-                    <Crown className="w-3.5 h-3.5" />
-                    <span className="text-xs font-semibold">Leadership</span>
-                  </div>
-                )}
               </DropdownMenuLabel>
 
               <DropdownMenuSeparator />
-
-              {isLeadership && (
-                <>
-                  <DropdownMenuItem
-                    onClick={() => navigate("/performance?view=admin")}
-                    className="flex items-center gap-2 p-3 hover:bg-accent/30 transition-colors cursor-pointer"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span className="text-sm">Monthly Feedback</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
-              )}
 
               <DropdownMenuItem
                 onClick={handleSignOut}

@@ -19,20 +19,25 @@ export function AdminPerformanceView() {
   const { preserveScroll } = usePreserveScroll();
   const [isLeadership, setIsLeadership] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "cycles" | "signoff" | "monthly-feedback">("dashboard");
+  const [roleLoaded, setRoleLoaded] = useState(false);
 
   useEffect(() => {
     const loadRole = async () => {
       try {
         const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const leadership = Boolean(data?.is_leadership) && !Boolean(data?.is_admin);
-        setIsLeadership(leadership);
-        // CRITICAL: Tabs defaultValue won't update after async role detection.
-        // Keep tabs controlled and force leadership into monthly feedback.
-        setActiveTab(leadership ? "monthly-feedback" : "dashboard");
+        if (res.ok) {
+          const data = await res.json();
+          const leadership = Boolean(data?.is_leadership) && !Boolean(data?.is_admin);
+          setIsLeadership(leadership);
+          // CRITICAL: Tabs defaultValue won't update after async role detection.
+          // Keep tabs controlled and force leadership into monthly feedback.
+          setActiveTab(leadership ? "monthly-feedback" : "dashboard");
+        }
       } catch {
         // keep resilient
+      } finally {
+        // Prevent leadership users from briefly seeing admin tabs during initial render.
+        setRoleLoaded(true);
       }
     };
     loadRole();
@@ -60,6 +65,9 @@ export function AdminPerformanceView() {
 
   return (
     <div ref={moduleRef} className="space-y-6" data-performance-module>
+      {!roleLoaded ? (
+        <div className="py-10 text-sm text-muted-foreground">Loading performance module…</div>
+      ) : (
       <Tabs
         value={activeTab}
         className="space-y-4"
@@ -113,6 +121,7 @@ export function AdminPerformanceView() {
           <MonthlyFeedbackManagement />
         </TabsContent>
       </Tabs>
+      )}
     </div>
   );
 }
