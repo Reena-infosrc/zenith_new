@@ -19,8 +19,6 @@ type ViewMode = 'admin' | 'manager' | 'user';
 const viewModeCache = new Map<string, { viewMode: ViewMode; timestamp: number }>();
 const VIEW_MODE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const pendingViewModeChecks = new Map<string, Promise<ViewMode>>();
-const leadershipCache = new Map<string, { isLeadership: boolean; timestamp: number }>();
-const LEADERSHIP_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export default function Performance() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -28,7 +26,6 @@ export default function Performance() {
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isLoadingViewMode, setIsLoadingViewMode] = useState(false);
-  const [isLeadershipUser, setIsLeadershipUser] = useState(false);
   const hasCheckedViewMode = useRef(false);
   const previousPathname = useRef<string | null>(null);
   
@@ -40,8 +37,7 @@ export default function Performance() {
   
   // Only set activeModule to "Performance" when not in admin view
   // Admin view should not highlight the Performance sidebar item
-  // Leadership uses the admin-style view but should still highlight Performance.
-  const activeModule = viewMode === 'admin' && !isLeadershipUser ? '' : 'Performance';
+  const activeModule = viewMode === 'admin' ? '' : 'Performance';
   
   // Check team members and set view mode if no URL param is provided
   // OPTIMIZED: Always use preload cache first, never make API call if cache exists
@@ -53,38 +49,6 @@ export default function Performance() {
         // Don't "finalize" view mode yet, or leadership/admin detection won't run.
         setViewMode('user');
         return;
-      }
-
-      // PRIORITY 0: Leadership access should see admin-style Performance Management
-      // (but AdminPerformanceView will restrict leadership to Monthly Feedback only).
-      try {
-        const cachedLeadership = leadershipCache.get(user.email);
-        const nowLead = Date.now();
-        if (cachedLeadership && (nowLead - cachedLeadership.timestamp < LEADERSHIP_CACHE_TTL)) {
-          setIsLeadershipUser(Boolean(cachedLeadership.isLeadership));
-          if (cachedLeadership.isLeadership) {
-            setViewMode('admin');
-            setSearchParams({ view: 'admin' }, { replace: true });
-            hasCheckedViewMode.current = true;
-            return;
-          }
-        } else {
-          const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`);
-          if (res.ok) {
-            const data = await res.json();
-            const isLeadership = Boolean(data?.is_leadership);
-            leadershipCache.set(user.email, { isLeadership, timestamp: nowLead });
-            setIsLeadershipUser(isLeadership);
-            if (isLeadership) {
-              setViewMode('admin');
-              setSearchParams({ view: 'admin' }, { replace: true });
-              hasCheckedViewMode.current = true;
-              return;
-            }
-          }
-        }
-      } catch {
-        // If leadership check fails, fall back to normal behavior.
       }
 
       // If view is explicitly set in URL (and not overridden by leadership), use it.

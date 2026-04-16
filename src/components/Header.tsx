@@ -150,7 +150,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => navigate("/performance?view=admin")}
+                  onClick={() => navigate("/performance/monthly-feedback")}
                   className="flex items-center gap-2 p-3 hover:bg-accent/30 transition-colors cursor-pointer"
                 >
                   <MessageSquare className="w-4 h-4" />
