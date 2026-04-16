@@ -27,6 +27,8 @@ custom:
     engagementActivities: ${env:DYNAMODB_TABLE_ENGAGEMENT_ACTIVITIES}
     resourceMappings: ${env:DYNAMODB_TABLE_RESOURCE_MAPPINGS}
     revenueForecasts: ${env:DYNAMODB_TABLE_REVENUE_FORECASTS}
+    clientRmFeedback: ${env:DYNAMODB_TABLE_CLIENT_RM_FEEDBACK}
+    leadershipAccess: ${env:DYNAMODB_TABLE_LEADERSHIP_ACCESS}
 
   # VPC Configuration
   vpcId: !Ref ZenithHrPulseVPC
@@ -84,6 +86,10 @@ provider:
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.resourceMappings}/index/*
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.revenueForecasts}
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.revenueForecasts}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.clientRmFeedback}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.clientRmFeedback}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.leadershipAccess}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.leadershipAccess}/index/*
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.users}
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.users}/index/*
 
@@ -376,6 +382,10 @@ resources:
                 Value: zenith-hr-recruitment-${self:provider.stage}
               - Name: DYNAMODB_TABLE_FEATURES
                 Value: zenith-hr-feature-flags-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_CLIENT_RM_FEEDBACK
+                Value: zenith-hr-client-rm-feedback-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_LEADERSHIP_ACCESS
+                Value: zenith-hr-leadership-access-${self:provider.stage}
               - Name: S3_BUCKET_PHOTOS
                 Value: zenith-hr-pulse-photos-${self:provider.stage}
               - Name: S3_BUCKET_DOCUMENTS
@@ -911,6 +921,72 @@ resources:
           - IndexName: EmployeeIndex
             KeySchema:
               - AttributeName: employeeId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrClientRMFeedback:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-client-rm-feedback-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: entity_type
+            AttributeType: S
+          - AttributeName: period_id
+            AttributeType: S
+          - AttributeName: employee_id
+            AttributeType: S
+          - AttributeName: manager_employee_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: EntityTypeIndex
+            KeySchema:
+              - AttributeName: entity_type
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: PeriodIndex
+            KeySchema:
+              - AttributeName: period_id
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: EmployeeIndex
+            KeySchema:
+              - AttributeName: employee_id
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ManagerIndex
+            KeySchema:
+              - AttributeName: manager_employee_id
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
+    ZenithHrLeadershipAccess:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-leadership-access-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: EmailIndex
+            KeySchema:
+              - AttributeName: email
                 KeyType: HASH
             Projection:
               ProjectionType: ALL

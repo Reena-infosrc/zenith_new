@@ -48,6 +48,7 @@ import { GoalDetailPanel, GoalDetailSnapshot } from "./GoalDetailPanel";
 import { GoalSummaryCard, GoalSummary } from "./GoalSummaryCard";
 import { GoalSettingModal } from "./GoalSettingModal";
 import { EmployeeSelfAssessment } from "./EmployeeSelfAssessment";
+import { ClientRMFeedbackTab } from "./ClientRMFeedbackTab";
 
 import {
   LineChart as RechartsLineChart,
@@ -199,6 +200,7 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
   const [showManagerFeedbackModal, setShowManagerFeedbackModal] = useState(false);
   const [managerReviewData, setManagerReviewData] = useState<any | null>(null);
   const [loadingManagerReview, setLoadingManagerReview] = useState(false);
+  const [clientRmNotificationCount, setClientRmNotificationCount] = useState(0);
 
   const currentEmployeeSummary = useMemo(() => {
     if (!currentEmployeeId) return null;
@@ -626,6 +628,21 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
     // Always fetch cycles (they're not employee-specific) - but only once
     fetchCycles();
   }, [user?.email, getCachedData, toast]);
+
+  useEffect(() => {
+    const fetchClientRmNotifications = async () => {
+      try {
+        const response = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/notifications/summary`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const count = Number(data.manager_pending_count || 0) + Number(data.reportee_unread_count || 0);
+        setClientRmNotificationCount(count);
+      } catch {
+        // Keep performance page resilient when feedback module is unavailable.
+      }
+    };
+    fetchClientRmNotifications();
+  }, []);
 
   const growthData: GrowthData[] = [
     { month: "Jan", performance: 65, goalsCompleted: 1 },
@@ -1064,6 +1081,14 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="goals">Goals & Timeline</TabsTrigger>
           <TabsTrigger value="annual-review">Annual Review</TabsTrigger>
+          <TabsTrigger value="client-rm-feedback" className="relative">
+            Client RM Feedback
+            {clientRmNotificationCount > 0 && (
+              <span className="ml-2 inline-flex min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-xs items-center justify-center">
+                {clientRmNotificationCount > 99 ? "99+" : clientRmNotificationCount}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -1704,6 +1729,10 @@ export function UserPerformanceView({ employeeId: providedEmployeeId }: UserPerf
               />
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="client-rm-feedback" className="space-y-4">
+          <ClientRMFeedbackTab currentEmployeeId={currentEmployeeId} />
         </TabsContent>
 
         <GoalDetailPanel

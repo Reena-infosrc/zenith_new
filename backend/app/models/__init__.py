@@ -11,3 +11,11 @@ from .review import (
     ReviewUpdate,
     ReviewInDB,
 )
+from .client_rm_feedback import (
+    ClientRMFeedbackMeContext,
+    ClientRMFeedbackNotificationSummary,
+    ClientRMFeedbackPeriodCreate,
+    ClientRMFeedbackPeriodUpdate,
+    ClientRMFeedbackSubmissionCreate,
+    ClientRMFeedbackSubmissionUpdate,
+)

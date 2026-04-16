@@ -34,6 +34,8 @@ class DynamoDBService:
             "feedback": os.getenv("DYNAMODB_TABLE_FEEDBACK"),
             "recruitment": os.getenv("DYNAMODB_TABLE_RECRUITMENT"),
             "features": os.getenv("DYNAMODB_TABLE_FEATURES"),
+            "clientRmFeedback": os.getenv("DYNAMODB_TABLE_CLIENT_RM_FEEDBACK"),
+            "leadershipAccess": os.getenv("DYNAMODB_TABLE_LEADERSHIP_ACCESS"),
         }
         self.session = None
         self.dynamodb = None
@@ -163,6 +165,16 @@ async def get_cycles_table():
 async def get_feature_flags_table():
     """Get feature flags table"""
     return await dynamodb_service.get_table("features")
+
+
+async def get_client_rm_feedback_table():
+    """Get client reporting manager feedback table"""
+    return await dynamodb_service.get_table("clientRmFeedback")
+
+
+async def get_leadership_access_table():
+    """Get leadership access table"""
+    return await dynamodb_service.get_table("leadershipAccess")
 
 async def get_review_table_by_draft_status(is_draft: bool):
     """Get review table based on draft status"""

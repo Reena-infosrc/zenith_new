@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Settings, Users, BarChart3, Shield, Database, ChevronDown, Flag } from "lucide-react";
+import { Settings, Users, BarChart3, Shield, Database, ChevronDown, Flag, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
 import { useFeatureFlags } from "@/hooks/use-feature-flags";
 import { UserManagement } from "@/components/admin/UserManagement";
+import { ClientRMFeedbackAccess } from "@/components/admin/ClientRMFeedbackAccess";
 
 type AdminPortalProps = {
   disabled?: boolean;
@@ -25,6 +26,7 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
   const { isHidden } = useFeatureFlags();
   const [isOpen, setIsOpen] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [showClientRmAccess, setShowClientRmAccess] = useState(false);
   const navigate = useNavigate();
 
   // No body scroll lock — keeps sidebar accessible
@@ -66,6 +68,15 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
       }
     },
     {
+      icon: <MessageSquare className="w-4 h-4" />,
+      label: "Leadership Access",
+      description: "Manage leadership access for monthly feedback/reviews",
+      action: () => {
+        setShowClientRmAccess(true);
+        setIsOpen(false);
+      }
+    },
+    {
       icon: <BarChart3 className="w-4 h-4" />,
       label: "System Analytics",
       description: "View system performance metrics",
@@ -88,6 +99,7 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
     featureFlag: item.label === "Admin View" ? undefined :
       item.label === "Feature Flags" ? "feature_flag_management" :
         item.label === "User Management" ? "user_management" :
+          item.label === "Leadership Access" ? "leadership_access" :
           item.label === "System Analytics" ? "system_analytics" :
             item.label === "Data Management" ? "data_management" :
               item.label === "Security Settings" ? "security_settings" : undefined
@@ -177,6 +189,21 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
           <div className="bg-background rounded-lg shadow-lg max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col">
             <div className="flex-1 overflow-y-auto p-6">
               <UserManagement onClose={() => setShowUserManagement(false)} />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Client RM Feedback Access Modal */}
+      {showClientRmAccess && createPortal(
+        <div
+          className="fixed z-[100] bg-black/50 flex items-center justify-center p-4"
+          style={{ position: 'fixed', top: 0, left: 255, right: 0, bottom: 0 }}
+        >
+          <div className="bg-background rounded-lg shadow-lg max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex-1 overflow-y-auto p-6">
+              <ClientRMFeedbackAccess onClose={() => setShowClientRmAccess(false)} />
             </div>
           </div>
         </div>,

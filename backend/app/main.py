@@ -332,12 +332,12 @@ async def routes_debug():
 
 # Static import attempts (keep for local / dev)
 try:
-    from .routers import auth, employees, goals, feedback, ai, employees_dashboard, feature_flags, admin, admin_auth, reviews
+    from .routers import auth, employees, goals, feedback, ai, employees_dashboard, feature_flags, admin, admin_auth, reviews, client_rm_feedback
     logger.info("✅ Successfully imported all routers statically")
 except Exception as import_error:
     # if static import fails, we will try dynamic loader below
     logger.error(f"❌ Failed to import routers statically: {import_error}", exc_info=True)
-    auth = employees = goals = feedback = ai = employees_dashboard = feature_flags = admin = admin_auth = reviews = None
+    auth = employees = goals = feedback = ai = employees_dashboard = feature_flags = admin = admin_auth = reviews = client_rm_feedback = None
 
 # dynamic router loader with per-module error logging
 router_names = [
@@ -351,6 +351,7 @@ router_names = [
     ("admin", "admin"),
     ("admin_auth", "admin_auth"),
     ("reviews", "reviews"),
+    ("client_rm_feedback", "client_rm_feedback"),
 ]
 
 for name, module_name in router_names:
@@ -394,6 +395,10 @@ for name, module_name in router_names:
         if name == "reviews" and reviews:
             app.include_router(reviews.router)
             logger.info("Included router: reviews (static)")
+            continue
+        if name == "client_rm_feedback" and client_rm_feedback:
+            app.include_router(client_rm_feedback.router)
+            logger.info("Included router: client_rm_feedback (static)")
             continue
 
         module = importlib.import_module(f"{__package__}.routers.{module_name}")

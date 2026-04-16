@@ -9,3 +9,4 @@ from . import feature_flags
 from . import admin
 from . import admin_auth 
 from . import reviews
+from . import client_rm_feedback
