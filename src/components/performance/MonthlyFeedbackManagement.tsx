@@ -9,7 +9,17 @@ import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Download, Eye, Loader2, Plus, Search } from "lucide-react";
+import { Download, Eye, Loader2, Lock, Plus, Search } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   OverallSatisfactionReadOnly,
@@ -167,6 +177,8 @@ export function MonthlyFeedbackManagement() {
   const [newStart, setNewStart] = useState("");
   const [newEnd, setNewEnd] = useState("");
   const [newStatus, setNewStatus] = useState<Period["period_status"]>("open");
+  const [closeConfirmPeriod, setCloseConfirmPeriod] = useState<Period | null>(null);
+  const [closingPeriodId, setClosingPeriodId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -221,6 +233,36 @@ export function MonthlyFeedbackManagement() {
       toast({ title: "Could not create period", description: "Admin access required.", variant: "destructive" });
     } finally {
       setCreating(false);
+    }
+  };
+
+  /** Only open cycles in the summary grid — avoids clutter; closed/draft remain in the history period filter. */
+  const openPeriodsSorted = useMemo(() => {
+    return periods
+      .filter((p) => p.period_status === "open")
+      .sort((a, b) => (b.start_date || "").localeCompare(a.start_date || ""));
+  }, [periods]);
+
+  const confirmClosePeriod = async () => {
+    if (!closeConfirmPeriod) return;
+    setClosingPeriodId(closeConfirmPeriod.period_id);
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/periods/${closeConfirmPeriod.period_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "closed" }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || "Close failed");
+      }
+      toast({ title: "Period closed", description: "Managers can no longer submit feedback for this cycle." });
+      setCloseConfirmPeriod(null);
+      await load();
+    } catch {
+      toast({ title: "Could not close period", description: "Admin access required or try again.", variant: "destructive" });
+    } finally {
+      setClosingPeriodId(null);
     }
   };
 
@@ -362,34 +404,87 @@ export function MonthlyFeedbackManagement() {
 
       <Card className="overflow-hidden border-border/60 bg-gradient-to-br from-background/95 to-muted/10 shadow-lg">
         <CardHeader className={REPORT_CARD_HEADER_BAND}>
-          <CardTitle className={REPORT_CARD_TITLE}>Monthly feedback periods</CardTitle>
+          <CardTitle className={REPORT_CARD_TITLE}>Open feedback periods</CardTitle>
           <CardDescription className="text-xs leading-relaxed">
-            Cycle labels and status tags for each open or closed window.
+            Active submission windows only (newest first). Closed and draft periods stay available in the history filter
+            below.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 pt-2">
           {periods.length === 0 ? (
             <p className="text-sm text-muted-foreground">No monthly feedback periods created yet.</p>
+          ) : openPeriodsSorted.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No open periods right now. Create one above, or use{" "}
+              <span className="font-medium text-foreground">Monthly feedback history</span> to review past cycles.
+            </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {periods.map((p) => (
+              {openPeriodsSorted.map((p) => (
                 <div
                   key={p.period_id}
-                  className="rounded-xl border-2 border-border/60 bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
+                  className="rounded-xl border-2 border-border/60 bg-card p-4 shadow-sm transition-shadow hover:shadow-md flex flex-col gap-3"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-base font-bold tracking-tight text-foreground leading-tight">{p.label}</span>
                     {statusBadge(p.period_status)}
                   </div>
-                  <div className="mt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {p.start_date} → {p.end_date}
                   </div>
+                  {isAdmin ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto shrink-0"
+                      disabled={closingPeriodId === p.period_id}
+                      onClick={() => setCloseConfirmPeriod(p)}
+                    >
+                      {closingPeriodId === p.period_id ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                      ) : (
+                        <Lock className="h-3.5 w-3.5 mr-2" />
+                      )}
+                      Close period
+                    </Button>
+                  ) : null}
                 </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!closeConfirmPeriod} onOpenChange={(open) => !open && setCloseConfirmPeriod(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close this feedback period?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {closeConfirmPeriod ? (
+                <>
+                  <span className="font-medium text-foreground">{closeConfirmPeriod.label}</span> will be marked closed.
+                  Managers will no longer be able to submit feedback for this cycle. Existing submissions stay in
+                  reports.
+                </>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!closingPeriodId}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmClosePeriod();
+              }}
+              disabled={!!closingPeriodId}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {closingPeriodId ? <Loader2 className="h-4 w-4 animate-spin" /> : "Close period"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card className="overflow-hidden border-border/60 bg-gradient-to-br from-background/95 to-muted/10 shadow-lg">
         <CardHeader className={REPORT_CARD_HEADER_BAND}>

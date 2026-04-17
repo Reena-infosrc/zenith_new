@@ -285,7 +285,11 @@ async def list_periods(current_user: dict = Depends(get_current_active_user)):
         FilterExpression=Attr("entity_type").eq("period")
     )
     items = [parse_dynamodb_item(i) for i in response.get("Items", [])]
-    items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    # Stable, predictable order: most recent window first (then newest created).
+    items.sort(
+        key=lambda x: (x.get("start_date") or "", x.get("created_at") or ""),
+        reverse=True,
+    )
     return items
 
 

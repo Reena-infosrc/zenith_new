@@ -36,7 +36,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-type Period = {
+export type Period = {
   period_id: string;
   label: string;
   start_date: string;
@@ -155,6 +155,20 @@ const COMMUNICATION_COLLABORATION_FIELDS = COMMUNICATION_COLLABORATION_FIELD_CON
   return { ...field, label: cfg.label };
 }).filter((field): field is { key: string; label: string; legacyKey?: string } => Boolean(field));
 
+const BILLING_VALUES = ["billable", "non_billable", "internal"] as const;
+function isValidBillingStatus(v: string): v is (typeof BILLING_VALUES)[number] {
+  return (BILLING_VALUES as readonly string[]).includes(v);
+}
+
+function collectRatingsPayload(ratings: Record<string, number | undefined>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const f of RATING_FIELDS) {
+    const v = ratings[f.key];
+    if (typeof v === "number" && v >= 1 && v <= 5) out[f.key] = v;
+  }
+  return out;
+}
+
 /** Bold section titles — consistent hierarchy across the Client RM feedback form and related cards. */
 const CRM_SECTION_TITLE_CARD = "text-base font-bold tracking-tight text-foreground";
 const CRM_SECTION_TITLE_LG = "text-lg font-bold tracking-tight text-foreground";
@@ -173,11 +187,13 @@ function RatingMatrixTable({
   scale,
   ratings,
   onPick,
+  errorKeys,
 }: {
   fields: { key: string; label: string }[];
   scale: { value: number; label: string }[];
-  ratings: Record<string, number>;
+  ratings: Record<string, number | undefined>;
   onPick: (fieldKey: string, value: number) => void;
+  errorKeys?: Set<string>;
 }) {
   return (
     <div className="rounded-lg border border-border/80 bg-muted/30 p-1 shadow-sm">
@@ -197,13 +213,16 @@ function RatingMatrixTable({
         </div>
         <div className="divide-y divide-border/60">
           {fields.map((field, idx) => {
-            const current = ratings[field.key] ?? 3;
+            const current = ratings[field.key];
+            const showErr = errorKeys?.has(field.key);
             return (
               <div
                 key={field.key}
+                id={`crm-field-${field.key}`}
                 className={cn(
-                  "px-3 py-3.5 sm:px-4 sm:py-3.5 transition-colors",
-                  idx % 2 === 0 ? "bg-card" : "bg-muted/25"
+                  "px-3 py-3.5 sm:px-4 sm:py-3.5 transition-colors rounded-md",
+                  idx % 2 === 0 ? "bg-card" : "bg-muted/25",
+                  showErr && "ring-2 ring-destructive ring-offset-2 ring-offset-background"
                 )}
               >
                 <div className={cn("flex flex-col gap-2.5", RATING_MATRIX_GRID)}>
@@ -226,7 +245,7 @@ function RatingMatrixTable({
                     >
                       <div className="flex gap-0.5 overflow-x-auto pb-0.5 sm:pb-0 [scrollbar-width:thin]">
                         {scale.map((opt) => {
-                          const selected = current === opt.value;
+                          const selected = typeof current === "number" && current === opt.value;
                           return (
                             <button
                               key={opt.value}
@@ -260,24 +279,30 @@ function RatingMatrixTable({
   );
 }
 
-/** 1–5 star control for overall satisfaction; value is still a plain number for the API. */
+/** 1–5 star control for overall satisfaction; value 0 = none selected yet. */
 function OverallSatisfactionStarRow({
   value,
   onChange,
+  error,
 }: {
   value: number;
   onChange: (v: number) => void;
+  error?: boolean;
 }) {
   return (
     <div
-      className="rounded-xl border-2 border-border/70 bg-gradient-to-b from-muted/50 via-background to-background p-4 shadow-sm"
+      id="crm-field-overall_satisfaction"
+      className={cn(
+        "rounded-xl border-2 bg-gradient-to-b from-muted/50 via-background to-background p-4 shadow-sm",
+        error ? "border-destructive ring-2 ring-destructive/40" : "border-border/70"
+      )}
       role="radiogroup"
       aria-label="Overall satisfaction from 1 to 5 stars"
     >
       <div className="flex flex-wrap items-end justify-center gap-2 sm:justify-start sm:gap-5">
         {[1, 2, 3, 4, 5].map((n) => {
-          const filled = n <= value;
-          const selected = n === value;
+          const filled = value >= 1 && n <= value;
+          const selected = value >= 1 && n === value;
           return (
             <button
               key={n}
@@ -355,6 +380,53 @@ function billingLabel(v: string) {
     default:
       return v;
   }
+}
+
+/** Same rules as submissionIsFromCurrentManager in the tab — used before first render and in loadData. */
+function isSubmissionFromCurrentManagerStatic(
+  s: FeedbackSubmission,
+  currentEmployeeId: string | null | undefined,
+  managerEmail: string
+): boolean {
+  const mid = (s.manager_employee_id || "").trim();
+  const me = (currentEmployeeId || "").trim();
+  if (mid && me && mid === me) return true;
+  const u = (managerEmail || "").trim().toLowerCase();
+  const m = (s.manager_email || "").trim().toLowerCase();
+  return Boolean(u && m && u === m);
+}
+
+function computePendingOpenPeriodsForManager(
+  periods: Period[],
+  submissions: FeedbackSubmission[],
+  reporteeId: string,
+  currentEmployeeId: string | null | undefined,
+  managerEmail: string
+): Period[] {
+  const opens = periods.filter((p) => p.period_status === "open");
+  const rid = String(reporteeId);
+  const mySubs = submissions.filter(
+    (sub) =>
+      String(sub.employee_id ?? "") === rid && isSubmissionFromCurrentManagerStatic(sub, currentEmployeeId, managerEmail)
+  );
+  const submittedOpenIds = new Set(
+    mySubs
+      .filter((sub) => opens.some((o) => o.period_id === sub.period_id))
+      .map((sub) => sub.period_id)
+  );
+  return opens.filter((p) => !submittedOpenIds.has(p.period_id));
+}
+
+function computePeriodPickerStateFromPending(
+  pending: Period[]
+): { periodId: string; pendingPeriodPicker: boolean } {
+  if (pending.length === 1) {
+    return { periodId: pending[0].period_id, pendingPeriodPicker: false };
+  }
+  if (pending.length > 1) {
+    return { periodId: "", pendingPeriodPicker: true };
+  }
+  return { periodId: "", pendingPeriodPicker: false };
 }
 
 function sortFeedbackEntries(entries: FeedbackSubmission[], order: HistorySortOrder): FeedbackSubmission[] {
@@ -460,6 +532,16 @@ function SubmissionDetailContent({
   );
 }
 
+/** Response shape from `GET /client-rm-feedback/me-context` — pass from session page to avoid a duplicate fetch. */
+export type ClientRmPrefetchedMeContext = {
+  employee_id?: string;
+  employee_name?: string;
+  has_team_members?: boolean;
+  is_leadership?: boolean;
+  can_view_all?: boolean;
+  reportees?: Array<{ id: string; name?: string; employee_id?: string }>;
+};
+
 type Props = {
   currentEmployeeId?: string | null;
   /** When set (e.g. from My Team), pre-select this reportee in the manager form. */
@@ -470,13 +552,34 @@ type Props = {
    * multi-reportee picker. Omit for normal employee Performance.
    */
   clientRmSurface?: "self" | "team-submit";
+  /** When true, initial load does not render the inline loading card (parent shows a single page-level loader). */
+  suppressInitialLoadingUI?: boolean;
+  /** Called after the first `loadData` attempt finishes (success or failure). Used with `suppressInitialLoadingUI`. */
+  onInitialLoadComplete?: () => void;
+  /**
+   * When the parent already fetched `me-context` (e.g. Monthly RM session page), pass it here so the tab skips
+   * that round-trip and can load periods + submissions in parallel.
+   */
+  prefetchedMeContext?: ClientRmPrefetchedMeContext | null;
+  /** When set with `prefetchedMeContext`, the tab skips the periods fetch (session page loads periods in parallel with me-context). */
+  prefetchedPeriods?: Period[] | null;
 };
 
-export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clientRmSurface }: Props) {
+export function ClientRMFeedbackTab({
+  currentEmployeeId,
+  initialReporteeId,
+  clientRmSurface,
+  suppressInitialLoadingUI = false,
+  onInitialLoadComplete,
+  prefetchedMeContext = null,
+  prefetchedPeriods = null,
+}: Props) {
   const { toast } = useToast();
   const { user } = useAuth();
   const { employees } = useEmployees();
   const navigate = useNavigate();
+  const onInitialLoadCompleteRef = useRef(onInitialLoadComplete);
+  onInitialLoadCompleteRef.current = onInitialLoadComplete;
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [periods, setPeriods] = useState<Period[]>([]);
@@ -484,22 +587,21 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
   const [canViewAll, setCanViewAll] = useState(false);
   const [hasTeamMembers, setHasTeamMembers] = useState(false);
   const [isLeadership, setIsLeadership] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [selfName, setSelfName] = useState<string>("");
   const [submissions, setSubmissions] = useState<FeedbackSubmission[]>([]);
 
   const [periodId, setPeriodId] = useState<string>("");
   const [reporteeId, setReporteeId] = useState<string>("");
-  const [billingStatus, setBillingStatus] = useState<string>("billable");
+  const [billingStatus, setBillingStatus] = useState<string>("");
   const [clientName, setClientName] = useState("");
   const [projectName, setProjectName] = useState("");
   const [clientReportingManagerName, setClientReportingManagerName] = useState("");
   const [infoServicesReportingManagerName, setInfoServicesReportingManagerName] = useState("");
   const [additionalFeedback, setAdditionalFeedback] = useState("");
-  const [overallSatisfaction, setOverallSatisfaction] = useState<number>(3);
-  const [ratings, setRatings] = useState<Record<string, number>>(() =>
-    RATING_FIELDS.reduce((acc, f) => ({ ...acc, [f.key]: 3 }), {} as Record<string, number>)
-  );
+  const [overallSatisfaction, setOverallSatisfaction] = useState<number>(0);
+  const [ratings, setRatings] = useState<Record<string, number | undefined>>({});
+  /** Keys set after a failed submit — cleared when the user edits any field. */
+  const [submitHighlightKeys, setSubmitHighlightKeys] = useState<Set<string>>(() => new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [activeDraft, setActiveDraft] = useState<FeedbackDraft | null>(null);
@@ -511,6 +613,18 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
   const historySortOrder: HistorySortOrder = "desc";
   const [historyScope, setHistoryScope] = useState<HistoryScope>("this-month");
   const [isFormPopupOpen, setIsFormPopupOpen] = useState(false);
+
+  useEffect(() => {
+    setSubmitHighlightKeys(new Set());
+  }, [
+    clientName,
+    projectName,
+    clientReportingManagerName,
+    billingStatus,
+    additionalFeedback,
+    overallSatisfaction,
+    ratings,
+  ]);
 
   const managerEmail = user?.email || "";
   const resolvedInfoServicesManagerName = selfName.trim() || infoServicesReportingManagerName.trim();
@@ -534,14 +648,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
 
   /** True if this row was submitted by the logged-in manager (not a prior manager after a reporting-line change). */
   const submissionIsFromCurrentManager = useCallback(
-    (s: FeedbackSubmission) => {
-      const mid = (s.manager_employee_id || "").trim();
-      const me = (currentEmployeeId || "").trim();
-      if (mid && me && mid === me) return true;
-      const u = (managerEmail || "").trim().toLowerCase();
-      const m = (s.manager_email || "").trim().toLowerCase();
-      return Boolean(u && m && u === m);
-    },
+    (s: FeedbackSubmission) => isSubmissionFromCurrentManagerStatic(s, currentEmployeeId, managerEmail),
     [currentEmployeeId, managerEmail]
   );
 
@@ -594,40 +701,169 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [contextRes, periodsRes] = await Promise.all([
-        authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`),
-        authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/periods`),
-      ]);
+      const periodsUrl = `${API_BASE_URL}/client-rm-feedback/periods`;
+      const submissionsUrl = `${API_BASE_URL}/client-rm-feedback/submissions`;
 
-      if (!contextRes.ok || !periodsRes.ok) {
-        throw new Error("Failed to load feedback context");
-      }
-      const contextData = await contextRes.json();
-      const periodsData = await periodsRes.json();
-      setCanViewAll(Boolean(contextData.can_view_all));
-      setHasTeamMembers(Boolean(contextData.has_team_members));
-      setIsLeadership(Boolean(contextData.is_leadership));
-      setIsAdmin(Boolean(contextData.is_admin));
-      setSelfName(String(contextData.employee_name || user?.name || ""));
-      const reps: Reportee[] = contextData.reportees || [];
-      setReportees(reps);
-      const periodsArr = (periodsData || []) as Period[];
-      setPeriods(periodsArr);
-      if (reps.length) {
+      let contextData: ClientRmPrefetchedMeContext;
+      let periodsArr: Period[];
+
+      if (prefetchedMeContext) {
+        contextData = prefetchedMeContext;
+        const isTeamManagerSubmit =
+          clientRmSurface === "team-submit" &&
+          Boolean(contextData.has_team_members) &&
+          !Boolean(contextData.is_leadership);
+
+        let submissionsArr: FeedbackSubmission[] = [];
+
+        if (prefetchedPeriods != null) {
+          periodsArr = prefetchedPeriods;
+          if (isTeamManagerSubmit) {
+            const subRes = await authenticatedFetch(submissionsUrl);
+            if (subRes.ok) {
+              const raw = await subRes.json();
+              submissionsArr = Array.isArray(raw) ? raw : [];
+            }
+            setSubmissions(submissionsArr);
+          }
+        } else {
+          const fetchList: Promise<Response>[] = [authenticatedFetch(periodsUrl)];
+          if (isTeamManagerSubmit) {
+            fetchList.push(authenticatedFetch(submissionsUrl));
+          }
+          const results = await Promise.all(fetchList);
+          const periodsRes = results[0];
+          if (!periodsRes.ok) {
+            throw new Error("Failed to load periods");
+          }
+          const periodsData = await periodsRes.json();
+          periodsArr = (periodsData || []) as Period[];
+
+          if (isTeamManagerSubmit && results[1]) {
+            const subRes = results[1];
+            if (subRes.ok) {
+              const raw = await subRes.json();
+              submissionsArr = Array.isArray(raw) ? raw : [];
+            }
+            setSubmissions(submissionsArr);
+          }
+        }
+
+        setCanViewAll(Boolean(contextData.can_view_all));
+        setHasTeamMembers(Boolean(contextData.has_team_members));
+        setIsLeadership(Boolean(contextData.is_leadership));
+        setSelfName(String(contextData.employee_name || user?.name || ""));
+        const reps = (contextData.reportees || []) as Reportee[];
+        setReportees(reps);
+        setPeriods(periodsArr);
+
         const preferred =
-          initialReporteeId && reps.some((r) => r.id === initialReporteeId) ? initialReporteeId : reps[0].id;
-        setReporteeId(preferred);
-      }
-      const opens = periodsArr.filter((p) => p.period_status === "open");
-      if (opens.length === 1) {
-        setPeriodId(opens[0].period_id);
-        setPendingPeriodPicker(false);
-      } else if (opens.length > 1) {
-        setPeriodId("");
-        setPendingPeriodPicker(true);
+          reps.length && initialReporteeId && reps.some((r) => r.id === initialReporteeId)
+            ? initialReporteeId
+            : reps[0]?.id ?? "";
+        if (reps.length) {
+          setReporteeId(preferred);
+        }
+
+        const mgrEmail = (user?.email || "").trim();
+        const mgrEmpId = currentEmployeeId ?? (contextData.employee_id as string | undefined) ?? null;
+
+        if (isTeamManagerSubmit && preferred) {
+          const pending = computePendingOpenPeriodsForManager(
+            periodsArr,
+            submissionsArr,
+            preferred,
+            mgrEmpId,
+            mgrEmail
+          );
+          const sel = computePeriodPickerStateFromPending(pending);
+          setPeriodId(sel.periodId);
+          setPendingPeriodPicker(sel.pendingPeriodPicker);
+        } else {
+          const opens = periodsArr.filter((p) => p.period_status === "open");
+          if (opens.length === 1) {
+            setPeriodId(opens[0].period_id);
+            setPendingPeriodPicker(false);
+          } else if (opens.length > 1) {
+            setPeriodId("");
+            setPendingPeriodPicker(true);
+          } else {
+            setPeriodId("");
+            setPendingPeriodPicker(false);
+          }
+        }
       } else {
-        setPeriodId("");
-        setPendingPeriodPicker(false);
+        const [contextRes, periodsRes] = await Promise.all([
+          authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`),
+          authenticatedFetch(periodsUrl),
+        ]);
+
+        if (!contextRes.ok || !periodsRes.ok) {
+          throw new Error("Failed to load feedback context");
+        }
+        const [contextJson, periodsData] = await Promise.all([contextRes.json(), periodsRes.json()]);
+        contextData = contextJson as ClientRmPrefetchedMeContext;
+        periodsArr = (periodsData || []) as Period[];
+
+        setCanViewAll(Boolean(contextData.can_view_all));
+        setHasTeamMembers(Boolean(contextData.has_team_members));
+        setIsLeadership(Boolean(contextData.is_leadership));
+        setSelfName(String(contextData.employee_name || user?.name || ""));
+        const reps = (contextData.reportees || []) as Reportee[];
+
+        const isTeamManagerSubmit =
+          clientRmSurface === "team-submit" &&
+          Boolean(contextData.has_team_members) &&
+          !Boolean(contextData.is_leadership);
+
+        let submissionsArr: FeedbackSubmission[] = [];
+        if (isTeamManagerSubmit) {
+          const subRes = await authenticatedFetch(submissionsUrl);
+          if (subRes.ok) {
+            const raw = await subRes.json();
+            submissionsArr = Array.isArray(raw) ? raw : [];
+          }
+          setSubmissions(submissionsArr);
+        }
+
+        setReportees(reps);
+        setPeriods(periodsArr);
+
+        const preferred =
+          reps.length && initialReporteeId && reps.some((r) => r.id === initialReporteeId)
+            ? initialReporteeId
+            : reps[0]?.id ?? "";
+        if (reps.length) {
+          setReporteeId(preferred);
+        }
+
+        const mgrEmail = (user?.email || "").trim();
+        const mgrEmpId = currentEmployeeId ?? (contextData.employee_id as string | undefined) ?? null;
+
+        if (isTeamManagerSubmit && preferred) {
+          const pending = computePendingOpenPeriodsForManager(
+            periodsArr,
+            submissionsArr,
+            preferred,
+            mgrEmpId,
+            mgrEmail
+          );
+          const sel = computePeriodPickerStateFromPending(pending);
+          setPeriodId(sel.periodId);
+          setPendingPeriodPicker(sel.pendingPeriodPicker);
+        } else {
+          const opens = periodsArr.filter((p) => p.period_status === "open");
+          if (opens.length === 1) {
+            setPeriodId(opens[0].period_id);
+            setPendingPeriodPicker(false);
+          } else if (opens.length > 1) {
+            setPeriodId("");
+            setPendingPeriodPicker(true);
+          } else {
+            setPeriodId("");
+            setPendingPeriodPicker(false);
+          }
+        }
       }
     } catch {
       toast({
@@ -637,18 +873,32 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       });
     } finally {
       setLoading(false);
+      onInitialLoadCompleteRef.current?.();
     }
-  }, [initialReporteeId, toast, user?.name]);
+  }, [
+    clientRmSurface,
+    currentEmployeeId,
+    initialReporteeId,
+    prefetchedMeContext,
+    prefetchedPeriods,
+    toast,
+    user?.email,
+    user?.name,
+  ]);
 
   const loadSubmissions = useCallback(async () => {
     try {
-      const params = new URLSearchParams();
       const loadAsManagerSubmitter =
         clientRmSurface === "self"
           ? false
           : clientRmSurface === "team-submit" && hasTeamMembers && !isLeadership;
+      // Avoid fetching with the wrong scope before me-context has set hasTeamMembers (team-submit would use employee_id filter).
+      if (clientRmSurface === "team-submit" && !loadAsManagerSubmitter) {
+        return;
+      }
+      const params = new URLSearchParams();
       if (loadAsManagerSubmitter) {
-        // Manager submitter: server returns this manager's submissions (scoped).
+        // Manager submitter: server returns submissions visible to this manager (no employee_id filter).
       } else if (currentEmployeeId) {
         params.set("employee_id", currentEmployeeId);
       }
@@ -674,29 +924,43 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
   const resetManagerForm = useCallback(() => {
     setEditingId(null);
     setStartedAt(null);
-    setBillingStatus("billable");
+    setBillingStatus("");
     setClientName("");
     setProjectName("");
     setClientReportingManagerName("");
     setInfoServicesReportingManagerName(selfName || "");
     setAdditionalFeedback("");
-    setOverallSatisfaction(3);
-    setRatings(RATING_FIELDS.reduce((acc, f) => ({ ...acc, [f.key]: 3 }), {} as Record<string, number>));
-    const opens = periods.filter((p) => p.period_status === "open");
-    if (opens.length > 1) {
-      setPeriodId("");
-      setPendingPeriodPicker(true);
-    } else if (opens.length === 1) {
-      setPeriodId(opens[0].period_id);
-      setPendingPeriodPicker(false);
+    setOverallSatisfaction(0);
+    setRatings({});
+    setSubmitHighlightKeys(new Set());
+    if (showManagerEditor && reporteeId) {
+      const pending = computePendingOpenPeriodsForManager(
+        periods,
+        submissions,
+        reporteeId,
+        currentEmployeeId,
+        managerEmail
+      );
+      const sel = computePeriodPickerStateFromPending(pending);
+      setPeriodId(sel.periodId);
+      setPendingPeriodPicker(sel.pendingPeriodPicker);
     } else {
-      setPeriodId("");
-      setPendingPeriodPicker(false);
+      const opens = periods.filter((p) => p.period_status === "open");
+      if (opens.length === 1) {
+        setPeriodId(opens[0].period_id);
+        setPendingPeriodPicker(false);
+      } else if (opens.length > 1) {
+        setPeriodId("");
+        setPendingPeriodPicker(true);
+      } else {
+        setPeriodId("");
+        setPendingPeriodPicker(false);
+      }
     }
     setActiveDraft(null);
     setFormLoadedFromDraft(false);
     draftLastSavedSignatureRef.current = "";
-  }, [periods, selfName]);
+  }, [periods, selfName, showManagerEditor, reporteeId, submissions, currentEmployeeId, managerEmail]);
 
   const loadDraftForSelection = useCallback(async () => {
     if (!showManagerEditor || !periodId || !reporteeId || editingId) return;
@@ -712,16 +976,20 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
         return;
       }
       setActiveDraft(draft);
-      setBillingStatus(draft.billing_status || "billable");
+      setBillingStatus(
+        draft.billing_status && isValidBillingStatus(draft.billing_status) ? draft.billing_status : ""
+      );
       setClientName(draft.client_name || "");
       setProjectName(draft.project_name || "");
       setClientReportingManagerName(draft.client_reporting_manager_name || "");
       setInfoServicesReportingManagerName(draft.info_services_reporting_manager_name || "");
       setAdditionalFeedback(draft.additional_feedback || "");
-      setOverallSatisfaction(draft.overall_satisfaction || 3);
-      const next: Record<string, number> = { ...ratings };
+      const os = draft.overall_satisfaction;
+      setOverallSatisfaction(typeof os === "number" && os >= 1 && os <= 5 ? os : 0);
+      const next: Record<string, number | undefined> = {};
       RATING_FIELDS.forEach((f) => {
-        next[f.key] = pickRating(draft.ratings, f.key, f.legacyKey) || 3;
+        const v = pickRating(draft.ratings, f.key, f.legacyKey);
+        if (v >= 1 && v <= 5) next[f.key] = v;
       });
       setRatings(next);
       setStartedAt(draft.started_at || null);
@@ -729,13 +997,16 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       const signature = JSON.stringify({
         period_id: periodId,
         employee_id: reporteeId,
-        billing_status: draft.billing_status || "billable",
+        billing_status: draft.billing_status && isValidBillingStatus(draft.billing_status) ? draft.billing_status : "",
         client_name: draft.client_name || "",
         project_name: draft.project_name || "",
         client_reporting_manager_name: draft.client_reporting_manager_name || "",
         info_services_reporting_manager_name: draft.info_services_reporting_manager_name || "",
         additional_feedback: draft.additional_feedback || "",
-        overall_satisfaction: draft.overall_satisfaction || 3,
+        overall_satisfaction:
+          typeof draft.overall_satisfaction === "number" && draft.overall_satisfaction >= 1
+            ? draft.overall_satisfaction
+            : 0,
         ratings: next,
       });
       draftLastSavedSignatureRef.current = signature;
@@ -768,17 +1039,18 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       }
       return;
     }
+    const draftRatings = collectRatingsPayload(ratings);
     const signature = JSON.stringify({
       period_id: periodId,
       employee_id: selectedReportee.id,
-      billing_status: billingStatus,
+      billing_status: isValidBillingStatus(billingStatus) ? billingStatus : "",
       client_name: clientName,
       project_name: projectName,
       client_reporting_manager_name: clientReportingManagerName,
       info_services_reporting_manager_name: resolvedInfoServicesManagerName,
       additional_feedback: additionalFeedback,
-      overall_satisfaction: overallSatisfaction,
-      ratings,
+      overall_satisfaction: overallSatisfaction >= 1 && overallSatisfaction <= 5 ? overallSatisfaction : 0,
+      ratings: draftRatings,
     });
     if (signature === draftLastSavedSignatureRef.current) return;
     setSavingDraft(true);
@@ -791,14 +1063,15 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
           employee_id: selectedReportee.id,
           employee_name: selectedReportee.name,
           employee_code: selectedReportee.employee_id,
-          billing_status: billingStatus,
+          billing_status: isValidBillingStatus(billingStatus) ? billingStatus : undefined,
           client_name: clientName || undefined,
           project_name: projectName || undefined,
           client_reporting_manager_name: clientReportingManagerName || undefined,
           info_services_reporting_manager_name: resolvedInfoServicesManagerName || undefined,
-          ratings,
+          ratings: Object.keys(draftRatings).length ? draftRatings : undefined,
           additional_feedback: additionalFeedback || undefined,
-          overall_satisfaction: overallSatisfaction,
+          overall_satisfaction:
+            overallSatisfaction >= 1 && overallSatisfaction <= 5 ? overallSatisfaction : undefined,
           started_at: startedAt || undefined,
         }),
       });
@@ -846,15 +1119,46 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
     await saveDraft({ silent: false });
   };
 
-  const onSubmit = async () => {
-    if (!periodId || !reporteeId || !clientName || !projectName || !clientReportingManagerName || !resolvedInfoServicesManagerName) {
-      toast({
-        title: "Missing required fields",
-        description: "Please complete all required fields before submitting.",
-        variant: "destructive",
-      });
-      return;
+  const collectSubmitValidationErrors = useCallback((): { key: string; label: string }[] => {
+    const missing: { key: string; label: string }[] = [];
+    if (!periodId) missing.push({ key: "period", label: "Feedback period" });
+    if (!isValidBillingStatus(billingStatus)) missing.push({ key: "billing", label: "Billing status" });
+    if (!clientName.trim()) missing.push({ key: "client_name", label: "Client name" });
+    if (!projectName.trim()) missing.push({ key: "project_name", label: "Project name" });
+    if (!clientReportingManagerName.trim()) {
+      missing.push({ key: "client_reporting_manager_name", label: "Client reporting manager name" });
     }
+    if (!resolvedInfoServicesManagerName.trim()) {
+      missing.push({
+        key: "info_services_reporting_manager_name",
+        label: "Info Services reporting manager name",
+      });
+    }
+    for (const f of RATING_FIELDS) {
+      const v = ratings[f.key];
+      if (typeof v !== "number" || v < 1 || v > 5) {
+        missing.push({ key: f.key, label: f.label });
+      }
+    }
+    if (overallSatisfaction < 1 || overallSatisfaction > 5) {
+      missing.push({
+        key: "overall_satisfaction",
+        label: "Overall satisfaction with employee performance",
+      });
+    }
+    return missing;
+  }, [
+    periodId,
+    billingStatus,
+    clientName,
+    projectName,
+    clientReportingManagerName,
+    resolvedInfoServicesManagerName,
+    ratings,
+    overallSatisfaction,
+  ]);
+
+  const onSubmit = async () => {
     if (!selectedReportee) return;
     if (editingId) {
       toast({
@@ -864,6 +1168,27 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       });
       return;
     }
+    const issues = collectSubmitValidationErrors();
+    if (issues.length) {
+      setSubmitHighlightKeys(new Set(issues.map((i) => i.key)));
+      toast({
+        title: "Complete required fields",
+        description: issues.map((i) => i.label).join(" · "),
+        variant: "destructive",
+      });
+      requestAnimationFrame(() => {
+        const first = issues[0];
+        if (first) {
+          document.getElementById(`crm-field-${first.key}`)?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }
+      });
+      return;
+    }
+    if (!reporteeId) return;
+    const ratingsOut = collectRatingsPayload(ratings);
     setSubmitting(true);
     try {
       const body = {
@@ -871,12 +1196,12 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
         employee_id: selectedReportee.id,
         employee_name: selectedReportee.name,
         employee_code: selectedReportee.employee_id,
-        billing_status: billingStatus,
+        billing_status: billingStatus as (typeof BILLING_VALUES)[number],
         client_name: clientName,
         project_name: projectName,
         client_reporting_manager_name: clientReportingManagerName,
         info_services_reporting_manager_name: resolvedInfoServicesManagerName,
-        ratings,
+        ratings: ratingsOut,
         additional_feedback: additionalFeedback || undefined,
         overall_satisfaction: overallSatisfaction,
         ...(editingId ? {} : { started_at: new Date().toISOString() }),
@@ -892,7 +1217,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
         if (res.status === 409) {
           toast({
             title: "Already submitted for selected month",
-            description: "Edit the existing record from Submission records.",
+            description: "Review the existing record in Submission records.",
           });
           await loadSubmissions();
           return;
@@ -901,11 +1226,11 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
         throw new Error(text || "Request failed");
       }
       toast({ title: "Feedback submitted successfully" });
+      await loadSubmissions();
       resetManagerForm();
       setActiveDraft(null);
       setFormLoadedFromDraft(false);
       draftLastSavedSignatureRef.current = "";
-      await loadSubmissions();
     } catch {
       toast({
         title: "Submission failed",
@@ -935,8 +1260,11 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
 
   const showPeriodPickerStep =
     showManagerEditor && pendingPeriodPicker && !editingId && pendingOpenPeriods.length > 1;
+  /** Show form when there is work left unless we are in the multi-period picker step (avoids flash while picker state syncs). */
   const showManagerFormCard =
-    showManagerEditor && (Boolean(editingId) || (pendingOpenPeriods.length > 0 && !pendingPeriodPicker));
+    showManagerEditor &&
+    (Boolean(editingId) ||
+      (pendingOpenPeriods.length > 0 && !(pendingPeriodPicker && pendingOpenPeriods.length > 1)));
   const allOpenPeriodsSubmitted =
     showManagerEditor && !editingId && openPeriods.length > 0 && pendingOpenPeriods.length === 0;
 
@@ -1049,11 +1377,14 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
   const showTeamSubmitContext = showManagerEditor && Boolean(selectedReportee);
 
   if (loading) {
+    if (suppressInitialLoadingUI) {
+      return null;
+    }
     return (
       <Card className="border-border/60 shadow-md">
         <CardContent className="p-10 flex items-center justify-center gap-2 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading feedback…
+          Loading feedback form…
         </CardContent>
       </Card>
     );
@@ -1107,10 +1438,6 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className={CRM_SECTION_TITLE_LG}>Submission records</h3>
-                <p className="text-sm text-muted-foreground">
-                  View current-month entries or earlier months. Open a row to review details, and use edit to load the
-                  record into the form.
-                </p>
               </div>
               <div className="inline-flex items-center rounded-lg border bg-background p-1">
                 <Button
@@ -1293,7 +1620,12 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
               </Card>
 
               <Dialog open={isFormPopupOpen} onOpenChange={setIsFormPopupOpen}>
-                <DialogContent className="max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto">
+                <DialogContent
+                  className="max-w-6xl w-[96vw] max-h-[92vh] overflow-y-auto"
+                  onPointerDownOutside={(e) => e.preventDefault()}
+                  onInteractOutside={(e) => e.preventDefault()}
+                  onEscapeKeyDown={(e) => e.preventDefault()}
+                >
                   <DialogHeader>
                     <DialogTitle className={CRM_SECTION_TITLE_DIALOG}>{FORM_TITLE}</DialogTitle>
                     <DialogDescription>
@@ -1310,8 +1642,14 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                         <CardTitle className={CRM_SECTION_TITLE_CARD}>Employee and assignment details</CardTitle>
                       </CardHeader>
                       <CardContent className="pt-0">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-start">
+                          <div
+                            id="crm-field-period"
+                            className={cn(
+                              "space-y-2 rounded-md md:col-span-3 md:max-w-[14rem] md:justify-self-start w-full min-w-0",
+                              submitHighlightKeys.has("period") && "ring-2 ring-destructive ring-offset-2 ring-offset-background p-1 -m-1"
+                            )}
+                          >
                             <Label>Feedback period *</Label>
                             {pendingOpenPeriods.length > 1 && !editingId ? (
                               <div className="rounded-md border bg-muted/30 px-3 py-2.5 text-sm">
@@ -1325,7 +1663,12 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                             ) : (
                               <>
                                 <Select value={periodId} onValueChange={setPeriodId}>
-                                  <SelectTrigger className="bg-background">
+                                  <SelectTrigger
+                                    className={cn(
+                                      "bg-background w-full",
+                                      submitHighlightKeys.has("period") && "border-destructive ring-1 ring-destructive"
+                                    )}
+                                  >
                                     <SelectValue placeholder="Select period" />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -1342,24 +1685,23 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                               </>
                             )}
                           </div>
-                          <div className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <Label>Employee name *</Label>
-                                <div className="rounded-lg border border-primary/20 bg-muted/20 px-3 py-3 min-h-[2.75rem] flex items-center">
-                                  <span className="text-sm font-semibold text-foreground">
-                                    {selectedReportee?.name ?? "—"}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Employee ID *</Label>
-                                <div className="rounded-lg border border-primary/20 bg-muted/20 px-3 py-3 min-h-[2.75rem] flex items-center">
-                                  <span className="text-sm font-semibold text-foreground">
-                                    {selectedReportee?.employee_id?.trim() || "Not available"}
-                                  </span>
-                                </div>
-                              </div>
+                          <div className="space-y-2 md:col-span-6 min-w-0">
+                            <Label>Employee name *</Label>
+                            <div className="rounded-lg border border-primary/20 bg-muted/20 px-3 py-3 min-h-[2.75rem] flex items-center min-w-0">
+                              <span
+                                className="text-sm font-semibold text-foreground min-w-0 break-words"
+                                title={selectedReportee?.name ?? undefined}
+                              >
+                                {selectedReportee?.name ?? "—"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="space-y-2 md:col-span-3 min-w-0">
+                            <Label>Employee ID *</Label>
+                            <div className="rounded-lg border border-primary/20 bg-muted/20 px-3 py-3 min-h-[2.75rem] flex items-center min-w-0">
+                              <span className="text-sm font-semibold text-foreground truncate">
+                                {selectedReportee?.employee_id?.trim() || "Not available"}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -1370,49 +1712,88 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                       <CardHeader className="py-3">
                         <CardTitle className={CRM_SECTION_TITLE_CARD}>Engagement and project context</CardTitle>
                       </CardHeader>
-                      <CardContent className="pt-0 space-y-4">
-                        <div className="space-y-3">
-                          <Label>Billing status *</Label>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            {[
-                              { value: "billable", title: "Billable Resource" },
-                              { value: "non_billable", title: "Non-Billable Resource" },
-                              { value: "internal", title: "Internal Resource" },
-                            ].map((opt) => (
-                              <button
-                                key={opt.value}
-                                type="button"
-                                onClick={() => setBillingStatus(opt.value)}
+                      <CardContent className="pt-0">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-5">
+                          <div
+                            id="crm-field-billing"
+                            className="space-y-3 md:col-span-2 w-full min-w-0"
+                          >
+                            <div className="space-y-1.5">
+                              <Label htmlFor="crm-billing-status-select">Billing status *</Label>
+                              <p className="text-xs text-muted-foreground leading-relaxed max-w-none">
+                                Choose one option from the list below (dropdown). This classifies the assignment for
+                                billing.
+                              </p>
+                            </div>
+                            <Select
+                              value={billingStatus || undefined}
+                              onValueChange={(v) => setBillingStatus(v)}
+                            >
+                              <SelectTrigger
+                                id="crm-billing-status-select"
                                 className={cn(
-                                  "rounded-lg border px-3 py-3 text-left text-sm transition-all",
-                                  billingStatus === opt.value
-                                    ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/30"
-                                    : "border-border/70 hover:bg-muted/40"
+                                  "w-full min-w-0 max-w-full bg-background h-11",
+                                  submitHighlightKeys.has("billing") && "border-destructive ring-1 ring-destructive"
                                 )}
+                                aria-invalid={submitHighlightKeys.has("billing")}
                               >
-                                <div className="font-medium">{opt.title}</div>
-                              </button>
-                            ))}
+                                <SelectValue placeholder="Select billing status…" />
+                              </SelectTrigger>
+                              <SelectContent position="popper" matchTriggerWidth={false}>
+                                <SelectItem value="billable">Billable resource</SelectItem>
+                                <SelectItem value="non_billable">Non-billable resource</SelectItem>
+                                <SelectItem value="internal">Internal resource</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>Client name *</Label>
-                            <Input value={clientName} onChange={(e) => setClientName(e.target.value)} className="bg-background" />
+                            <Input
+                              id="crm-field-client_name"
+                              value={clientName}
+                              onChange={(e) => setClientName(e.target.value)}
+                              className={cn(
+                                "bg-background",
+                                submitHighlightKeys.has("client_name") && "border-destructive ring-1 ring-destructive"
+                              )}
+                              aria-invalid={submitHighlightKeys.has("client_name")}
+                            />
                           </div>
                           <div className="space-y-2">
                             <Label>Project name *</Label>
-                            <Input value={projectName} onChange={(e) => setProjectName(e.target.value)} className="bg-background" />
+                            <Input
+                              id="crm-field-project_name"
+                              value={projectName}
+                              onChange={(e) => setProjectName(e.target.value)}
+                              className={cn(
+                                "bg-background",
+                                submitHighlightKeys.has("project_name") && "border-destructive ring-1 ring-destructive"
+                              )}
+                              aria-invalid={submitHighlightKeys.has("project_name")}
+                            />
                           </div>
                           <div className="space-y-2">
                             <Label>Client reporting manager name *</Label>
                             <Input
+                              id="crm-field-client_reporting_manager_name"
                               value={clientReportingManagerName}
                               onChange={(e) => setClientReportingManagerName(e.target.value)}
-                              className="bg-background"
+                              className={cn(
+                                "bg-background",
+                                submitHighlightKeys.has("client_reporting_manager_name") &&
+                                  "border-destructive ring-1 ring-destructive"
+                              )}
+                              aria-invalid={submitHighlightKeys.has("client_reporting_manager_name")}
                             />
                           </div>
-                          <div className="space-y-2">
+                          <div
+                            id="crm-field-info_services_reporting_manager_name"
+                            className={cn(
+                              "space-y-2 rounded-md",
+                              submitHighlightKeys.has("info_services_reporting_manager_name") &&
+                                "ring-2 ring-destructive ring-offset-2 ring-offset-background p-1 -m-1"
+                            )}
+                          >
                             <Label>Info Services reporting manager name *</Label>
                             <div className="rounded-lg border border-primary/20 bg-muted/20 px-3 py-3 min-h-[2.75rem] flex items-center">
                               <span className="text-sm font-semibold text-foreground">
@@ -1437,6 +1818,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                           scale={WORK_PERFORMANCE_SCALE}
                           ratings={ratings}
                           onPick={(fieldKey, v) => setRatings((prev) => ({ ...prev, [fieldKey]: v }))}
+                          errorKeys={submitHighlightKeys}
                         />
                       </CardContent>
                     </Card>
@@ -1454,6 +1836,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                           scale={COMMUNICATION_COLLABORATION_SCALE}
                           ratings={ratings}
                           onPick={(fieldKey, v) => setRatings((prev) => ({ ...prev, [fieldKey]: v }))}
+                          errorKeys={submitHighlightKeys}
                         />
                       </CardContent>
                     </Card>
@@ -1475,7 +1858,11 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                         </div>
                         <div className="space-y-2">
                           <Label>Overall satisfaction with employee performance *</Label>
-                          <OverallSatisfactionStarRow value={overallSatisfaction} onChange={setOverallSatisfaction} />
+                          <OverallSatisfactionStarRow
+                            value={overallSatisfaction}
+                            onChange={setOverallSatisfaction}
+                            error={submitHighlightKeys.has("overall_satisfaction")}
+                          />
                         </div>
                       </CardContent>
                     </Card>
@@ -1603,11 +1990,6 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
           ) : null}
       </div>
 
-      {isAdmin && hasTeamMembers && (
-        <p className="text-xs text-muted-foreground">
-          Administrators with direct reports can submit here; use Monthly Feedback reports for organization-wide exports.
-        </p>
-      )}
     </div>
   );
 }

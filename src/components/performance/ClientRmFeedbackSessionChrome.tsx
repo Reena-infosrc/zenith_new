@@ -13,33 +13,22 @@ import {
   sessionPrimaryBackButtonLabel,
   type SessionFromHint,
 } from "@/lib/client-rm-feedback-routes";
-import {
-  ArrowLeft,
-  BarChart3,
-  ChevronRight,
-  Building2,
-  Target,
-  Users,
-} from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 type Props = {
   /** Allowlisted hint from query `from=` — controls primary back navigation. */
   fromHint: SessionFromHint | null;
   reporteeName: string | null;
-  managerDisplayName?: string | null;
-  canOpenMonthlyReports?: boolean;
   onPrimaryBack: () => void;
 };
 
 /**
  * Enterprise shell for the manager Client RM feedback session page:
- * breadcrumbs, primary back action, and cross-links to Performance, reports, and directory.
+ * breadcrumbs and primary back action.
  */
 export function ClientRmFeedbackSessionChrome({
   fromHint,
   reporteeName,
-  managerDisplayName,
-  canOpenMonthlyReports,
   onPrimaryBack,
 }: Props) {
   const currentTitle = reporteeName?.trim()
@@ -82,11 +71,6 @@ export function ClientRmFeedbackSessionChrome({
               Submit structured feedback for a direct report for the active monthly period. Records are
               versioned per period and submission; certain edits retain snapshots for audit.
             </p>
-            {managerDisplayName?.trim() ? (
-              <p className="text-xs text-muted-foreground mt-2">
-                Signed in as <span className="text-foreground/90 font-medium">{managerDisplayName.trim()}</span>
-              </p>
-            ) : null}
           </div>
         </div>
 
@@ -100,39 +84,6 @@ export function ClientRmFeedbackSessionChrome({
           {sessionPrimaryBackButtonLabel(fromHint)}
         </Button>
       </div>
-
-      <nav aria-label="Related navigation" className="flex flex-wrap gap-2">
-        <Button asChild variant="outline" size="sm">
-          <Link to={CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-team")} className="gap-1.5">
-            <Users className="h-4 w-4" />
-            My Team
-            <ChevronRight className="h-3.5 w-3.5 opacity-60" />
-          </Link>
-        </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link to={CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-goals")} className="gap-1.5">
-            <Target className="h-4 w-4" />
-            My Goals
-            <ChevronRight className="h-3.5 w-3.5 opacity-60" />
-          </Link>
-        </Button>
-        {canOpenMonthlyReports ? (
-          <Button asChild variant="outline" size="sm">
-            <Link to={CLIENT_RM_FEEDBACK_ROUTES.monthlyReports} className="gap-1.5">
-              <BarChart3 className="h-4 w-4" />
-              Monthly reports
-              <ChevronRight className="h-3.5 w-3.5 opacity-60" />
-            </Link>
-          </Button>
-        ) : null}
-        <Button asChild variant="outline" size="sm">
-          <Link to={CLIENT_RM_FEEDBACK_ROUTES.directory} className="gap-1.5">
-            <Building2 className="h-4 w-4" />
-            Directory
-            <ChevronRight className="h-3.5 w-3.5 opacity-60" />
-          </Link>
-        </Button>
-      </nav>
     </div>
   );
 }

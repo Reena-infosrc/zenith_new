@@ -3,7 +3,11 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { Button } from "@/components/ui/button";
-import { ClientRMFeedbackTab } from "@/components/performance/ClientRMFeedbackTab";
+import {
+  ClientRMFeedbackTab,
+  type ClientRmPrefetchedMeContext,
+  type Period,
+} from "@/components/performance/ClientRMFeedbackTab";
 import { ClientRmFeedbackSessionChrome } from "@/components/performance/ClientRmFeedbackSessionChrome";
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
@@ -33,6 +37,10 @@ export default function MonthlyRmFeedbackSession() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ctx, setCtx] = useState<MeContext | null>(null);
+  /** Loaded in parallel with `me-context` so the feedback tab only needs submissions (manager path). */
+  const [sessionPeriods, setSessionPeriods] = useState<Period[] | null>(null);
+  /** Session page shows one loader until Client RM tab finishes its initial load (avoids back-to-back spinners). */
+  const [feedbackFormReady, setFeedbackFormReady] = useState(false);
 
   const goBackPrimary = useCallback(() => {
     navigate(resolveSessionBackHref(fromHint));
@@ -42,15 +50,22 @@ export default function MonthlyRmFeedbackSession() {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`);
-        if (!res.ok) {
-          if (!cancelled) setCtx(null);
-          return;
-        }
-        const data = await res.json();
-        if (!cancelled) setCtx(data);
+        const [ctxRes, periodsRes] = await Promise.all([
+          authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`),
+          authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/periods`),
+        ]);
+        const [ctxData, periodsData] = await Promise.all([
+          ctxRes.ok ? ctxRes.json() : Promise.resolve(null),
+          periodsRes.ok ? periodsRes.json() : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+        setCtx(ctxData);
+        setSessionPeriods(Array.isArray(periodsData) ? periodsData : []);
       } catch {
-        if (!cancelled) setCtx(null);
+        if (!cancelled) {
+          setCtx(null);
+          setSessionPeriods(null);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -60,6 +75,10 @@ export default function MonthlyRmFeedbackSession() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    setFeedbackFormReady(false);
+  }, [reporteeId]);
 
   const validation = useMemo(() => {
     if (!ctx?.employee_id || !reporteeId) {
@@ -108,13 +127,11 @@ export default function MonthlyRmFeedbackSession() {
                 <ClientRmFeedbackSessionChrome
                   fromHint={fromHint}
                   reporteeName={null}
-                  managerDisplayName={null}
-                  canOpenMonthlyReports={false}
                   onPrimaryBack={goBackPrimary}
                 />
                 <div className="py-12 flex items-center justify-center gap-2 text-muted-foreground rounded-lg border border-dashed">
                   <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                  Loading access and roster…
+                  Loading feedback form…
                 </div>
               </div>
             ) : !reporteeId ? (
@@ -122,8 +139,6 @@ export default function MonthlyRmFeedbackSession() {
                 <ClientRmFeedbackSessionChrome
                   fromHint={fromHint}
                   reporteeName={null}
-                  managerDisplayName={ctx?.employee_name}
-                  canOpenMonthlyReports={Boolean(ctx?.can_view_all)}
                   onPrimaryBack={goBackPrimary}
                 />
                 <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -146,8 +161,6 @@ export default function MonthlyRmFeedbackSession() {
                 <ClientRmFeedbackSessionChrome
                   fromHint={fromHint}
                   reporteeName={reporteeName}
-                  managerDisplayName={ctx.employee_name}
-                  canOpenMonthlyReports={Boolean(ctx.can_view_all)}
                   onPrimaryBack={goBackPrimary}
                 />
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-8 text-sm">
@@ -165,8 +178,6 @@ export default function MonthlyRmFeedbackSession() {
                 <ClientRmFeedbackSessionChrome
                   fromHint={fromHint}
                   reporteeName={reporteeName}
-                  managerDisplayName={ctx.employee_name}
-                  canOpenMonthlyReports={Boolean(ctx.can_view_all)}
                   onPrimaryBack={goBackPrimary}
                 />
                 <div className="rounded-lg border border-border p-8 text-sm">
@@ -193,15 +204,23 @@ export default function MonthlyRmFeedbackSession() {
                 <ClientRmFeedbackSessionChrome
                   fromHint={fromHint}
                   reporteeName={reporteeName}
-                  managerDisplayName={ctx.employee_name}
-                  canOpenMonthlyReports={Boolean(ctx.can_view_all)}
                   onPrimaryBack={goBackPrimary}
                 />
+                {!feedbackFormReady ? (
+                  <div className="py-12 flex items-center justify-center gap-2 text-muted-foreground rounded-lg border border-dashed">
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                    Loading feedback form…
+                  </div>
+                ) : null}
                 <ClientRMFeedbackTab
                   key={`crm-session-${reporteeId}`}
                   currentEmployeeId={ctx.employee_id}
                   initialReporteeId={reporteeId}
                   clientRmSurface="team-submit"
+                  suppressInitialLoadingUI
+                  onInitialLoadComplete={() => setFeedbackFormReady(true)}
+                  prefetchedMeContext={ctx as ClientRmPrefetchedMeContext}
+                  prefetchedPeriods={sessionPeriods}
                 />
               </div>
             ) : null}
