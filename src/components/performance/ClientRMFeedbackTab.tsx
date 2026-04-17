@@ -12,7 +12,7 @@ import { API_BASE_URL } from "@/config/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useEmployees } from "@/hooks/use-employees";
-import { Loader2, Pencil, Star, ExternalLink, Users, Network, CalendarRange, Lock } from "lucide-react";
+import { Loader2, Star, ExternalLink, Users, Network, CalendarRange, Lock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -56,6 +56,8 @@ type FeedbackSubmission = {
   employee_id: string;
   employee_name: string;
   employee_code?: string;
+  /** Submitter (line manager at time of submit); used to scope open-period logic after reporting-line changes. */
+  manager_employee_id?: string;
   manager_name: string;
   manager_email?: string;
   billing_status: string;
@@ -530,24 +532,43 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
 
   const selectedReportee = useMemo(() => reportees.find((r) => r.id === reporteeId), [reportees, reporteeId]);
 
-  /** Submissions shown below the form: only for the reportee in this session. */
-  const managerSubmissionsForView = useMemo(() => {
+  /** True if this row was submitted by the logged-in manager (not a prior manager after a reporting-line change). */
+  const submissionIsFromCurrentManager = useCallback(
+    (s: FeedbackSubmission) => {
+      const mid = (s.manager_employee_id || "").trim();
+      const me = (currentEmployeeId || "").trim();
+      if (mid && me && mid === me) return true;
+      const u = (managerEmail || "").trim().toLowerCase();
+      const m = (s.manager_email || "").trim().toLowerCase();
+      return Boolean(u && m && u === m);
+    },
+    [currentEmployeeId, managerEmail]
+  );
+
+  /** All submissions visible for the selected reportee (audit: includes prior manager’s rows). */
+  const reporteeSubmissionsForManager = useMemo(() => {
     if (!showManagerEditor || !reporteeId) return [];
     const rid = String(reporteeId);
     return submissions.filter((s) => String(s.employee_id ?? "") === rid);
   }, [showManagerEditor, reporteeId, submissions]);
 
+  /** Submissions by the current manager only — drives “open period still needs my feedback?” logic. */
+  const mySubmissionsForReportee = useMemo(
+    () => reporteeSubmissionsForManager.filter(submissionIsFromCurrentManager),
+    [reporteeSubmissionsForManager, submissionIsFromCurrentManager]
+  );
+
   const submissionCountByPeriodForReportee = useMemo(() => {
     const m = new Map<string, number>();
-    managerSubmissionsForView.forEach((s) => {
+    mySubmissionsForReportee.forEach((s) => {
       m.set(s.period_id, (m.get(s.period_id) || 0) + 1);
     });
     return m;
-  }, [managerSubmissionsForView]);
+  }, [mySubmissionsForReportee]);
 
   const sortedManagerSubmissions = useMemo(() => {
-    return sortFeedbackEntries(managerSubmissionsForView, historySortOrder);
-  }, [managerSubmissionsForView, historySortOrder]);
+    return sortFeedbackEntries(reporteeSubmissionsForManager, historySortOrder);
+  }, [reporteeSubmissionsForManager, historySortOrder]);
 
   const managerHistoryRows = useMemo(() => {
     return sortedManagerSubmissions.filter((entry) =>
@@ -557,13 +578,13 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
 
   const submittedOpenPeriodIds = useMemo(() => {
     const set = new Set<string>();
-    managerSubmissionsForView.forEach((s) => {
+    mySubmissionsForReportee.forEach((s) => {
       if (openPeriods.some((p) => p.period_id === s.period_id)) {
         set.add(s.period_id);
       }
     });
     return set;
-  }, [managerSubmissionsForView, openPeriods]);
+  }, [mySubmissionsForReportee, openPeriods]);
 
   const pendingOpenPeriods = useMemo(
     () => openPeriods.filter((p) => !submittedOpenPeriodIds.has(p.period_id)),
@@ -676,31 +697,6 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
     setFormLoadedFromDraft(false);
     draftLastSavedSignatureRef.current = "";
   }, [periods, selfName]);
-
-  const loadSubmissionForEdit = (s: FeedbackSubmission) => {
-    setEditingId(s.id);
-    setPeriodId(s.period_id);
-    setReporteeId(s.employee_id);
-    setBillingStatus(s.billing_status || "billable");
-    setClientName(s.client_name || "");
-    setProjectName(s.project_name || "");
-    setClientReportingManagerName(s.client_reporting_manager_name || "");
-    setInfoServicesReportingManagerName(s.info_services_reporting_manager_name || "");
-    setAdditionalFeedback(s.additional_feedback || "");
-    setOverallSatisfaction(s.overall_satisfaction || 3);
-    const next: Record<string, number> = { ...ratings };
-    RATING_FIELDS.forEach((f) => {
-      next[f.key] = pickRating(s.ratings, f.key, f.legacyKey) || 3;
-    });
-    setRatings(next);
-    setStartedAt(s.started_at || s.submitted_at || null);
-    setPendingPeriodPicker(false);
-    setActiveDraft(null);
-    setFormLoadedFromDraft(false);
-    draftLastSavedSignatureRef.current = "";
-    setIsFormPopupOpen(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
 
   const loadDraftForSelection = useCallback(async () => {
     if (!showManagerEditor || !periodId || !reporteeId || editingId) return;
@@ -860,6 +856,14 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       return;
     }
     if (!selectedReportee) return;
+    if (editingId) {
+      toast({
+        title: "Submitted feedback is read-only",
+        description: "Once submitted, feedback cannot be edited.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSubmitting(true);
     try {
       const body = {
@@ -878,26 +882,11 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
         ...(editingId ? {} : { started_at: new Date().toISOString() }),
       };
 
-      const res = editingId
-        ? await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/submissions/${editingId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              billing_status: billingStatus,
-              client_name: clientName,
-              project_name: projectName,
-              client_reporting_manager_name: clientReportingManagerName,
-              info_services_reporting_manager_name: resolvedInfoServicesManagerName,
-              ratings,
-              additional_feedback: additionalFeedback || undefined,
-              overall_satisfaction: overallSatisfaction,
-            }),
-          })
-        : await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/submissions`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
+      const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/submissions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
       if (!res.ok) {
         if (res.status === 409) {
@@ -911,7 +900,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
         const text = await res.text();
         throw new Error(text || "Request failed");
       }
-      toast({ title: editingId ? "Feedback updated" : "Feedback submitted successfully" });
+      toast({ title: "Feedback submitted successfully" });
       resetManagerForm();
       setActiveDraft(null);
       setFormLoadedFromDraft(false);
@@ -919,7 +908,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       await loadSubmissions();
     } catch {
       toast({
-        title: editingId ? "Update failed" : "Submission failed",
+        title: "Submission failed",
         description: "Unable to save feedback right now.",
         variant: "destructive",
       });
@@ -1176,6 +1165,11 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                             ) : (
                               <Badge className="text-[10px] font-normal">Open</Badge>
                             )}
+                            <span className="text-[11px] text-muted-foreground">
+                              Submitted by{" "}
+                              <span className="font-medium text-foreground">{entry.manager_name || "Unknown manager"}</span>
+                              {entry.manager_email ? ` (${entry.manager_email})` : ""}
+                            </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 justify-end">
                             <span className="text-xs text-muted-foreground">
@@ -1190,10 +1184,12 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                       <AccordionContent>
                         <div className="pb-4 space-y-4 border-t pt-4">
                           <div className="flex justify-end">
-                            <Button type="button" size="sm" variant="secondary" onClick={() => loadSubmissionForEdit(entry)}>
-                              <Pencil className="h-3.5 w-3.5 mr-1" />
-                              Edit in form below
-                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                              Submitted by{" "}
+                              <span className="font-medium text-foreground">{entry.manager_name || "previous manager"}</span>
+                              {entry.manager_email ? ` (${entry.manager_email})` : ""}
+                              . Submitted records are read-only.
+                            </span>
                           </div>
                           <SubmissionDetailContent entry={entry} period={period} />
                         </div>
@@ -1235,7 +1231,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                               <span>{formatPeriodRange(p)}</span>
                             </div>
                             <span className="inline-flex text-[11px] text-muted-foreground">
-                              {count} record(s) for this reportee in this period
+                              {count} record(s) for this reportee in this period (your submissions)
                             </span>
                           </div>
                         </div>
@@ -1267,7 +1263,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
               <CardContent className="py-6">
                 <p className="text-sm font-medium">All open periods are already submitted for this reportee.</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Use <span className="font-medium text-foreground">Submission records</span> to review or edit existing records.
+                  Use <span className="font-medium text-foreground">Submission records</span> to review existing records.
                 </p>
               </CardContent>
             </Card>

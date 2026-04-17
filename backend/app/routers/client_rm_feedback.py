@@ -541,8 +541,8 @@ async def create_submission(
 @router.put("/submissions/{submission_id}")
 async def update_submission(
     submission_id: str,
-    payload: ClientRMFeedbackSubmissionUpdate,
-    current_user: dict = Depends(get_current_active_user),
+    _payload: ClientRMFeedbackSubmissionUpdate,
+    _current_user: dict = Depends(get_current_active_user),
 ):
     table = await get_client_rm_feedback_table()
     response = await table.get_item(Key={"id": submission_id})
@@ -551,6 +551,9 @@ async def update_submission(
     item = parse_dynamodb_item(response["Item"])
     if item.get("entity_type") != "submission":
         raise HTTPException(status_code=400, detail="Invalid submission item")
+
+    # Product rule: submitted feedback is immutable.
+    raise HTTPException(status_code=409, detail="Submitted feedback is read-only and cannot be edited")
 
     user_email = _normalize_email(current_user.get("email") or current_user.get("username"))
     if not await _can_view_all_async(current_user) and user_email != _normalize_email(item.get("manager_email")):
