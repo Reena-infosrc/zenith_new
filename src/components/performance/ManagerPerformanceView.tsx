@@ -69,6 +69,8 @@ import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { getCachedManagerData, getCachedViewMode } from "@/hooks/use-performance-preload";
 import { usePerformancePreload } from "@/hooks/use-performance-preload";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { CLIENT_RM_FEEDBACK_ROUTES } from "@/lib/client-rm-feedback-routes";
 
 interface Employee {
   id: string;
@@ -266,6 +268,9 @@ const normalizeCategory = (category: string): string => {
 };
 
 export function ManagerPerformanceView() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const perfTabDeepLinkApplied = useRef(false);
   const { user } = useAuth();
   const { toast } = useToast();
   const { getEmployeeGoals, getBatchEmployeeGoals, getGoal, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
@@ -317,8 +322,15 @@ export function ManagerPerformanceView() {
   const [activeFilter, setActiveFilter] = useState<ManagerFilter | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [viewMode, setViewMode] = useState<'my-team' | 'my-goals'>('my-team');
-  /** Pre-select reportee in My Goals → Client RM Feedback when opened from a team card. */
-  const [clientRmTargetReporteeId, setClientRmTargetReporteeId] = useState<string | null>(null);
+  /** Deep link: /performance?view=manager&tab=my-team|my-goals */
+  useEffect(() => {
+    if (perfTabDeepLinkApplied.current) return;
+    perfTabDeepLinkApplied.current = true;
+    const tab = searchParams.get("tab");
+    if (tab === "my-goals" || tab === "my-team") {
+      setViewMode(tab === "my-goals" ? "my-goals" : "my-team");
+    }
+  }, [searchParams]);
   const [showReviewWorkspace, setShowReviewWorkspace] = useState(false);
   const [reviewEmployee, setReviewEmployee] = useState<Employee | null>(null);
   const [hasReviewData, setHasReviewData] = useState(false);
@@ -1818,9 +1830,6 @@ export function ManagerPerformanceView() {
       <Tabs value={viewMode} onValueChange={(v) => {
         preserveScroll();
         setViewMode(v as any);
-        if (v === 'my-team') {
-          setClientRmTargetReporteeId(null);
-        }
         // When switching to "my-team" tab, ensure all team goals are loaded
         if (v === 'my-team' && currentManagerEmployeeId && directReports.length > 0) {
           // Check if any team member goals are missing and fetch them
@@ -2316,8 +2325,7 @@ export function ManagerPerformanceView() {
                         setShowReviewWorkspace(true);
                       }}
                       onClientRmFeedback={() => {
-                        setClientRmTargetReporteeId(employee.id);
-                        setViewMode("my-goals");
+                        navigate(CLIENT_RM_FEEDBACK_ROUTES.managerSession(employee.id, { from: "team" }));
                       }}
                       activeGoalId={goalPanelState.open ? goalPanelState.goalId : null}
                       panelId={goalPanelId}
@@ -2343,9 +2351,7 @@ export function ManagerPerformanceView() {
           {/* Use the same UserPerformanceView component for consistency */}
           <UserPerformanceView
             employeeId={currentManagerEmployeeId}
-            initialPerformanceTab={clientRmTargetReporteeId ? "client-rm-feedback" : undefined}
-            clientRmInitialReporteeId={clientRmTargetReporteeId}
-            clientRmSurface={clientRmTargetReporteeId ? "team-submit" : "self"}
+            clientRmSurface="self"
           />
         </TabsContent>
 

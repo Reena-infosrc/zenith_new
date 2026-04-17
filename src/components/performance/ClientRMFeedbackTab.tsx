@@ -12,9 +12,16 @@ import { API_BASE_URL } from "@/config/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useEmployees } from "@/hooks/use-employees";
-import { Loader2, Pencil, Star, ExternalLink, Users, Network } from "lucide-react";
+import { Loader2, Pencil, Star, ExternalLink, Users, Network, CalendarRange, Lock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 type Period = {
   period_id: string;
@@ -85,6 +92,24 @@ function pickRating(ratings: Record<string, number> | undefined, key: string, le
   return 0;
 }
 
+function formatPeriodRange(p: Period): string {
+  try {
+    const s = new Date(p.start_date).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const e = new Date(p.end_date).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return `${s} – ${e}`;
+  } catch {
+    return p.label;
+  }
+}
+
 function billingLabel(v: string) {
   switch (v) {
     case "billable":
@@ -133,6 +158,75 @@ function FieldShell({
   );
 }
 
+/** Shared read-only body for a stored submission (accordion / card). */
+function SubmissionDetailContent({
+  entry,
+  period,
+}: {
+  entry: FeedbackSubmission;
+  period?: Period;
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <FieldShell label="ID">{entry.id}</FieldShell>
+        <FieldShell label="Start time">
+          {entry.started_at ? new Date(entry.started_at).toLocaleString() : "—"}
+        </FieldShell>
+        <FieldShell label="Completion time">
+          {entry.submitted_at ? new Date(entry.submitted_at).toLocaleString() : "—"}
+        </FieldShell>
+        <FieldShell label="Email">{entry.manager_email || "—"}</FieldShell>
+        <FieldShell label="Name (submitter)">{entry.manager_name}</FieldShell>
+        <FieldShell label="Last modified time">
+          {entry.updated_at ? new Date(entry.updated_at).toLocaleString() : "—"}
+        </FieldShell>
+        <FieldShell label="Employee name">{entry.employee_name}</FieldShell>
+        <FieldShell label="Employee ID">{entry.employee_code || entry.employee_id}</FieldShell>
+        <FieldShell label="Billing status">{billingLabel(entry.billing_status)}</FieldShell>
+        <FieldShell label="Client name">{entry.client_name}</FieldShell>
+        <FieldShell label="Project name">{entry.project_name}</FieldShell>
+        <FieldShell label="Client reporting manager name">{entry.client_reporting_manager_name || "—"}</FieldShell>
+        <FieldShell label="Info Services reporting manager name">
+          {entry.info_services_reporting_manager_name || "—"}
+        </FieldShell>
+        <FieldShell label="Feedback period date" className="sm:col-span-2 lg:col-span-3">
+          {period?.label || entry.period_id}
+        </FieldShell>
+      </div>
+      <Separator />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {RATING_FIELDS.map((f) => (
+          <div
+            key={f.key}
+            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border px-3 py-2.5 bg-muted/10"
+          >
+            <span className="text-sm font-medium pr-2">{f.label}</span>
+            <StarsRead value={pickRating(entry.ratings, f.key, f.legacyKey)} />
+          </div>
+        ))}
+      </div>
+      <Separator />
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Overall satisfaction with employee performance
+        </Label>
+        <StarsRead value={entry.overall_satisfaction} />
+      </div>
+      {entry.additional_feedback ? (
+        <div className="space-y-2">
+          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Any additional feedback or suggestions?
+          </Label>
+          <p className="text-sm leading-relaxed whitespace-pre-wrap border rounded-md p-3 bg-background">
+            {entry.additional_feedback}
+          </p>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 type Props = {
   currentEmployeeId?: string | null;
   /** When set (e.g. from My Team), pre-select this reportee in the manager form. */
@@ -175,6 +269,8 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
   );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<string | null>(null);
+  /** When multiple periods are open, require an explicit period choice before showing the submit form. */
+  const [pendingPeriodPicker, setPendingPeriodPicker] = useState(false);
 
   const managerEmail = user?.email || "";
   /**
@@ -202,6 +298,22 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
     return submissions.filter((s) => String(s.employee_id ?? "") === rid);
   }, [showManagerEditor, reporteeId, submissions]);
 
+  const submissionCountByPeriodForReportee = useMemo(() => {
+    const m = new Map<string, number>();
+    managerSubmissionsForView.forEach((s) => {
+      m.set(s.period_id, (m.get(s.period_id) || 0) + 1);
+    });
+    return m;
+  }, [managerSubmissionsForView]);
+
+  const sortedManagerSubmissions = useMemo(() => {
+    return [...managerSubmissionsForView].sort((a, b) => {
+      const ta = new Date(a.updated_at || a.submitted_at || 0).getTime();
+      const tb = new Date(b.updated_at || b.submitted_at || 0).getTime();
+      return tb - ta;
+    });
+  }, [managerSubmissionsForView]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -222,15 +334,23 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       setSelfName(String(contextData.employee_name || user?.name || ""));
       const reps: Reportee[] = contextData.reportees || [];
       setReportees(reps);
-      setPeriods(periodsData || []);
+      const periodsArr = (periodsData || []) as Period[];
+      setPeriods(periodsArr);
       if (reps.length) {
         const preferred =
           initialReporteeId && reps.some((r) => r.id === initialReporteeId) ? initialReporteeId : reps[0].id;
         setReporteeId(preferred);
       }
-      if (periodsData?.length) {
-        const open = periodsData.find((p: Period) => p.period_status === "open");
-        if (open) setPeriodId(open.period_id);
+      const opens = periodsArr.filter((p) => p.period_status === "open");
+      if (opens.length === 1) {
+        setPeriodId(opens[0].period_id);
+        setPendingPeriodPicker(false);
+      } else if (opens.length > 1) {
+        setPeriodId("");
+        setPendingPeriodPicker(true);
+      } else {
+        setPeriodId("");
+        setPendingPeriodPicker(false);
       }
     } catch {
       toast({
@@ -285,7 +405,18 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
     setAdditionalFeedback("");
     setOverallSatisfaction(3);
     setRatings(RATING_FIELDS.reduce((acc, f) => ({ ...acc, [f.key]: 3 }), {} as Record<string, number>));
-  }, []);
+    const opens = periods.filter((p) => p.period_status === "open");
+    if (opens.length > 1) {
+      setPeriodId("");
+      setPendingPeriodPicker(true);
+    } else if (opens.length === 1) {
+      setPeriodId(opens[0].period_id);
+      setPendingPeriodPicker(false);
+    } else {
+      setPeriodId("");
+      setPendingPeriodPicker(false);
+    }
+  }, [periods]);
 
   const loadSubmissionForEdit = (s: FeedbackSubmission) => {
     setEditingId(s.id);
@@ -304,6 +435,7 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
     });
     setRatings(next);
     setStartedAt(s.started_at || s.submitted_at || null);
+    setPendingPeriodPicker(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -379,6 +511,18 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
     const selfId = String(currentEmployeeId);
     return submissions.filter((s) => String(s.employee_id ?? "") === selfId);
   }, [submissions, currentEmployeeId]);
+
+  const sortedReporteeRows = useMemo(() => {
+    return [...reporteeRows].sort((a, b) => {
+      const ta = new Date(a.updated_at || a.submitted_at || 0).getTime();
+      const tb = new Date(b.updated_at || b.submitted_at || 0).getTime();
+      return tb - ta;
+    });
+  }, [reporteeRows]);
+
+  const showPeriodPickerStep =
+    showManagerEditor && pendingPeriodPicker && !editingId && openPeriods.length > 1;
+  const showManagerFormCard = showManagerEditor && (!pendingPeriodPicker || Boolean(editingId));
 
   const markSeenAttempted = useRef<Set<string>>(new Set());
 
@@ -508,7 +652,121 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
       )}
 
       {showManagerEditor && (
-        <Card className="overflow-hidden border-border/60 shadow-lg ring-1 ring-black/5 dark:ring-white/10">
+        <div className="flex flex-col gap-6">
+          <div className="order-1 space-y-3">
+            <div>
+              <h3 className="text-lg font-semibold tracking-tight">Prior submissions</h3>
+              <p className="text-sm text-muted-foreground">
+                Newest first. Expand a row for details; closed periods stay visible for audit. Edit loads a record into
+                the form below.
+              </p>
+            </div>
+            {sortedManagerSubmissions.length === 0 ? (
+              <Card className="border-dashed">
+                <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                  No prior submissions for this reportee yet.
+                </CardContent>
+              </Card>
+            ) : (
+              <Accordion type="multiple" className="border rounded-lg bg-muted/10 px-2">
+                {sortedManagerSubmissions.map((entry) => {
+                  const period = periodById.get(entry.period_id);
+                  const closed = period?.period_status === "closed";
+                  return (
+                    <AccordionItem key={entry.id} value={entry.id} className="border-border/60">
+                      <AccordionTrigger className="py-3 hover:no-underline text-left">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 w-full pr-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{period?.label || "Period"}</span>
+                            {closed ? (
+                              <Badge variant="outline" className="text-[10px] gap-1 font-normal">
+                                <Lock className="h-3 w-3" /> Closed
+                              </Badge>
+                            ) : (
+                              <Badge className="text-[10px] font-normal">Open</Badge>
+                            )}
+                          </div>
+                          <Badge variant="secondary" className="shrink-0">
+                            Overall {entry.overall_satisfaction}/5
+                          </Badge>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="pb-4 space-y-4 border-t pt-4">
+                          <div className="flex justify-end">
+                            <Button type="button" size="sm" variant="secondary" onClick={() => loadSubmissionForEdit(entry)}>
+                              <Pencil className="h-3.5 w-3.5 mr-1" />
+                              Edit in form below
+                            </Button>
+                          </div>
+                          <SubmissionDetailContent entry={entry} period={period} />
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
+            )}
+          </div>
+
+          {showPeriodPickerStep && (
+            <Card className="order-2 border-primary/30 bg-primary/5 shadow-md">
+              <CardHeader>
+                <CardTitle className="text-base font-semibold">Choose feedback month</CardTitle>
+                <CardDescription>
+                  Multiple periods are open. Select which month you are submitting for, then continue to the form.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <RadioGroup value={periodId} onValueChange={setPeriodId} className="gap-3">
+                  {openPeriods.map((p) => {
+                    const count = submissionCountByPeriodForReportee.get(p.period_id) ?? 0;
+                    return (
+                      <label
+                        key={p.period_id}
+                        htmlFor={`period-${p.period_id}`}
+                        className={cn(
+                          "flex cursor-pointer flex-col gap-2 rounded-lg border p-4 transition-colors",
+                          periodId === p.period_id && "border-primary bg-primary/5 ring-1 ring-primary/25"
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <RadioGroupItem value={p.period_id} id={`period-${p.period_id}`} className="mt-1" />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="font-medium">{p.label}</div>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                              <CalendarRange className="h-3.5 w-3.5 shrink-0" />
+                              <span>{formatPeriodRange(p)}</span>
+                            </div>
+                            <span className="inline-flex text-[11px] text-muted-foreground">
+                              {count} record(s) for this reportee in this period
+                            </span>
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </RadioGroup>
+                <Button
+                  type="button"
+                  className="w-full sm:w-auto"
+                  disabled={!periodId}
+                  onClick={() => {
+                    if (!periodId) {
+                      toast({ title: "Select a period", variant: "destructive" });
+                      return;
+                    }
+                    setPendingPeriodPicker(false);
+                  }}
+                >
+                  Continue to feedback form
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {showManagerFormCard && (
+        <Card className="overflow-hidden order-3 border-border/60 shadow-lg ring-1 ring-black/5 dark:ring-white/10">
           <div className="bg-gradient-to-r from-primary/15 via-primary/5 to-transparent px-6 py-5 border-b">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
@@ -537,6 +795,11 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                 </CardDescription>
               </div>
               <div className="flex flex-wrap gap-2 shrink-0">
+                {openPeriods.length > 1 && !editingId && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => resetManagerForm()}>
+                    Choose different month
+                  </Button>
+                )}
                 {editingId && (
                   <Button type="button" variant="outline" size="sm" onClick={resetManagerForm}>
                     New submission
@@ -545,14 +808,23 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
               </div>
             </div>
           </div>
-          <CardContent className="p-6 space-y-8">
-            <section className="space-y-4">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold">Record metadata</h3>
-                <Badge variant="outline" className="text-xs font-normal">
-                  Auto / read-only where noted
-                </Badge>
-              </div>
+          <CardContent className="p-6 space-y-4">
+            <p className="text-xs text-muted-foreground border-b pb-3">
+              Form sections are expandable—open each block to fill it. When multiple months are open, pick the month
+              first (above), then complete the sections here.
+            </p>
+            <Accordion type="multiple" className="space-y-2">
+              <AccordionItem value="crm-meta" className="border rounded-lg px-3 bg-muted/5">
+                <AccordionTrigger className="text-sm font-semibold hover:no-underline py-3">
+                  <span className="flex flex-wrap items-center gap-2">
+                    Record metadata
+                    <Badge variant="outline" className="text-xs font-normal">
+                      Auto / read-only
+                    </Badge>
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+              <div className="space-y-4 pb-2 pt-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <FieldShell label="ID">{editingId || "— (assigned on save)"}</FieldShell>
                 <FieldShell label="Start time">
@@ -563,15 +835,30 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                 <FieldShell label="Name (submitter)">{selfName || "—"}</FieldShell>
                 <FieldShell label="Last modified time">— (updated automatically)</FieldShell>
               </div>
-            </section>
+              </div>
+                </AccordionContent>
+              </AccordionItem>
 
-            <Separator />
-
-            <section className="space-y-4">
-              <h3 className="text-sm font-semibold">Employee & assignment</h3>
+              <AccordionItem value="crm-assign" className="border rounded-lg px-3 bg-muted/5">
+                <AccordionTrigger className="text-sm font-semibold hover:no-underline py-3">
+                  Employee & assignment
+                </AccordionTrigger>
+                <AccordionContent>
+                <div className="space-y-4 pb-2 pt-1">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Feedback period *</Label>
+                  {openPeriods.length > 1 && !editingId ? (
+                    <div className="rounded-md border bg-muted/30 px-3 py-2.5 text-sm">
+                      <span className="font-medium">
+                        {periodId ? periodById.get(periodId)?.label ?? "—" : "—"}
+                      </span>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Use the month chooser above or &quot;Choose different month&quot; in the header to switch.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
                   <Select value={periodId} onValueChange={setPeriodId}>
                     <SelectTrigger className="bg-background">
                       <SelectValue placeholder="Select period" />
@@ -586,6 +873,8 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                   </Select>
                   {openPeriods.length === 0 && (
                     <p className="text-xs text-muted-foreground">No open periods. HR will open a cycle when ready.</p>
+                  )}
+                    </>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -602,12 +891,16 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                   </div>
                 </div>
               </div>
-            </section>
+              </div>
+                </AccordionContent>
+              </AccordionItem>
 
-            <Separator />
-
-            <section className="space-y-4">
-              <h3 className="text-sm font-semibold">Engagement context</h3>
+              <AccordionItem value="crm-engagement" className="border rounded-lg px-3 bg-muted/5">
+                <AccordionTrigger className="text-sm font-semibold hover:no-underline py-3">
+                  Engagement context
+                </AccordionTrigger>
+                <AccordionContent>
+                <div className="space-y-4 pb-2 pt-1">
               <div className="space-y-3">
                 <Label>Billing status *</Label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -661,12 +954,16 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                   {periodId ? periodById.get(periodId)?.label || "—" : "—"}
                 </FieldShell>
               </div>
-            </section>
+              </div>
+                </AccordionContent>
+              </AccordionItem>
 
-            <Separator />
-
-            <section className="space-y-4">
-              <h3 className="text-sm font-semibold">Competency ratings (1–5)</h3>
+              <AccordionItem value="crm-ratings" className="border rounded-lg px-3 bg-muted/5">
+                <AccordionTrigger className="text-sm font-semibold hover:no-underline py-3">
+                  Competency ratings (1–5)
+                </AccordionTrigger>
+                <AccordionContent>
+                <div className="space-y-4 pb-2 pt-1">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4">
                 {RATING_FIELDS.map((field) => (
                   <div
@@ -695,11 +992,16 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                   </div>
                 ))}
               </div>
-            </section>
+              </div>
+                </AccordionContent>
+              </AccordionItem>
 
-            <Separator />
-
-            <section className="space-y-4">
+              <AccordionItem value="crm-overall" className="border rounded-lg px-3 bg-muted/5">
+                <AccordionTrigger className="text-sm font-semibold hover:no-underline py-3">
+                  Overall satisfaction & comments
+                </AccordionTrigger>
+                <AccordionContent>
+                <div className="space-y-4 pb-2 pt-1">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Overall satisfaction with employee performance *</Label>
@@ -727,16 +1029,26 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                   placeholder="Optional narrative feedback, development themes, or client-specific notes…"
                 />
               </div>
-            </section>
+              </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
 
             <div className="flex flex-wrap gap-3 pt-2">
-              <Button onClick={onSubmit} disabled={submitting || openPeriods.length === 0} size="lg" className="min-w-[160px]">
+              <Button
+                onClick={onSubmit}
+                disabled={submitting || openPeriods.length === 0 || !periodId}
+                size="lg"
+                className="min-w-[160px]"
+              >
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {editingId ? "Save changes" : "Submit feedback"}
               </Button>
             </div>
           </CardContent>
         </Card>
+          )}
+        </div>
       )}
 
       <div className="space-y-4">
@@ -755,113 +1067,55 @@ export function ClientRMFeedbackTab({ currentEmployeeId, initialReporteeId, clie
                   ? "Organization-wide reporting is available from Monthly Feedback reports."
                   : clientRmSurface === "self"
                     ? "Your line manager submits this assessment. Read-only here. To give feedback for a direct report, use Client RM Feedback on their card under My Team."
-                    : "Submitted by your reporting manager. This view is read-only for employees."}
+                    : "Submitted by your reporting manager. This view is read-only for employees."}{" "}
+                Expand a row to view details. Closed periods are labeled and kept for audit.
               </p>
             </div>
           </div>
         )}
-        {showManagerEditor && (
-          <div>
-            <h3 className="text-lg font-semibold tracking-tight mb-1">Submitted feedback</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              {selectedReportee
-                ? `Read-only history for ${selectedReportee.name} in this session only.`
-                : "Read-only copies of submissions for this session."}
-            </p>
-          </div>
-        )}
-          {(showManagerEditor ? managerSubmissionsForView : reporteeRows).length === 0 ? (
+        {!showManagerEditor && sortedReporteeRows.length === 0 ? (
             <Card className="border-dashed">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
                 No feedback records yet for this view.
               </CardContent>
             </Card>
-          ) : (
-            (showManagerEditor ? managerSubmissionsForView : reporteeRows).map((entry) => {
-              const period = periodById.get(entry.period_id);
-              return (
-                <Card key={entry.id} className="border-border/60 shadow-md overflow-hidden">
-                  <CardHeader className="bg-muted/30 border-b py-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <div>
-                        <CardTitle className="text-base">{FORM_TITLE}</CardTitle>
-                        <CardDescription>
-                          {period?.label || "Feedback period"} · Updated{" "}
-                          {entry.updated_at ? new Date(entry.updated_at).toLocaleString() : "—"}
-                        </CardDescription>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary">Overall {entry.overall_satisfaction}/5</Badge>
-                        {showManagerEditor && (
-                          <Button type="button" size="sm" variant="outline" onClick={() => loadSubmissionForEdit(entry)}>
-                            <Pencil className="h-3.5 w-3.5 mr-1" />
-                            Edit
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-6 space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <FieldShell label="ID">{entry.id}</FieldShell>
-                      <FieldShell label="Start time">
-                        {entry.started_at ? new Date(entry.started_at).toLocaleString() : "—"}
-                      </FieldShell>
-                      <FieldShell label="Completion time">
-                        {entry.submitted_at ? new Date(entry.submitted_at).toLocaleString() : "—"}
-                      </FieldShell>
-                      <FieldShell label="Email">{entry.manager_email || "—"}</FieldShell>
-                      <FieldShell label="Name (submitter)">{entry.manager_name}</FieldShell>
-                      <FieldShell label="Last modified time">
-                        {entry.updated_at ? new Date(entry.updated_at).toLocaleString() : "—"}
-                      </FieldShell>
-                      <FieldShell label="Employee name">{entry.employee_name}</FieldShell>
-                      <FieldShell label="Employee ID">{entry.employee_code || entry.employee_id}</FieldShell>
-                      <FieldShell label="Billing status">{billingLabel(entry.billing_status)}</FieldShell>
-                      <FieldShell label="Client name">{entry.client_name}</FieldShell>
-                      <FieldShell label="Project name">{entry.project_name}</FieldShell>
-                      <FieldShell label="Client reporting manager name">{entry.client_reporting_manager_name || "—"}</FieldShell>
-                      <FieldShell label="Info Services reporting manager name">
-                        {entry.info_services_reporting_manager_name || "—"}
-                      </FieldShell>
-                      <FieldShell label="Feedback period date" className="sm:col-span-2 lg:col-span-3">
-                        {period?.label || entry.period_id}
-                      </FieldShell>
-                    </div>
-                    <Separator />
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {RATING_FIELDS.map((f) => (
-                        <div
-                          key={f.key}
-                          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border px-3 py-2.5 bg-muted/10"
-                        >
-                          <span className="text-sm font-medium pr-2">{f.label}</span>
-                          <StarsRead value={pickRating(entry.ratings, f.key, f.legacyKey)} />
+          ) : !showManagerEditor ? (
+            <Accordion type="multiple" className="border rounded-lg bg-muted/10 px-2">
+              {sortedReporteeRows.map((entry) => {
+                const period = periodById.get(entry.period_id);
+                const closed = period?.period_status === "closed";
+                return (
+                  <AccordionItem key={entry.id} value={entry.id} className="border-border/60">
+                    <AccordionTrigger className="py-3 hover:no-underline text-left">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 w-full pr-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{period?.label || "Feedback period"}</span>
+                          {closed ? (
+                            <Badge variant="outline" className="text-[10px] gap-1 font-normal">
+                              <Lock className="h-3 w-3" /> Closed
+                            </Badge>
+                          ) : (
+                            <Badge className="text-[10px] font-normal">Open</Badge>
+                          )}
+                          <span className="text-xs text-muted-foreground hidden sm:inline">
+                            · Updated {entry.updated_at ? new Date(entry.updated_at).toLocaleString() : "—"}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                    <Separator />
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        Overall satisfaction with employee performance
-                      </Label>
-                      <StarsRead value={entry.overall_satisfaction} />
-                    </div>
-                    {entry.additional_feedback && (
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          Any additional feedback or suggestions?
-                        </Label>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap border rounded-md p-3 bg-background">
-                          {entry.additional_feedback}
-                        </p>
+                        <Badge variant="secondary" className="shrink-0">
+                          Overall {entry.overall_satisfaction}/5
+                        </Badge>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })
-          )}
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="pb-4 space-y-6 border-t pt-4">
+                        <SubmissionDetailContent entry={entry} period={period} />
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          ) : null}
       </div>
 
       {isAdmin && hasTeamMembers && (

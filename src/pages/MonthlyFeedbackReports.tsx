@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Header } from "@/components/Header";
 import { SidebarContent } from "@/components/SidebarContent";
 import { MonthlyFeedbackManagement } from "@/components/performance/MonthlyFeedbackManagement";
+import { MonthlyFeedbackReportsHub } from "@/components/performance/MonthlyFeedbackReportsHub";
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 
@@ -53,18 +54,16 @@ export default function MonthlyFeedbackReports() {
         )}
 
         <main className="flex-1 transition-all duration-300 lg:ml-60 pt-16">
-          <div className="container px-6 py-8">
-            <section className="mb-6">
-              <h1 className="text-2xl font-semibold">Monthly Feedback</h1>
-              <p className="text-sm text-muted-foreground">Reports view</p>
-            </section>
-
+          <div className="container px-6 py-8 max-w-6xl">
             {role.status === "loading" ? (
               <div className="py-10 text-sm text-muted-foreground">Loading…</div>
             ) : role.status === "unauthorized" ? (
               <div className="py-10 text-sm text-muted-foreground">You don’t have access to this page.</div>
             ) : (
-              <MonthlyFeedbackManagement />
+              <>
+                <MonthlyFeedbackReportsHub />
+                <MonthlyFeedbackManagement />
+              </>
             )}
           </div>
         </main>

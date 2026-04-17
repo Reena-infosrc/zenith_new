@@ -16,6 +16,7 @@ import Leave from "./pages/Leave";
 import Recruitment from "./pages/Recruitment";
 import Performance from "./pages/Performance";
 import MonthlyFeedbackReports from "./pages/MonthlyFeedbackReports";
+import MonthlyRmFeedbackSession from "./pages/MonthlyRmFeedbackSession";
 import ResourceHub from "./pages/ResourceHub";
 import Compensation from "./pages/Compensation";
 import FeatureFlags from "./pages/FeatureFlags";
@@ -40,6 +41,7 @@ const App = () => (
             <Route path="/recruitment" element={<RequireAuth><Recruitment /></RequireAuth>} />
             <Route path="/performance" element={<RequireAuth><Performance /></RequireAuth>} />
             <Route path="/performance/monthly-feedback" element={<RequireAuth><MonthlyFeedbackReports /></RequireAuth>} />
+            <Route path="/performance/monthly-rm-feedback" element={<RequireAuth><MonthlyRmFeedbackSession /></RequireAuth>} />
             <Route path="/resource-hub" element={<RequireAuth><ResourceHub /></RequireAuth>} />
             <Route path="/compensation" element={<RequireAuth><Compensation /></RequireAuth>} />
             <Route path="/feature-flags" element={<RequireAuth><FeatureFlags /></RequireAuth>} />

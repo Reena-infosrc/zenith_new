@@ -156,18 +156,12 @@ interface UserPerformanceViewProps {
    * If not provided, the component will find the employee ID from the current user.
    */
   employeeId?: string | null;
-  /** When set (e.g. manager deep-link from My Team), open this sub-tab under My Goals. */
-  initialPerformanceTab?: PerformanceMainTab;
-  /** Pre-select this reportee in Client RM Feedback (managers with direct reports). */
-  clientRmInitialReporteeId?: string | null;
-  /** Manager Performance: My Goals = read-only about self; team card = submit for reportee. */
-  clientRmSurface?: "self" | "team-submit";
+  /** Manager Performance → My Goals: read-only Client RM feedback from your line manager. Manager submit uses `/performance/monthly-rm-feedback`. */
+  clientRmSurface?: "self";
 }
 
 export function UserPerformanceView({
   employeeId: providedEmployeeId,
-  initialPerformanceTab,
-  clientRmInitialReporteeId,
   clientRmSurface,
 }: UserPerformanceViewProps = {}) {
   const { preserveScroll } = usePreserveScroll();
@@ -216,12 +210,6 @@ export function UserPerformanceView({
   const [clientRmNotificationCount, setClientRmNotificationCount] = useState(0);
   const [clientRmOpenPeriodActive, setClientRmOpenPeriodActive] = useState(false);
   const [activePerformanceTab, setActivePerformanceTab] = useState<PerformanceMainTab>("overview");
-
-  useEffect(() => {
-    if (initialPerformanceTab && clientRmInitialReporteeId) {
-      setActivePerformanceTab(initialPerformanceTab);
-    }
-  }, [initialPerformanceTab, clientRmInitialReporteeId]);
 
   const currentEmployeeSummary = useMemo(() => {
     if (!currentEmployeeId) return null;
@@ -1769,13 +1757,8 @@ export function UserPerformanceView({
 
         <TabsContent value="client-rm-feedback" className="space-y-4">
           <ClientRMFeedbackTab
-            key={
-              clientRmSurface === "team-submit" && clientRmInitialReporteeId
-                ? `crm-team-${clientRmInitialReporteeId}`
-                : "crm-default"
-            }
+            key="crm-default"
             currentEmployeeId={currentEmployeeId}
-            initialReporteeId={clientRmInitialReporteeId}
             clientRmSurface={clientRmSurface}
           />
         </TabsContent>
