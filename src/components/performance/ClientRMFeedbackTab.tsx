@@ -369,6 +369,18 @@ function formatPeriodRange(p: Period): string {
   }
 }
 
+/** Normalizes API labels (e.g. "April2026 -1") so list rows read consistently. */
+function formatPeriodTitleForHistory(period: Period | undefined): string {
+  if (!period?.label?.trim()) return "Period";
+  const raw = period.label.trim();
+  const withYearSpace = raw.replace(/([A-Za-z]+)(\d{4})/g, "$1 $2");
+  const cycle = withYearSpace.match(/^(.*?)(\s*-\s*(\d+))\s*$/);
+  if (cycle?.[3]) {
+    return `${cycle[1].trim()} · Cycle ${cycle[3]}`;
+  }
+  return withYearSpace;
+}
+
 function billingLabel(v: string) {
   switch (v) {
     case "billable":
@@ -1469,47 +1481,73 @@ export function ClientRMFeedbackTab({
                 </CardContent>
               </Card>
             ) : (
-              <Accordion type="multiple" className="border rounded-lg bg-muted/10 px-2">
+              <Accordion type="multiple" className="space-y-3">
                 {managerHistoryRows.map((entry) => {
                   const period = periodById.get(entry.period_id);
                   const closed = period?.period_status === "closed";
                   const isLatest = managerHistoryRows[0]?.id === entry.id;
                   return (
-                    <AccordionItem key={entry.id} value={entry.id} className="border-border/60">
-                      <AccordionTrigger className="py-3 hover:no-underline text-left">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 w-full pr-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium">{period?.label || "Period"}</span>
-                            {historyScope === "this-month" && isLatest ? (
-                              <Badge variant="secondary" className="text-[10px] font-medium">
-                                Most recent
-                              </Badge>
+                    <AccordionItem
+                      key={entry.id}
+                      value={entry.id}
+                      className={cn(
+                        "rounded-xl border border-b-0 shadow-sm overflow-hidden transition-colors",
+                        closed
+                          ? "border-muted-foreground/30 bg-muted/45 border-l-4 border-l-muted-foreground/50"
+                          : "border-border bg-card border-l-4 border-l-primary ring-1 ring-border/60"
+                      )}
+                    >
+                      <AccordionTrigger
+                        className={cn(
+                          "py-3.5 px-4 hover:no-underline text-left hover:bg-muted/20",
+                          closed && "opacity-95"
+                        )}
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between w-full pr-2">
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="font-semibold text-foreground">
+                                {formatPeriodTitleForHistory(period)}
+                              </span>
+                              {historyScope === "this-month" && isLatest ? (
+                                <Badge variant="secondary" className="text-[10px] font-medium">
+                                  Most recent
+                                </Badge>
+                              ) : null}
+                              {closed ? (
+                                <Badge variant="outline" className="text-[10px] gap-1 font-normal border-muted-foreground/50">
+                                  <Lock className="h-3 w-3" /> Closed
+                                </Badge>
+                              ) : (
+                                <Badge className="text-[10px] font-normal bg-primary/15 text-primary hover:bg-primary/20">
+                                  Open
+                                </Badge>
+                              )}
+                            </div>
+                            {period ? (
+                              <p className="text-[11px] text-muted-foreground">
+                                <CalendarRange className="inline h-3 w-3 mr-1 align-text-bottom opacity-80" />
+                                {formatPeriodRange(period)}
+                              </p>
                             ) : null}
-                            {closed ? (
-                              <Badge variant="outline" className="text-[10px] gap-1 font-normal">
-                                <Lock className="h-3 w-3" /> Closed
-                              </Badge>
-                            ) : (
-                              <Badge className="text-[10px] font-normal">Open</Badge>
-                            )}
-                            <span className="text-[11px] text-muted-foreground">
+                            <p className="text-[11px] text-muted-foreground">
                               Submitted by{" "}
                               <span className="font-medium text-foreground">{entry.manager_name || "Unknown manager"}</span>
                               {entry.manager_email ? ` (${entry.manager_email})` : ""}
-                            </span>
+                            </p>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 justify-end">
-                            <span className="text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end sm:gap-1.5 shrink-0">
+                            <span className="text-xs text-muted-foreground tabular-nums">
                               Updated {formatDateTimeInIndia(entry.updated_at)}
                             </span>
-                            <Badge variant="secondary" className="shrink-0">
+                            <Badge variant="secondary" className="shrink-0 font-medium">
                               Overall {entry.overall_satisfaction}/5
                             </Badge>
                           </div>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
-                        <div className="pb-4 space-y-4 border-t pt-4">
+                        <div className="pb-4 space-y-4 border-t border-border/70 bg-muted/15 px-4 pt-4">
                           <div className="flex justify-end">
                             <span className="text-xs text-muted-foreground">
                               Submitted by{" "}
@@ -1946,40 +1984,71 @@ export function ClientRMFeedbackTab({
               </CardContent>
             </Card>
           ) : !showManagerEditor ? (
-            <Accordion type="multiple" className="border rounded-lg bg-muted/10 px-2">
+            <Accordion type="multiple" className="space-y-3">
               {reporteeHistoryRows.map((entry) => {
                 const period = periodById.get(entry.period_id);
                 const closed = period?.period_status === "closed";
                 const isLatest = reporteeHistoryRows[0]?.id === entry.id;
                 return (
-                  <AccordionItem key={entry.id} value={entry.id} className="border-border/60">
-                    <AccordionTrigger className="py-3 hover:no-underline text-left">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 w-full pr-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{period?.label || "Feedback period"}</span>
-                          {historyScope === "this-month" && isLatest ? (
-                            <Badge variant="secondary" className="text-[10px] font-medium">
-                              Most recent
-                            </Badge>
+                  <AccordionItem
+                    key={entry.id}
+                    value={entry.id}
+                    className={cn(
+                      "rounded-xl border border-b-0 shadow-sm overflow-hidden transition-colors",
+                      closed
+                        ? "border-muted-foreground/30 bg-muted/45 border-l-4 border-l-muted-foreground/50"
+                        : "border-border bg-card border-l-4 border-l-primary ring-1 ring-border/60"
+                    )}
+                  >
+                    <AccordionTrigger
+                      className={cn(
+                        "py-3.5 px-4 hover:no-underline text-left hover:bg-muted/20",
+                        closed && "opacity-95"
+                      )}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between w-full pr-2">
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-semibold text-foreground">
+                              {formatPeriodTitleForHistory(period)}
+                            </span>
+                            {historyScope === "this-month" && isLatest ? (
+                              <Badge variant="secondary" className="text-[10px] font-medium">
+                                Most recent
+                              </Badge>
+                            ) : null}
+                            {closed ? (
+                              <Badge variant="outline" className="text-[10px] gap-1 font-normal border-muted-foreground/50">
+                                <Lock className="h-3 w-3" /> Closed
+                              </Badge>
+                            ) : (
+                              <Badge className="text-[10px] font-normal bg-primary/15 text-primary hover:bg-primary/20">
+                                Open
+                              </Badge>
+                            )}
+                          </div>
+                          {period ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              <CalendarRange className="inline h-3 w-3 mr-1 align-text-bottom opacity-80" />
+                              {formatPeriodRange(period)}
+                            </p>
                           ) : null}
-                          {closed ? (
-                            <Badge variant="outline" className="text-[10px] gap-1 font-normal">
-                              <Lock className="h-3 w-3" /> Closed
-                            </Badge>
-                          ) : (
-                            <Badge className="text-[10px] font-normal">Open</Badge>
-                          )}
-                          <span className="text-xs text-muted-foreground hidden sm:inline">
-                            · Updated {formatDateTimeInIndia(entry.updated_at)}
+                          <span className="text-[11px] text-muted-foreground sm:hidden">
+                            Updated {formatDateTimeInIndia(entry.updated_at)}
                           </span>
                         </div>
-                        <Badge variant="secondary" className="shrink-0">
-                          Overall {entry.overall_satisfaction}/5
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end sm:gap-1.5 shrink-0">
+                          <span className="text-xs text-muted-foreground tabular-nums hidden sm:inline">
+                            Updated {formatDateTimeInIndia(entry.updated_at)}
+                          </span>
+                          <Badge variant="secondary" className="shrink-0 font-medium">
+                            Overall {entry.overall_satisfaction}/5
+                          </Badge>
+                        </div>
                       </div>
                     </AccordionTrigger>
                     <AccordionContent>
-                      <div className="pb-4 space-y-6 border-t pt-4">
+                      <div className="pb-4 space-y-6 border-t border-border/70 bg-muted/15 px-4 pt-4">
                         <SubmissionDetailContent entry={entry} period={period} />
                       </div>
                     </AccordionContent>
