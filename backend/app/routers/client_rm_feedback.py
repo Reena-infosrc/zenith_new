@@ -7,6 +7,7 @@ def _norm_employee_id(value: Any) -> str:
     return str(value or "").strip()
 
 from boto3.dynamodb.conditions import Attr
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..database_dynamodb import (
@@ -19,6 +20,7 @@ from ..database_dynamodb import (
 )
 from ..models.client_rm_feedback import (
     ClientRMFeedbackMeContext,
+    ClientRMFeedbackDraftUpsert,
     ClientRMFeedbackNotificationSummary,
     ClientRMFeedbackPeriodCreate,
     ClientRMFeedbackPeriodUpdate,
@@ -57,12 +59,29 @@ async def _is_leadership_email(email: str) -> bool:
     if not normalized:
         return False
     table = await get_leadership_access_table()
-    response = await table.query(
-        IndexName="EmailIndex",
-        KeyConditionExpression="email = :email",
-        ExpressionAttributeValues={":email": normalized},
-        Limit=1,
-    )
+    try:
+        response = await table.query(
+            IndexName="EmailIndex",
+            KeyConditionExpression="email = :email",
+            ExpressionAttributeValues={":email": normalized},
+            Limit=1,
+        )
+    except ClientError as error:
+        code = error.response.get("Error", {}).get("Code", "")
+        # Local fallback when index is absent or table isn't provisioned in this environment.
+        if code in {"ValidationException", "ResourceNotFoundException"}:
+            try:
+                response = await table.scan(
+                    FilterExpression=Attr("email").eq(normalized),
+                    Limit=1,
+                )
+            except ClientError as fallback_error:
+                fallback_code = fallback_error.response.get("Error", {}).get("Code", "")
+                if fallback_code == "ResourceNotFoundException":
+                    return False
+                raise
+        else:
+            raise
     return bool(response.get("Items"))
 
 
@@ -88,6 +107,17 @@ async def _get_employee_by_email(email: str) -> Optional[Dict[str, Any]]:
     if not items:
         return None
     return parse_dynamodb_item(items[0], "employees")
+
+
+async def _get_employee_by_id(employee_id: str) -> Optional[Dict[str, Any]]:
+    if not employee_id:
+        return None
+    table = await get_employees_table()
+    response = await table.get_item(Key={"id": employee_id})
+    item = response.get("Item")
+    if not item:
+        return None
+    return parse_dynamodb_item(item, "employees")
 
 
 async def _get_direct_reports(manager_employee_id: str) -> List[Dict[str, Any]]:
@@ -202,11 +232,22 @@ async def remove_leadership_access(
     """Admin UI: remove a leadership email from the allowlist."""
     normalized = _normalize_email(email)
     table = await get_leadership_access_table()
-    response = await table.query(
-        IndexName="EmailIndex",
-        KeyConditionExpression="email = :email",
-        ExpressionAttributeValues={":email": normalized},
-    )
+    try:
+        response = await table.query(
+            IndexName="EmailIndex",
+            KeyConditionExpression="email = :email",
+            ExpressionAttributeValues={":email": normalized},
+        )
+    except ClientError as error:
+        code = error.response.get("Error", {}).get("Code", "")
+        if code == "ValidationException":
+            response = await table.scan(
+                FilterExpression=Attr("email").eq(normalized),
+            )
+        elif code == "ResourceNotFoundException":
+            return {"ok": True, "email": normalized}
+        else:
+            raise
     for it in response.get("Items", []):
         parsed = parse_dynamodb_item(it)
         if parsed.get("id"):
@@ -281,6 +322,117 @@ async def _is_direct_report(manager_employee_id: str, employee_id: str) -> bool:
     return any(_norm_employee_id(r.get("id")) == target for r in reportees)
 
 
+async def _resolve_manager_identity(current_user: dict) -> Dict[str, Any]:
+    user_email = _normalize_email(current_user.get("email") or current_user.get("username"))
+    employee = await _get_employee_by_email(user_email)
+    if not employee:
+        raise HTTPException(status_code=403, detail="Employee profile not found for current user")
+    return {
+        "user_email": user_email,
+        "employee": employee,
+        "manager_employee_id": employee.get("id"),
+    }
+
+
+@router.get("/drafts/active")
+async def get_active_draft(
+    period_id: str = Query(..., min_length=1),
+    employee_id: str = Query(..., min_length=1),
+    current_user: dict = Depends(get_current_active_user),
+):
+    ident = await _resolve_manager_identity(current_user)
+    manager_employee_id = ident["manager_employee_id"]
+    if not await _is_direct_report(manager_employee_id, employee_id):
+        raise HTTPException(status_code=403, detail="You can access drafts only for your direct reportees")
+
+    table = await get_client_rm_feedback_table()
+    response = await table.scan(
+        FilterExpression=(
+            Attr("entity_type").eq("draft")
+            & Attr("period_id").eq(period_id)
+            & Attr("employee_id").eq(employee_id)
+            & Attr("manager_employee_id").eq(manager_employee_id)
+            & Attr("is_active").eq(True)
+        )
+    )
+    drafts = [parse_dynamodb_item(i) for i in response.get("Items", [])]
+    drafts.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    return drafts[0] if drafts else None
+
+
+@router.put("/drafts/active")
+async def upsert_active_draft(
+    payload: ClientRMFeedbackDraftUpsert,
+    current_user: dict = Depends(get_current_active_user),
+):
+    if payload.ratings is not None:
+        _validate_ratings(payload.ratings)
+    if payload.overall_satisfaction is not None and not (1 <= payload.overall_satisfaction <= 5):
+        raise HTTPException(status_code=400, detail="overall_satisfaction must be 1-5")
+
+    ident = await _resolve_manager_identity(current_user)
+    user_email = ident["user_email"]
+    employee = ident["employee"]
+    manager_employee_id = ident["manager_employee_id"]
+    if not await _is_direct_report(manager_employee_id, payload.employee_id):
+        raise HTTPException(status_code=403, detail="You can save drafts only for your direct reportees")
+
+    table = await get_client_rm_feedback_table()
+    now = _now_iso()
+
+    existing_res = await table.scan(
+        FilterExpression=(
+            Attr("entity_type").eq("draft")
+            & Attr("period_id").eq(payload.period_id)
+            & Attr("employee_id").eq(payload.employee_id)
+            & Attr("manager_employee_id").eq(manager_employee_id)
+            & Attr("is_active").eq(True)
+        )
+    )
+    existing = [parse_dynamodb_item(i) for i in existing_res.get("Items", [])]
+    existing.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    current = existing[0] if existing else None
+
+    item = {
+        "id": current.get("id") if current else generate_id(),
+        "entity_type": "draft",
+        "draft_id": current.get("draft_id") if current else generate_id(),
+        "period_id": payload.period_id,
+        "employee_id": payload.employee_id,
+        "employee_name": payload.employee_name,
+        "employee_code": payload.employee_code,
+        "manager_employee_id": manager_employee_id,
+        "manager_email": user_email,
+        "manager_name": employee.get("name"),
+        "billing_status": payload.billing_status,
+        "client_name": payload.client_name,
+        "project_name": payload.project_name,
+        "client_reporting_manager_name": payload.client_reporting_manager_name,
+        "info_services_reporting_manager_name": payload.info_services_reporting_manager_name,
+        "ratings": payload.ratings,
+        "additional_feedback": payload.additional_feedback,
+        "overall_satisfaction": payload.overall_satisfaction,
+        "started_at": payload.started_at or (current.get("started_at") if current else now),
+        "updated_at": now,
+        "saved_at": now,
+        "is_active": True,
+    }
+    subject_employee = await _get_employee_by_id(payload.employee_id)
+    if subject_employee:
+        item["employee_name"] = subject_employee.get("name") or payload.employee_name
+        item["employee_code"] = subject_employee.get("employee_id") or payload.employee_code
+    if not item.get("employee_code"):
+        item["employee_code"] = payload.employee_id
+    if current and current.get("created_at"):
+        item["created_at"] = current["created_at"]
+    else:
+        item["created_at"] = now
+        item["created_by_email"] = user_email
+
+    await table.put_item(Item=format_dynamodb_item(item))
+    return item
+
+
 @router.post("/submissions", status_code=201)
 async def create_submission(
     payload: ClientRMFeedbackSubmissionCreate,
@@ -308,6 +460,23 @@ async def create_submission(
         raise HTTPException(status_code=400, detail="Invalid feedback period")
     if p_items[0].get("period_status") != "open":
         raise HTTPException(status_code=400, detail="Feedback period is not open")
+
+    existing_submissions = await table.scan(
+        FilterExpression=(
+            Attr("entity_type").eq("submission")
+            & Attr("period_id").eq(payload.period_id)
+            & Attr("employee_id").eq(payload.employee_id)
+            & Attr("manager_employee_id").eq(manager_employee_id)
+            & Attr("is_active").eq(True)
+        )
+    )
+    existing_items = [parse_dynamodb_item(i) for i in existing_submissions.get("Items", [])]
+    if existing_items:
+        existing_items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        raise HTTPException(
+            status_code=409,
+            detail="Feedback already submitted for this employee and period. Edit the existing record instead.",
+        )
 
     now = _now_iso()
     submission_id = generate_id()
@@ -337,7 +506,35 @@ async def create_submission(
         "is_active": True,
         "reportee_seen": False,
     }
+    subject_employee = await _get_employee_by_id(payload.employee_id)
+    if subject_employee:
+        item["employee_name"] = subject_employee.get("name") or payload.employee_name
+        item["employee_code"] = subject_employee.get("employee_id") or payload.employee_code
+    if not item.get("employee_code"):
+        item["employee_code"] = payload.employee_id
     await table.put_item(Item=format_dynamodb_item(item))
+
+    # Archive matching active draft (if any) after successful submission.
+    try:
+        drafts_res = await table.scan(
+            FilterExpression=(
+                Attr("entity_type").eq("draft")
+                & Attr("period_id").eq(payload.period_id)
+                & Attr("employee_id").eq(payload.employee_id)
+                & Attr("manager_employee_id").eq(manager_employee_id)
+                & Attr("is_active").eq(True)
+            )
+        )
+        for raw in drafts_res.get("Items", []):
+            parsed = parse_dynamodb_item(raw)
+            parsed["is_active"] = False
+            parsed["archived_at"] = now
+            parsed["updated_at"] = now
+            await table.put_item(Item=format_dynamodb_item(parsed))
+    except Exception:
+        # Draft archival should never block submission success.
+        pass
+
     return item
 
 

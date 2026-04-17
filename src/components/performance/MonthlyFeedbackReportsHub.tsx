@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -9,6 +10,11 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import {
+  REPORT_CARD_HEADER_BAND,
+  REPORT_CARD_TITLE,
+  REPORT_PAGE_TITLE,
+} from "@/components/performance/monthly-feedback-report-primitives";
 import { FeedbackRelatedLink } from "@/components/performance/FeedbackRelatedLink";
 import { CLIENT_RM_FEEDBACK_ROUTES } from "@/lib/client-rm-feedback-routes";
 import { Building2, LayoutGrid, Target, UserCircle, Users } from "lucide-react";
@@ -41,20 +47,20 @@ export function MonthlyFeedbackReportsHub() {
       </Breadcrumb>
 
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Monthly feedback</h1>
-        <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+        <h1 className={REPORT_PAGE_TITLE}>Monthly feedback</h1>
+        <p className="text-sm text-muted-foreground mt-2 max-w-2xl leading-relaxed">
           Organization-wide visibility into periods, submissions, and exports. Line managers submit feedback from
           Performance → My Team; records are keyed by period and submission with optional edit snapshots.
         </p>
       </div>
 
-      <Card className="border-border/80 bg-muted/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium flex items-center gap-2">
-            <LayoutGrid className="h-4 w-4 text-muted-foreground" aria-hidden />
+      <Card className="overflow-hidden border-border/80 bg-muted/25 shadow-md">
+        <CardHeader className={REPORT_CARD_HEADER_BAND}>
+          <CardTitle className={cn(REPORT_CARD_TITLE, "flex items-center gap-2")}>
+            <LayoutGrid className="h-5 w-5 text-primary shrink-0" aria-hidden />
             Related pages
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs leading-relaxed">
             Navigate to manager workflows or the employee directory without losing context.
           </CardDescription>
         </CardHeader>

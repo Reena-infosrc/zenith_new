@@ -3,12 +3,35 @@ import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from decimal import Decimal
+import re
+from pathlib import Path
 import aioboto3
 from botocore.exceptions import ClientError
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 import logging
 
 load_dotenv()
+# Local/dev convenience: read table names from explicit env files, but do not
+# override process-level ENVIRONMENT/STAGE/security settings used by startup guards.
+_backend_root = Path(__file__).resolve().parents[1]
+_stage = (os.getenv("STAGE") or os.getenv("ENVIRONMENT") or "").strip().lower()
+_employees_table = (os.getenv("DYNAMODB_TABLE_EMPLOYEES") or "").strip()
+_staging_env = _backend_root / ".env.staging"
+_prod_env = _backend_root / ".env.prod"
+
+_selected_env_file = None
+if _staging_env.exists() and (_stage in {"staging", "stage"} or _employees_table.endswith("-staging") or not _employees_table):
+    _selected_env_file = _staging_env
+elif _prod_env.exists() and (_stage in {"prod", "production"} or _employees_table.endswith("-prod") or not _employees_table):
+    _selected_env_file = _prod_env
+
+if _selected_env_file:
+    _env_map = dotenv_values(_selected_env_file)
+    _ddb_keys = {"AWS_REGION"} | {k for k in _env_map.keys() if str(k).startswith("DYNAMODB_TABLE_")}
+    for _key in _ddb_keys:
+        _value = _env_map.get(_key)
+        if _value and not os.getenv(_key):
+            os.environ[_key] = str(_value)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +63,14 @@ class DynamoDBService:
         self.session = None
         self.dynamodb = None
         self._context_managers = []
+        self._resolved_table_names: Dict[str, str] = {}
+        self._table_name_hints: Dict[str, List[str]] = self._load_table_name_hints()
+
+    @staticmethod
+    def _logical_to_env_key(logical_table_name: str) -> str:
+        """Convert logical key like `clientRmFeedback` -> `DYNAMODB_TABLE_CLIENT_RM_FEEDBACK`."""
+        snake = re.sub(r"(?<!^)(?=[A-Z])", "_", logical_table_name).upper()
+        return f"DYNAMODB_TABLE_{snake}"
     
     async def initialize(self):
         """Initialize DynamoDB service - should be called once at startup"""
@@ -80,7 +111,94 @@ class DynamoDBService:
         """Get DynamoDB table resource"""
         if not self.dynamodb:
             await self.initialize()
-        return await self.dynamodb.Table(self.tables[table_name])
+        configured_name = self.tables.get(table_name)
+        if not configured_name:
+            raise ValueError(f"DynamoDB table name is not configured for logical key: {table_name}")
+
+        resolved_name = self._resolved_table_names.get(table_name)
+        if not resolved_name:
+            resolved_name = await self._resolve_existing_table_name(table_name, configured_name)
+            self._resolved_table_names[table_name] = resolved_name
+            if resolved_name != configured_name:
+                logger.warning(
+                    "Using DynamoDB table fallback for '%s': '%s' -> '%s'",
+                    table_name,
+                    configured_name,
+                    resolved_name,
+                )
+
+        return await self.dynamodb.Table(resolved_name)
+
+    async def _resolve_existing_table_name(self, logical_table_name: str, configured_name: str) -> str:
+        """Resolve a usable table name, allowing local fallback from env-suffixed names."""
+        candidates = [configured_name]
+        candidates.extend(self._table_name_hints.get(logical_table_name, []))
+
+        # If caller passed unsuffixed names, also try common environment suffixed names.
+        if re.search(r"-(staging|prod|production|dev|development|qa|test)$", configured_name, flags=re.IGNORECASE) is None:
+            candidates.extend(
+                [
+                    f"{configured_name}-staging",
+                    f"{configured_name}-prod",
+                    f"{configured_name}-production",
+                ]
+            )
+
+        # Common local/dev fallback: production/staging suffix may not exist in personal accounts.
+        stripped = re.sub(r"-(staging|prod|production|dev|development|qa|test)$", "", configured_name, flags=re.IGNORECASE)
+        if stripped != configured_name:
+            candidates.append(stripped)
+
+        # Preserve order while deduplicating.
+        seen = set()
+        ordered_candidates = []
+        for name in candidates:
+            if name not in seen:
+                seen.add(name)
+                ordered_candidates.append(name)
+
+        for candidate in ordered_candidates:
+            if await self._table_exists(candidate):
+                return candidate
+
+        # Keep previous behavior if nothing resolves: first operation will raise ResourceNotFoundException.
+        return configured_name
+
+    def _load_table_name_hints(self) -> Dict[str, List[str]]:
+        """Collect possible table names from env files to recover from polluted shell env vars."""
+        env_paths = [_backend_root / ".env.staging", _backend_root / ".env.prod"]
+        hints: Dict[str, List[str]] = {}
+
+        for logical in self.tables.keys():
+            env_key = self._logical_to_env_key(logical)
+            values: List[str] = []
+            for env_path in env_paths:
+                if not env_path.exists():
+                    continue
+                env_map = dotenv_values(env_path)
+                raw = str(env_map.get(env_key) or "").strip()
+                if raw:
+                    values.append(raw)
+            # Deduplicate while preserving order.
+            deduped: List[str] = []
+            seen = set()
+            for value in values:
+                if value not in seen:
+                    seen.add(value)
+                    deduped.append(value)
+            hints[logical] = deduped
+        return hints
+
+    async def _table_exists(self, table_name: str) -> bool:
+        try:
+            await self.dynamodb.meta.client.describe_table(TableName=table_name)
+            return True
+        except ClientError as error:
+            code = error.response.get("Error", {}).get("Code", "")
+            if code == "ResourceNotFoundException":
+                return False
+            # For access or transient errors, do not hide failures.
+            raise
 
 # Global DynamoDB service instance
 dynamodb_service = DynamoDBService()

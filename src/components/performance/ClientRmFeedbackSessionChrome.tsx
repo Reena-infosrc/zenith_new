@@ -8,9 +8,6 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { FeedbackRelatedLink } from "@/components/performance/FeedbackRelatedLink";
 import {
   CLIENT_RM_FEEDBACK_ROUTES,
   sessionPrimaryBackButtonLabel,
@@ -19,8 +16,8 @@ import {
 import {
   ArrowLeft,
   BarChart3,
+  ChevronRight,
   Building2,
-  LayoutGrid,
   Target,
   Users,
 } from "lucide-react";
@@ -30,8 +27,7 @@ type Props = {
   fromHint: SessionFromHint | null;
   reporteeName: string | null;
   managerDisplayName?: string | null;
-  isAdmin?: boolean;
-  isLeadership?: boolean;
+  canOpenMonthlyReports?: boolean;
   onPrimaryBack: () => void;
 };
 
@@ -43,17 +39,15 @@ export function ClientRmFeedbackSessionChrome({
   fromHint,
   reporteeName,
   managerDisplayName,
-  isAdmin,
-  isLeadership,
+  canOpenMonthlyReports,
   onPrimaryBack,
 }: Props) {
-  const canOpenMonthlyReports = Boolean(isAdmin || isLeadership);
   const currentTitle = reporteeName?.trim()
     ? `Feedback · ${reporteeName.trim()}`
     : "Submit Client RM feedback";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-3 min-w-0">
           <Breadcrumb>
@@ -81,8 +75,10 @@ export function ClientRmFeedbackSessionChrome({
           </Breadcrumb>
 
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Monthly Client RM feedback</h1>
-            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+              Monthly Client RM feedback
+            </h1>
+            <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
               Submit structured feedback for a direct report for the active monthly period. Records are
               versioned per period and submission; certain edits retain snapshots for audit.
             </p>
@@ -105,62 +101,38 @@ export function ClientRmFeedbackSessionChrome({
         </Button>
       </div>
 
-      <Card className="border-border/80 bg-muted/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium flex items-center gap-2">
-            <LayoutGrid className="h-4 w-4 text-muted-foreground" aria-hidden />
-            Related pages
-          </CardTitle>
-          <CardDescription>
-            Quick navigation — same feedback data across reporting and Performance, with role-appropriate views.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <nav aria-label="Related navigation" className="grid gap-2 sm:grid-cols-2">
-            <FeedbackRelatedLink
-              href={CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-team")}
-              icon={<Users className="h-4 w-4" />}
-              title="Performance · My Team"
-              subtitle="Direct reports, goals, and Client RM entry points"
-            />
-            <FeedbackRelatedLink
-              href={CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-goals")}
-              icon={<Target className="h-4 w-4" />}
-              title="Performance · My Goals"
-              subtitle="Your goals and feedback shown to you by your manager"
-            />
-            {canOpenMonthlyReports ? (
-              <FeedbackRelatedLink
-                href={CLIENT_RM_FEEDBACK_ROUTES.monthlyReports}
-                icon={<BarChart3 className="h-4 w-4" />}
-                title="Monthly feedback reports"
-                subtitle="Organization view for HR and leadership"
-              />
-            ) : (
-              <div className="rounded-lg border border-dashed border-border/80 px-3 py-2.5 text-xs text-muted-foreground flex items-start gap-2">
-                <BarChart3 className="h-4 w-4 shrink-0 mt-0.5 opacity-60" aria-hidden />
-                <span>
-                  Monthly feedback reports are available to HR and leadership. Use My Team to submit for your
-                  direct reports.
-                </span>
-              </div>
-            )}
-            <FeedbackRelatedLink
-              href={CLIENT_RM_FEEDBACK_ROUTES.directory}
-              icon={<Building2 className="h-4 w-4" />}
-              title="Directory"
-              subtitle="Look up employees and reporting relationships"
-            />
-          </nav>
-
-          <Separator />
-
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Tip: bookmark this page with the reportee in the address bar, or return via{" "}
-            <span className="text-foreground/90">Performance → My Team → Client RM Feedback</span> on a team card.
-          </p>
-        </CardContent>
-      </Card>
+      <nav aria-label="Related navigation" className="flex flex-wrap gap-2">
+        <Button asChild variant="outline" size="sm">
+          <Link to={CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-team")} className="gap-1.5">
+            <Users className="h-4 w-4" />
+            My Team
+            <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+          </Link>
+        </Button>
+        <Button asChild variant="outline" size="sm">
+          <Link to={CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-goals")} className="gap-1.5">
+            <Target className="h-4 w-4" />
+            My Goals
+            <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+          </Link>
+        </Button>
+        {canOpenMonthlyReports ? (
+          <Button asChild variant="outline" size="sm">
+            <Link to={CLIENT_RM_FEEDBACK_ROUTES.monthlyReports} className="gap-1.5">
+              <BarChart3 className="h-4 w-4" />
+              Monthly reports
+              <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+            </Link>
+          </Button>
+        ) : null}
+        <Button asChild variant="outline" size="sm">
+          <Link to={CLIENT_RM_FEEDBACK_ROUTES.directory} className="gap-1.5">
+            <Building2 className="h-4 w-4" />
+            Directory
+            <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+          </Link>
+        </Button>
+      </nav>
     </div>
   );
 }

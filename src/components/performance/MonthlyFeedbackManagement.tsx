@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,9 +8,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Download, Eye, Loader2, Plus, Search, Star } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Download, Eye, Loader2, Plus, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  OverallSatisfactionReadOnly,
+  REPORT_CARD_HEADER_BAND,
+  REPORT_CARD_TITLE,
+  REPORT_RATING_QUESTION_CLASS,
+  ReportDetailSection,
+  ReportKV,
+  SubmittedRatingRead,
+} from "@/components/performance/monthly-feedback-report-primitives";
+import { labelForOverallSatisfaction } from "@/lib/client-rm-feedback-rating-scales";
+import { formatDateTimeInIndia } from "@/lib/date-format-india";
 
 type Period = {
   period_id: string;
@@ -71,20 +82,9 @@ function pickRatingValue(ratings: Record<string, number> | undefined, f: RatingF
   return 0;
 }
 
-function Stars({ value }: { value: number }) {
-  const v = Math.max(0, Math.min(5, value || 0));
-  return (
-    <div className="flex items-center gap-1">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <Star
-          key={i}
-          className={i <= v ? "h-4 w-4 fill-amber-500 text-amber-500" : "h-4 w-4 text-muted-foreground/30"}
-        />
-      ))}
-      <span className="text-sm font-semibold text-muted-foreground ml-2">{v}/5</span>
-    </div>
-  );
-}
+/** First 9 keys match Work Performance; remainder = Communication & collaboration (same as submit form). */
+const WORK_PERFORMANCE_RATING_FIELDS = RATING_FIELDS.slice(0, 9);
+const COMMUNICATION_RATING_FIELDS = RATING_FIELDS.slice(9);
 
 const CSV_COLUMNS: { key: string; header: string }[] = [
   { key: "id", header: "ID" },
@@ -250,6 +250,12 @@ export function MonthlyFeedbackManagement() {
     [periods, periodId]
   );
 
+  /** Period label for the opened submission (not the filter dropdown — matches created period name). */
+  const submissionPeriodLabel = useMemo(() => {
+    if (!selected) return null;
+    return periods.find((p) => p.period_id === selected.period_id)?.label?.trim() ?? null;
+  }, [selected, periods]);
+
   const exportRows = useMemo(() => {
     // Export should respect the selected period, but not the free-text search (so export is complete).
     const periodFiltered =
@@ -291,11 +297,11 @@ export function MonthlyFeedbackManagement() {
   return (
     <div className="space-y-4">
       {isAdmin && (
-        <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent shadow-sm">
-          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 space-y-0">
+        <Card className="overflow-hidden border-primary/25 bg-gradient-to-r from-primary/5 to-transparent shadow-md">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 space-y-0 border-b border-border/60 bg-muted/25 py-4">
             <div>
-              <CardTitle className="text-base">Monthly feedback periods</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
+              <CardTitle className={REPORT_CARD_TITLE}>Monthly feedback periods</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1.5 max-w-prose">
                 Open a new cycle so managers can submit structured feedback for their teams.
               </p>
             </div>
@@ -310,7 +316,8 @@ export function MonthlyFeedbackManagement() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create monthly feedback period</DialogTitle>
+            <DialogTitle className="text-xl font-bold tracking-tight">Create monthly feedback period</DialogTitle>
+            <DialogDescription>Define dates and status for a new submission window.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
@@ -353,22 +360,28 @@ export function MonthlyFeedbackManagement() {
         </DialogContent>
       </Dialog>
 
-      <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-        <CardHeader>
-          <CardTitle>Monthly Feedback Periods</CardTitle>
+      <Card className="overflow-hidden border-border/60 bg-gradient-to-br from-background/95 to-muted/10 shadow-lg">
+        <CardHeader className={REPORT_CARD_HEADER_BAND}>
+          <CardTitle className={REPORT_CARD_TITLE}>Monthly feedback periods</CardTitle>
+          <CardDescription className="text-xs leading-relaxed">
+            Cycle labels and status tags for each open or closed window.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 pt-2">
           {periods.length === 0 ? (
             <p className="text-sm text-muted-foreground">No monthly feedback periods created yet.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {periods.map((p) => (
-                <div key={p.period_id} className="rounded-lg border p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium">{p.label}</div>
+                <div
+                  key={p.period_id}
+                  className="rounded-xl border-2 border-border/60 bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-base font-bold tracking-tight text-foreground leading-tight">{p.label}</span>
                     {statusBadge(p.period_status)}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1">
+                  <div className="mt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {p.start_date} → {p.end_date}
                   </div>
                 </div>
@@ -378,9 +391,12 @@ export function MonthlyFeedbackManagement() {
         </CardContent>
       </Card>
 
-      <Card className="bg-gradient-to-br from-background/95 to-background/90 backdrop-blur-sm border-border/50 shadow-lg">
-        <CardHeader>
-          <CardTitle>Monthly Feedback History</CardTitle>
+      <Card className="overflow-hidden border-border/60 bg-gradient-to-br from-background/95 to-muted/10 shadow-lg">
+        <CardHeader className={REPORT_CARD_HEADER_BAND}>
+          <CardTitle className={REPORT_CARD_TITLE}>Monthly feedback history</CardTitle>
+          <CardDescription className="text-xs leading-relaxed">
+            Filter by period, search, and open a read-only submission report.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -431,30 +447,41 @@ export function MonthlyFeedbackManagement() {
             </Button>
           </div>
 
-          <div className="border rounded-md overflow-x-auto">
+          <div className="border-2 border-border/60 rounded-lg overflow-x-auto shadow-inner bg-muted/10">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Manager</TableHead>
-                  <TableHead className="text-right">Overall</TableHead>
-                  <TableHead className="text-right">Updated</TableHead>
-                  <TableHead className="text-right">View</TableHead>
+                <TableRow className="border-b-2 border-border/60 bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    Employee Name
+                  </TableHead>
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    Employee ID
+                  </TableHead>
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">Client</TableHead>
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">Project</TableHead>
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">Manager</TableHead>
+                  <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    Overall
+                  </TableHead>
+                  <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    Updated
+                  </TableHead>
+                  <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    View
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.map((x) => (
-                  <TableRow key={x.id}>
-                    <TableCell>
-                      <div className="font-medium">{x.employee_name}</div>
-                      <div className="text-xs text-muted-foreground">{x.employee_code || x.employee_id}</div>
-                    </TableCell>
+                  <TableRow key={x.id} className="border-border/50 hover:bg-muted/30">
+                    <TableCell className="font-semibold text-foreground">{x.employee_name || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{x.employee_code || x.employee_id || "—"}</TableCell>
                     <TableCell>{x.client_name}</TableCell>
                     <TableCell>{x.project_name}</TableCell>
                     <TableCell>{x.manager_name}</TableCell>
-                    <TableCell className="text-right font-semibold">{x.overall_satisfaction}/5</TableCell>
+                    <TableCell className="text-right text-sm font-semibold text-foreground">
+                      {labelForOverallSatisfaction(Number(x.overall_satisfaction || 0))}
+                    </TableCell>
                     <TableCell className="text-right text-xs text-muted-foreground">
                       {(x.updated_at || x.submitted_at || "").toString().slice(0, 10) || "—"}
                     </TableCell>
@@ -467,7 +494,7 @@ export function MonthlyFeedbackManagement() {
                 ))}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                       No monthly feedback records found.
                     </TableCell>
                   </TableRow>
@@ -481,90 +508,73 @@ export function MonthlyFeedbackManagement() {
       <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Monthly Feedback (Read-only)</DialogTitle>
+            <DialogTitle className="text-xl font-bold tracking-tight text-foreground leading-snug">
+              Monthly feedback report
+            </DialogTitle>
+            <DialogDescription>Read-only snapshot of this submission.</DialogDescription>
           </DialogHeader>
           {selected && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Employee & Context</CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>Employee</Label>
-                    <div className="mt-1 font-medium">{selected.employee_name}</div>
-                    <div className="text-xs text-muted-foreground">{selected.employee_code || selected.employee_id}</div>
-                  </div>
-                  <div>
-                    <Label>Submitted by</Label>
-                    <div className="mt-1 font-medium">{selected.manager_name}</div>
-                    <div className="text-xs text-muted-foreground">{selected.manager_email || "—"}</div>
-                  </div>
-                  <div>
-                    <Label>Billing Status</Label>
-                    <div className="mt-1">{selected.billing_status}</div>
-                  </div>
-                  <div>
-                    <Label>Period</Label>
-                    <div className="mt-1">{selectedPeriod?.label || selected.period_id}</div>
-                  </div>
-                  <div>
-                    <Label>Client Name</Label>
-                    <div className="mt-1">{selected.client_name}</div>
-                  </div>
-                  <div>
-                    <Label>Project Name</Label>
-                    <div className="mt-1">{selected.project_name}</div>
-                  </div>
-                  <div>
-                    <Label>Client Reporting Manager Name</Label>
-                    <div className="mt-1">{selected.client_reporting_manager_name || "—"}</div>
-                  </div>
-                  <div>
-                    <Label>Info Services Reporting Manager Name</Label>
-                    <div className="mt-1">{selected.info_services_reporting_manager_name || "—"}</div>
-                  </div>
-                  <div>
-                    <Label>Completion time</Label>
-                    <div className="mt-1">{selected.submitted_at || "—"}</div>
-                  </div>
-                  <div>
-                    <Label>Last modified time</Label>
-                    <div className="mt-1">{selected.updated_at || "—"}</div>
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="space-y-4">
+              <ReportDetailSection title="Employee & assignment">
+                <div className="grid grid-cols-1 md:grid-cols-2 md:items-start gap-x-6 gap-y-4">
+                  <ReportKV label="Employee name" value={selected.employee_name || "—"} />
+                  <ReportKV label="Submitted by" value={selected.manager_name || "—"} />
+                  <ReportKV
+                    label="Employee ID"
+                    value={selected.employee_code?.trim() || selected.employee_id || "—"}
+                  />
+                  <ReportKV label="Period" value={submissionPeriodLabel || "—"} />
+                  <ReportKV label="Billing status" value={selected.billing_status} />
+                  <ReportKV label="Client name" value={selected.client_name} />
+                  <ReportKV label="Project name" value={selected.project_name} />
+                  <ReportKV label="Client reporting manager name" value={selected.client_reporting_manager_name || "—"} />
+                  <ReportKV
+                    label="Info Services reporting manager name"
+                    value={selected.info_services_reporting_manager_name || "—"}
+                    className="md:col-span-2"
+                  />
+                  <ReportKV label="Completion time" value={formatDateTimeInIndia(selected.submitted_at)} />
+                  <ReportKV label="Last modified time" value={formatDateTimeInIndia(selected.updated_at)} />
+                </div>
+              </ReportDetailSection>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Ratings</CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {RATING_FIELDS.map((f) => (
-                    <div key={f.key} className="space-y-1">
-                      <Label>{f.label}</Label>
-                      <Stars value={pickRatingValue(selected.ratings, f)} />
+              <ReportDetailSection title="Work performance">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {WORK_PERFORMANCE_RATING_FIELDS.map((f) => (
+                    <div
+                      key={f.key}
+                      className="flex flex-col gap-1.5 border-l-[3px] border-l-primary/25 bg-card pl-3 pr-2 py-2.5 rounded-r-lg border border-border/50"
+                    >
+                      <span className={REPORT_RATING_QUESTION_CLASS}>{f.label}</span>
+                      <SubmittedRatingRead variant="work" value={pickRatingValue(selected.ratings, f)} />
                     </div>
                   ))}
-                  <div className="md:col-span-2">
-                    <Label>Overall Satisfaction with Employee Performance</Label>
-                    <div className="mt-2">
-                      <Stars value={Number(selected.overall_satisfaction || 0)} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+              </ReportDetailSection>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Additional Feedback</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {selected.additional_feedback || "—"}
-                  </p>
-                </CardContent>
-              </Card>
+              <ReportDetailSection title="Communication & collaboration">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {COMMUNICATION_RATING_FIELDS.map((f) => (
+                    <div
+                      key={f.key}
+                      className="flex flex-col gap-1.5 border-l-[3px] border-l-primary/25 bg-card pl-3 pr-2 py-2.5 rounded-r-lg border border-border/50"
+                    >
+                      <span className={REPORT_RATING_QUESTION_CLASS}>{f.label}</span>
+                      <SubmittedRatingRead variant="communication" value={pickRatingValue(selected.ratings, f)} />
+                    </div>
+                  ))}
+                </div>
+              </ReportDetailSection>
+
+              <ReportDetailSection title="Overall satisfaction">
+                <OverallSatisfactionReadOnly value={Number(selected.overall_satisfaction || 0)} />
+              </ReportDetailSection>
+
+              <ReportDetailSection title="Additional feedback">
+                <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground font-medium border-2 border-border/50 rounded-lg bg-background px-3 py-3 min-h-[3rem]">
+                  {selected.additional_feedback || "—"}
+                </p>
+              </ReportDetailSection>
             </div>
           )}
         </DialogContent>

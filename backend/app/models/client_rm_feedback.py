@@ -46,6 +46,22 @@ class ClientRMFeedbackSubmissionUpdate(BaseModel):
     overall_satisfaction: Optional[int] = None
 
 
+class ClientRMFeedbackDraftUpsert(BaseModel):
+    period_id: str
+    employee_id: str
+    employee_name: str
+    employee_code: Optional[str] = None
+    billing_status: Optional[BillingStatus] = None
+    client_name: Optional[str] = None
+    project_name: Optional[str] = None
+    client_reporting_manager_name: Optional[str] = None
+    info_services_reporting_manager_name: Optional[str] = None
+    ratings: Optional[Dict[str, int]] = None
+    additional_feedback: Optional[str] = None
+    overall_satisfaction: Optional[int] = None
+    started_at: Optional[str] = None
+
+
 class ClientRMFeedbackNotificationSummary(BaseModel):
     manager_pending_count: int = 0
     reportee_unread_count: int = 0

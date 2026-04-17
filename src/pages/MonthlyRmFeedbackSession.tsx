@@ -17,6 +17,7 @@ type MeContext = {
   team_count?: number;
   is_leadership?: boolean;
   is_admin?: boolean;
+  can_view_all?: boolean;
   reportees?: { id: string; name?: string; employee_id?: string }[];
 };
 
@@ -108,8 +109,7 @@ export default function MonthlyRmFeedbackSession() {
                   fromHint={fromHint}
                   reporteeName={null}
                   managerDisplayName={null}
-                  isAdmin={undefined}
-                  isLeadership={undefined}
+                  canOpenMonthlyReports={false}
                   onPrimaryBack={goBackPrimary}
                 />
                 <div className="py-12 flex items-center justify-center gap-2 text-muted-foreground rounded-lg border border-dashed">
@@ -123,8 +123,7 @@ export default function MonthlyRmFeedbackSession() {
                   fromHint={fromHint}
                   reporteeName={null}
                   managerDisplayName={ctx?.employee_name}
-                  isAdmin={ctx?.is_admin}
-                  isLeadership={ctx?.is_leadership}
+                  canOpenMonthlyReports={Boolean(ctx?.can_view_all)}
                   onPrimaryBack={goBackPrimary}
                 />
                 <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -148,8 +147,7 @@ export default function MonthlyRmFeedbackSession() {
                   fromHint={fromHint}
                   reporteeName={reporteeName}
                   managerDisplayName={ctx.employee_name}
-                  isAdmin={ctx.is_admin}
-                  isLeadership={ctx.is_leadership}
+                  canOpenMonthlyReports={Boolean(ctx.can_view_all)}
                   onPrimaryBack={goBackPrimary}
                 />
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-8 text-sm">
@@ -168,8 +166,7 @@ export default function MonthlyRmFeedbackSession() {
                   fromHint={fromHint}
                   reporteeName={reporteeName}
                   managerDisplayName={ctx.employee_name}
-                  isAdmin={ctx.is_admin}
-                  isLeadership={ctx.is_leadership}
+                  canOpenMonthlyReports={Boolean(ctx.can_view_all)}
                   onPrimaryBack={goBackPrimary}
                 />
                 <div className="rounded-lg border border-border p-8 text-sm">
@@ -183,9 +180,11 @@ export default function MonthlyRmFeedbackSession() {
                     <Button variant="outline" onClick={goBackPrimary}>
                       Return to Performance
                     </Button>
-                    <Button variant="secondary" onClick={() => navigate("/performance/monthly-feedback")}>
-                      Monthly Feedback reports
-                    </Button>
+                    {ctx?.can_view_all ? (
+                      <Button variant="secondary" onClick={() => navigate("/performance/monthly-feedback")}>
+                        Monthly Feedback reports
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -195,8 +194,7 @@ export default function MonthlyRmFeedbackSession() {
                   fromHint={fromHint}
                   reporteeName={reporteeName}
                   managerDisplayName={ctx.employee_name}
-                  isAdmin={ctx.is_admin}
-                  isLeadership={ctx.is_leadership}
+                  canOpenMonthlyReports={Boolean(ctx.can_view_all)}
                   onPrimaryBack={goBackPrimary}
                 />
                 <ClientRMFeedbackTab
