@@ -156,7 +156,7 @@ interface UserPerformanceViewProps {
    * If not provided, the component will find the employee ID from the current user.
    */
   employeeId?: string | null;
-  /** Manager Performance → My Goals: read-only Client RM feedback from your line manager. Manager submit uses `/performance/monthly-rm-feedback`. */
+  /** Manager Performance → My Goals: read-only Monthly feedback from your line manager. Manager submit uses `/performance/monthly-rm-feedback`. */
   clientRmSurface?: "self";
 }
 
@@ -1098,7 +1098,7 @@ export function UserPerformanceView({
           <TabsTrigger value="annual-review">Annual Review</TabsTrigger>
           <TabsTrigger value="client-rm-feedback" className="relative pr-6">
             <span className="relative inline-flex items-center">
-              Client RM Feedback
+              Monthly feedback
               {clientRmOpenPeriodActive && (
                 <span
                   className="absolute -right-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.85)] animate-pulse"

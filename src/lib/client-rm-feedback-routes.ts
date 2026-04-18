@@ -1,5 +1,5 @@
 /**
- * Central routes for Client RM monthly feedback (manager submit + leadership reports).
+ * Central routes for Monthly feedback (manager submit + leadership reports).
  * Keeps deep links consistent with Performance view modes and optional tab selection.
  */
 
@@ -48,7 +48,7 @@ export function resolveSessionBackHref(fromHint: SessionFromHint | null): string
 export function sessionPrimaryBackButtonLabel(fromHint: SessionFromHint | null): string {
   switch (fromHint) {
     case "reports":
-      return "Back to monthly feedback reports";
+      return "Back to Monthly feedback";
     case "goals":
       return "Back to My Goals";
     case "team":

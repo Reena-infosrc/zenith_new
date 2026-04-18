@@ -70,7 +70,7 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
     {
       icon: <MessageSquare className="w-4 h-4" />,
       label: "Leadership Access",
-      description: "Manage leadership access for monthly feedback/reviews",
+      description: "Manage leadership permissions",
       action: () => {
         setShowClientRmAccess(true);
         setIsOpen(false);
@@ -195,7 +195,7 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
         document.body
       )}
 
-      {/* Client RM Feedback Access Modal */}
+      {/* Monthly feedback access (leadership) modal */}
       {showClientRmAccess && createPortal(
         <div
           className="fixed z-[100] bg-black/50 flex items-center justify-center p-4"

@@ -23,7 +23,7 @@ type Props = {
 };
 
 /**
- * Enterprise shell for the manager Client RM feedback session page:
+ * Enterprise shell for the manager Monthly feedback session page:
  * breadcrumbs and primary back action.
  */
 export function ClientRmFeedbackSessionChrome({
@@ -32,8 +32,8 @@ export function ClientRmFeedbackSessionChrome({
   onPrimaryBack,
 }: Props) {
   const currentTitle = reporteeName?.trim()
-    ? `Feedback · ${reporteeName.trim()}`
-    : "Submit Client RM feedback";
+    ? `Monthly feedback · ${reporteeName.trim()}`
+    : "Monthly feedback";
 
   return (
     <div className="space-y-5">
@@ -65,7 +65,7 @@ export function ClientRmFeedbackSessionChrome({
 
           <div>
             <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-              Monthly Client RM feedback
+              Monthly feedback
             </h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
               Submit structured feedback for a direct report for the active monthly period.

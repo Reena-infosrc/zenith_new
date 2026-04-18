@@ -11,7 +11,7 @@ import { REPORT_PAGE_TITLE } from "@/components/performance/monthly-feedback-rep
 import { CLIENT_RM_FEEDBACK_ROUTES } from "@/lib/client-rm-feedback-routes";
 
 /**
- * Leadership / HR reports surface for monthly Client RM feedback — breadcrumbs to Performance and Home.
+ * Leadership / HR reports surface for Monthly feedback — breadcrumbs to Performance and Home.
  */
 export function MonthlyFeedbackReportsHub() {
   return (
@@ -31,7 +31,7 @@ export function MonthlyFeedbackReportsHub() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Monthly feedback reports</BreadcrumbPage>
+            <BreadcrumbPage>Monthly feedback</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

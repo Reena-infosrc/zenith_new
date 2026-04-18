@@ -154,7 +154,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
                   className="flex items-center gap-2 p-3 hover:bg-accent/30 transition-colors cursor-pointer"
                 >
                   <MessageSquare className="w-4 h-4" />
-                  <span className="text-sm">Monthly Feedback</span>
+                  <span className="text-sm">Monthly feedback</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

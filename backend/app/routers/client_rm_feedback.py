@@ -30,7 +30,7 @@ from ..models.client_rm_feedback import (
 )
 from ..security import get_current_active_user, require_admin_user
 
-router = APIRouter(prefix="/api/client-rm-feedback", tags=["client-rm-feedback"])
+router = APIRouter(prefix="/api/client-rm-feedback", tags=["monthly-feedback"])
 
 
 def _now_iso() -> str:
@@ -135,6 +135,31 @@ async def _get_employee_by_id(employee_id: str) -> Optional[Dict[str, Any]]:
     if not item:
         return None
     return parse_dynamodb_item(item, "employees")
+
+
+async def _enrich_submissions_reportee_emails(items: List[Dict[str, Any]]) -> None:
+    """Attach employee_email from directory when missing (legacy rows or older writes)."""
+    missing_ids = {
+        _norm_employee_id(i.get("employee_id"))
+        for i in items
+        if i.get("employee_id") and not str(i.get("employee_email") or "").strip()
+    }
+    if not missing_ids:
+        return
+
+    async def _email_for(eid: str) -> tuple[str, str]:
+        emp = await _get_employee_by_id(eid)
+        em = emp.get("email") if emp else None
+        return eid, _normalize_email(em) if em else ""
+
+    pairs = await asyncio.gather(*[_email_for(eid) for eid in missing_ids])
+    emap = {eid: em for eid, em in pairs if em}
+    for i in items:
+        if str(i.get("employee_email") or "").strip():
+            continue
+        eid = _norm_employee_id(i.get("employee_id"))
+        if eid in emap:
+            i["employee_email"] = emap[eid]
 
 
 async def _get_direct_reports(manager_employee_id: str) -> List[Dict[str, Any]]:
@@ -469,6 +494,9 @@ async def upsert_active_draft(
     if subject_employee:
         item["employee_name"] = subject_employee.get("name") or payload.employee_name
         item["employee_code"] = subject_employee.get("employee_id") or payload.employee_code
+        subj_em = subject_employee.get("email")
+        if subj_em:
+            item["employee_email"] = _normalize_email(subj_em)
     if not item.get("employee_code"):
         item["employee_code"] = payload.employee_id
     if current and current.get("created_at"):
@@ -558,6 +586,9 @@ async def create_submission(
     if subject_employee:
         item["employee_name"] = subject_employee.get("name") or payload.employee_name
         item["employee_code"] = subject_employee.get("employee_id") or payload.employee_code
+        subj_em = subject_employee.get("email")
+        if subj_em:
+            item["employee_email"] = _normalize_email(subj_em)
     if not item.get("employee_code"):
         item["employee_code"] = payload.employee_id
     await table.put_item(Item=format_dynamodb_item(item))
@@ -691,6 +722,7 @@ async def list_submissions(
             filtered.append(item)
             continue
 
+    await _enrich_submissions_reportee_emails(filtered)
     filtered.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return filtered
 

@@ -7,13 +7,13 @@ Implement a new feature to collect **Client Reporting Manager performance feedba
 ### 1.2 Placement (Frontend)
 Add a new tab under **Performance** in the **User view**:
 
-- `Overview | Goals & Timeline | Annual Review | Client RM Feedback`
+- `Overview | Goals & Timeline | Annual Review | Monthly feedback`
 
 This tab must appear **immediately to the right** of **Annual Review**.
 
 ### 1.3 Professional naming (UI)
-- **Tab label**: `Client RM Feedback`
-- **Form title**: `Info Services – Client Reporting Manager Performance Feedback Form`
+- **Tab label**: `Monthly feedback`
+- **Form title**: `Monthly feedback` (short product name in-app; legacy form reference optional in copy)
 
 ### 1.4 Key requirements (non-negotiable)
 - Only managers **with reportees** can submit/edit.

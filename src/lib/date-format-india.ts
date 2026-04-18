@@ -1,4 +1,4 @@
-/** IST display for report views and submission history (matches Client RM feedback tab). */
+/** IST display for report views and submission history (matches Monthly feedback tab). */
 const INDIA_TIMEZONE = "Asia/Kolkata";
 const INDIA_LOCALE = "en-IN";
 

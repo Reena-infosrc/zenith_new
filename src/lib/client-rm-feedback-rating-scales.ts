@@ -1,5 +1,5 @@
 /**
- * Single source of truth for Client RM feedback rating labels (1–5 in API).
+ * Single source of truth for Monthly feedback rating labels (1–5 in API).
  * Mirrors the manager submit form (`ClientRMFeedbackTab` rating matrices + overall stars).
  */
 

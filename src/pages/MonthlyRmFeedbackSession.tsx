@@ -26,8 +26,8 @@ type MeContext = {
 };
 
 /**
- * Dedicated page for submitting monthly Client RM feedback for one direct report.
- * Opened from Performance → My Team → Client RM Feedback on a team member card.
+ * Dedicated page for submitting Monthly feedback for one direct report.
+ * Opened from Performance → My Team → Monthly feedback on a team member card.
  */
 export default function MonthlyRmFeedbackSession() {
   const [searchParams] = useSearchParams();
@@ -39,7 +39,7 @@ export default function MonthlyRmFeedbackSession() {
   const [ctx, setCtx] = useState<MeContext | null>(null);
   /** Loaded in parallel with `me-context` so the feedback tab only needs submissions (manager path). */
   const [sessionPeriods, setSessionPeriods] = useState<Period[] | null>(null);
-  /** Session page shows one loader until Client RM tab finishes its initial load (avoids back-to-back spinners). */
+  /** Session page shows one loader until Monthly feedback tab finishes its initial load (avoids back-to-back spinners). */
   const [feedbackFormReady, setFeedbackFormReady] = useState(false);
 
   const goBackPrimary = useCallback(() => {
@@ -144,7 +144,7 @@ export default function MonthlyRmFeedbackSession() {
                 <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
                   <p>No employee selected.</p>
                   <p className="mt-2">
-                    Open this page from Performance → My Team using &quot;Client RM Feedback&quot; on a team member
+                    Open this page from Performance → My Team using &quot;Monthly feedback&quot; on a team member
                     card.
                   </p>
                   <Button className="mt-4" variant="secondary" onClick={goBackPrimary}>
@@ -166,7 +166,7 @@ export default function MonthlyRmFeedbackSession() {
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-8 text-sm">
                   <p className="font-medium text-foreground">This person is not in your direct reports.</p>
                   <p className="text-muted-foreground mt-2">
-                    Client RM feedback can only be submitted for employees who report to you in the org chart.
+                    Monthly feedback can only be submitted for employees who report to you in the org chart.
                   </p>
                   <Button className="mt-4" variant="outline" onClick={goBackPrimary}>
                     Return to Performance
@@ -184,7 +184,7 @@ export default function MonthlyRmFeedbackSession() {
                   <p className="font-medium text-foreground">This workspace is for line managers submitting for their team.</p>
                   <p className="text-muted-foreground mt-2">
                     {ctx?.is_leadership
-                      ? "Use Monthly Feedback reports for organization-wide visibility. Line managers submit from Performance → My Team."
+                      ? "Use Monthly feedback in the header for organization-wide visibility. Line managers submit from Performance → My Team."
                       : "You need an active manager role with direct reports to submit here."}
                   </p>
                   <div className="mt-4">

@@ -97,7 +97,7 @@ export function AdminPerformanceView() {
           )}
           <TabsTrigger value="monthly-feedback" onClick={handleTabClick}>
             <MessageSquare className="h-4 w-4 mr-2" />
-            Monthly Feedback
+            Monthly feedback
           </TabsTrigger>
         </TabsList>
 

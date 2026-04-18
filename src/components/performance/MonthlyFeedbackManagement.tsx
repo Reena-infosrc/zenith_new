@@ -52,6 +52,8 @@ type FeedbackSubmission = {
   period_id: string;
   employee_id: string;
   employee_name: string;
+  /** Directory email for the subject (reportee); enriched by API when missing on stored rows. */
+  employee_email?: string;
   employee_code?: string;
   manager_name: string;
   manager_email?: string;
@@ -145,26 +147,11 @@ type ExportCtx = {
   periodLabel: string;
 };
 
-/** Column order aligned with Microsoft Forms / leadership export expectations. */
+/** CSV export: emails from stored submission (reportee + submitting manager), not Forms-style respondent columns. */
 const CSV_COLUMN_DEFS: { header: string; get: (ctx: ExportCtx) => string }[] = [
   { header: "ID", get: ({ rowIndex }) => String(rowIndex + 1) },
-  {
-    header: "Start time",
-    get: ({ sub }) => {
-      const t = sub.started_at || sub.submitted_at;
-      return t ? formatDateTimeInIndia(t) : "NA";
-    },
-  },
-  {
-    header: "Completion time",
-    get: ({ sub }) => (sub.submitted_at ? formatDateTimeInIndia(sub.submitted_at) : "NA"),
-  },
-  { header: "Email", get: ({ sub }) => csvNa(sub.manager_email) },
-  { header: "Name", get: ({ sub }) => csvNa(sub.manager_name) },
-  {
-    header: "Last modified time",
-    get: ({ sub }) => (sub.updated_at ? formatDateTimeInIndia(sub.updated_at) : "NA"),
-  },
+  { header: "Reportee email", get: ({ sub }) => csvNa(sub.employee_email) },
+  { header: "Reporting manager email", get: ({ sub }) => csvNa(sub.manager_email) },
   { header: "Employee Name", get: ({ sub }) => csvNa(sub.employee_name) },
   { header: "Employee ID", get: ({ sub }) => csvNa(sub.employee_code) },
   { header: "Billing Status", get: ({ sub }) => csvNa(sub.billing_status) },
@@ -174,8 +161,9 @@ const CSV_COLUMN_DEFS: { header: string; get: (ctx: ExportCtx) => string }[] = [
   },
   { header: "Feedback Period", get: ({ periodLabel }) => csvNa(periodLabel) },
   {
-    header: "Date",
+    header: "Submitted date",
     get: ({ sub }) => {
+      if (!sub.submitted_at) return "NA";
       const d = formatDateInIndia(sub.submitted_at);
       return d || "NA";
     },
@@ -485,6 +473,7 @@ export function MonthlyFeedbackManagement() {
         return (
           (x.employee_name || "").toLowerCase().includes(s) ||
           (x.employee_code || "").toLowerCase().includes(s) ||
+          (x.employee_email || "").toLowerCase().includes(s) ||
           (x.manager_name || "").toLowerCase().includes(s) ||
           periodHaystack.includes(s)
         );
@@ -897,7 +886,12 @@ export function MonthlyFeedbackManagement() {
                   <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
                     Employee ID
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">Manager</TableHead>
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    Reportee email
+                  </TableHead>
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    Submitted by
+                  </TableHead>
                   <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
                     Overall
                   </TableHead>
@@ -959,6 +953,9 @@ export function MonthlyFeedbackManagement() {
                       <TableCell className="text-muted-foreground align-middle">
                         {x.employee_code || x.employee_id || "—"}
                       </TableCell>
+                      <TableCell className="align-middle text-muted-foreground text-xs break-all max-w-[14rem]">
+                        {x.employee_email?.trim() || "—"}
+                      </TableCell>
                       <TableCell className="align-middle">{x.manager_name}</TableCell>
                       <TableCell className="text-right align-middle">
                         <span
@@ -983,7 +980,7 @@ export function MonthlyFeedbackManagement() {
                 })}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={showExportCheckboxes ? 8 : 7} className="text-center text-muted-foreground py-10">
+                    <TableCell colSpan={showExportCheckboxes ? 9 : 8} className="text-center text-muted-foreground py-10">
                       No monthly feedback records found.
                     </TableCell>
                   </TableRow>
@@ -998,7 +995,7 @@ export function MonthlyFeedbackManagement() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold tracking-tight text-foreground leading-snug">
-              Monthly feedback report
+              Monthly feedback
               {selected && submissionPeriodLabel ? (
                 <span className="mt-2 block text-base font-semibold text-primary">{submissionPeriodLabel}</span>
               ) : null}
@@ -1012,6 +1009,7 @@ export function MonthlyFeedbackManagement() {
               <ReportDetailSection title="Employee & assignment">
                 <div className="grid grid-cols-1 md:grid-cols-2 md:items-start gap-x-6 gap-y-4">
                   <ReportKV label="Employee name" value={selected.employee_name || "—"} />
+                  <ReportKV label="Reportee email" value={selected.employee_email?.trim() || "—"} />
                   <ReportKV label="Submitted by" value={selected.manager_name || "—"} />
                   <ReportKV
                     label="Employee ID"

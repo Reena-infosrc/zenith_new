@@ -299,9 +299,6 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
       <div className="flex flex-wrap justify-between items-start gap-3">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Leadership Access</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Manage leadership members who can view monthly feedback and reviews.
-          </p>
         </div>
 
         <div className="flex gap-2 shrink-0">
@@ -436,7 +433,7 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
         <CardHeader className="pb-4">
           <CardTitle className="text-lg">Current leadership viewers</CardTitle>
           <CardDescription>
-            Users with leadership visibility for monthly feedback ({entries.length} total)
+            Users with leadership visibility for Monthly feedback ({entries.length} total)
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-0 space-y-3">

@@ -54,6 +54,7 @@ type FeedbackSubmission = {
   period_id: string;
   employee_id: string;
   employee_name: string;
+  employee_email?: string;
   employee_code?: string;
   /** Submitter (line manager at time of submit); used to scope open-period logic after reporting-line changes. */
   manager_employee_id?: string;
@@ -98,7 +99,7 @@ type HistorySortOrder = "desc" | "asc";
 type HistoryScope = "this-month" | "previous-months";
 
 /** Industry-standard title aligned to the original Info Services form. */
-const FORM_TITLE = "Client & Delivery Manager Performance Feedback";
+const FORM_TITLE = "Monthly feedback";
 const INDIA_TIMEZONE = "Asia/Kolkata";
 const INDIA_LOCALE = "en-IN";
 
@@ -169,7 +170,7 @@ function collectRatingsPayload(ratings: Record<string, number | undefined>): Rec
   return out;
 }
 
-/** Bold section titles — consistent hierarchy across the Client RM feedback form and related cards. */
+/** Bold section titles — consistent hierarchy across the Monthly feedback form and related cards. */
 const CRM_SECTION_TITLE_CARD = "text-base font-bold tracking-tight text-foreground";
 const CRM_SECTION_TITLE_LG = "text-lg font-bold tracking-tight text-foreground";
 const CRM_SECTION_TITLE_DIALOG = "text-xl font-bold tracking-tight text-foreground leading-snug";
@@ -864,7 +865,7 @@ export function ClientRMFeedbackTab({
       }
     } catch {
       toast({
-        title: "Unable to load feedback module",
+        title: "Unable to load Monthly feedback",
         description: "Please try again in a moment.",
         variant: "destructive",
       });
@@ -1602,9 +1603,6 @@ export function ClientRMFeedbackTab({
                 >
                   <DialogHeader>
                     <DialogTitle className={CRM_SECTION_TITLE_DIALOG}>{FORM_TITLE}</DialogTitle>
-                    <DialogDescription>
-                      Complete all sections below and submit for the selected month.
-                    </DialogDescription>
                   </DialogHeader>
 
                   <div className="space-y-4">
@@ -1719,7 +1717,7 @@ export function ClientRMFeedbackTab({
                                 "ring-2 ring-destructive ring-offset-2 ring-offset-background p-1 -m-1"
                             )}
                           >
-                            <Label>Info Services reporting manager name *</Label>
+                            <Label>Reporting manager name *</Label>
                             <div className="rounded-lg border border-primary/20 bg-muted/20 px-3 py-3 min-h-[2.75rem] flex items-center">
                               <span className="text-sm font-semibold text-foreground">
                                 {resolvedInfoServicesManagerName || "—"}
@@ -1833,9 +1831,9 @@ export function ClientRMFeedbackTab({
               </h3>
               <p className="text-sm text-muted-foreground">
                 {isLeadership
-                  ? "Organization-wide reporting and exports: use Reports → Monthly Feedback in the header."
+                  ? "Organization-wide reporting and exports: use Monthly feedback in the header (Reports)."
                   : clientRmSurface === "self"
-                    ? "Your line manager submits this assessment. Read-only here. To give feedback for a direct report, use Client RM Feedback on their card under My Team."
+                    ? "Your line manager submits this assessment. Read-only here. To give feedback for a direct report, use Monthly feedback on their card under My Team."
                     : "Submitted by your reporting manager. This view is read-only for employees."}{" "}
                 Expand a row to view details. Closed periods are labeled and kept for audit.
               </p>
