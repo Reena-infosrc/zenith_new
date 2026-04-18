@@ -269,8 +269,7 @@ const normalizeCategory = (category: string): string => {
 
 export function ManagerPerformanceView() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const perfTabDeepLinkApplied = useRef(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { toast } = useToast();
   const { getEmployeeGoals, getBatchEmployeeGoals, getGoal, createGoal, updateGoal, deleteGoal, createMilestone, updateMilestone, deleteMilestone } = useGoals();
@@ -321,16 +320,32 @@ export function ManagerPerformanceView() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<ManagerFilter | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
-  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals'>('my-team');
-  /** Deep link: /performance?view=manager&tab=my-team|my-goals */
+  const [viewMode, setViewMode] = useState<'my-team' | 'my-goals'>(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "my-goals") return "my-goals";
+    if (tab === "my-team") return "my-team";
+    // No tab: show My Goals first so users with zero direct reports never flash an empty My Team.
+    return "my-goals";
+  });
+  /** Sync tab from URL when it changes (explicit deep links). */
   useEffect(() => {
-    if (perfTabDeepLinkApplied.current) return;
-    perfTabDeepLinkApplied.current = true;
     const tab = searchParams.get("tab");
     if (tab === "my-goals" || tab === "my-team") {
       setViewMode(tab === "my-goals" ? "my-goals" : "my-team");
     }
   }, [searchParams]);
+  /**
+   * If URL has no `tab`, derive My Team vs My Goals from direct report count (re-runs when
+   * direct reports update after stale-while-revalidate). When `tab` is present (deep link or tab UI),
+   * we honor the URL via the effect above.
+   */
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "my-goals" || tab === "my-team") return;
+    if (initialLoading) return;
+    const next = directReports.length > 0 ? "my-team" : "my-goals";
+    setViewMode(next);
+  }, [initialLoading, directReports.length, searchParams]);
   const [showReviewWorkspace, setShowReviewWorkspace] = useState(false);
   const [reviewEmployee, setReviewEmployee] = useState<Employee | null>(null);
   const [hasReviewData, setHasReviewData] = useState(false);
@@ -1830,6 +1845,16 @@ export function ManagerPerformanceView() {
       <Tabs value={viewMode} onValueChange={(v) => {
         preserveScroll();
         setViewMode(v as any);
+        const next = v === "my-goals" ? "my-goals" : "my-team";
+        setSearchParams(
+          (prev) => {
+            const p = new URLSearchParams(prev);
+            p.set("view", "manager");
+            p.set("tab", next);
+            return p;
+          },
+          { replace: true }
+        );
         // When switching to "my-team" tab, ensure all team goals are loaded
         if (v === 'my-team' && currentManagerEmployeeId && directReports.length > 0) {
           // Check if any team member goals are missing and fetch them

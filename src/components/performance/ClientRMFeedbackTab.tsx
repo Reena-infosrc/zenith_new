@@ -12,8 +12,7 @@ import { API_BASE_URL } from "@/config/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useEmployees } from "@/hooks/use-employees";
-import { Loader2, Star, ExternalLink, Users, Network, CalendarRange, Lock } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Loader2, Star, Users, Network, CalendarRange, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   OverallSatisfactionReadOnly,
@@ -61,8 +60,9 @@ type FeedbackSubmission = {
   manager_name: string;
   manager_email?: string;
   billing_status: string;
-  client_name: string;
-  project_name: string;
+  /** Legacy stored field — no longer shown or collected. */
+  client_name?: string;
+  project_name?: string;
   client_reporting_manager_name?: string;
   info_services_reporting_manager_name?: string;
   additional_feedback?: string;
@@ -472,26 +472,24 @@ function SubmissionDetailContent({
   return (
     <>
       <ReportDetailSection title="Submission & assignment">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="space-y-4">
-            <ReportKV label="Employee name" value={entry.employee_name || "—"} />
-            <ReportKV
-              label="Employee ID"
-              value={entry.employee_code?.trim() || entry.employee_id || "—"}
-            />
-          </div>
-          <ReportKV label="ID" value={entry.id} />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+          <ReportKV label="Employee name" value={entry.employee_name || "—"} />
+          <ReportKV label="Name (submitter)" value={entry.manager_name} />
+          <ReportKV
+            label="Employee ID"
+            value={entry.employee_code?.trim() || entry.employee_id || "—"}
+          />
+          <ReportKV label="Period" value={period?.label?.trim() || "—"} />
+          <ReportKV label="Billing status" value={billingLabel(entry.billing_status)} />
+          <ReportKV
+            label="Info Services reporting manager name"
+            value={entry.info_services_reporting_manager_name || "—"}
+          />
+          <ReportKV label="Submission ID" value={entry.id} />
+          <ReportKV label="Email (submitter)" value={entry.manager_email || "—"} />
           <ReportKV label="Created" value={formatDateTimeInIndia(entry.started_at)} />
           <ReportKV label="Completion time" value={formatDateTimeInIndia(entry.submitted_at)} />
-          <ReportKV label="Email" value={entry.manager_email || "—"} />
-          <ReportKV label="Name (submitter)" value={entry.manager_name} />
           <ReportKV label="Last modified time" value={formatDateTimeInIndia(entry.updated_at)} />
-          <ReportKV label="Billing status" value={billingLabel(entry.billing_status)} />
-          <ReportKV label="Period" value={period?.label?.trim() || "—"} />
-          <ReportKV label="Client name" value={entry.client_name} />
-          <ReportKV label="Project name" value={entry.project_name} />
-          <ReportKV label="Client reporting manager name" value={entry.client_reporting_manager_name || "—"} />
-          <ReportKV label="Info Services reporting manager name" value={entry.info_services_reporting_manager_name || "—"} />
         </div>
       </ReportDetailSection>
       <Separator className="my-2" />
@@ -589,7 +587,6 @@ export function ClientRMFeedbackTab({
   const { toast } = useToast();
   const { user } = useAuth();
   const { employees } = useEmployees();
-  const navigate = useNavigate();
   const onInitialLoadCompleteRef = useRef(onInitialLoadComplete);
   onInitialLoadCompleteRef.current = onInitialLoadComplete;
   const [loading, setLoading] = useState(true);
@@ -605,9 +602,6 @@ export function ClientRMFeedbackTab({
   const [periodId, setPeriodId] = useState<string>("");
   const [reporteeId, setReporteeId] = useState<string>("");
   const [billingStatus, setBillingStatus] = useState<string>("");
-  const [clientName, setClientName] = useState("");
-  const [projectName, setProjectName] = useState("");
-  const [clientReportingManagerName, setClientReportingManagerName] = useState("");
   const [infoServicesReportingManagerName, setInfoServicesReportingManagerName] = useState("");
   const [additionalFeedback, setAdditionalFeedback] = useState("");
   const [overallSatisfaction, setOverallSatisfaction] = useState<number>(0);
@@ -628,15 +622,7 @@ export function ClientRMFeedbackTab({
 
   useEffect(() => {
     setSubmitHighlightKeys(new Set());
-  }, [
-    clientName,
-    projectName,
-    clientReportingManagerName,
-    billingStatus,
-    additionalFeedback,
-    overallSatisfaction,
-    ratings,
-  ]);
+  }, [billingStatus, additionalFeedback, overallSatisfaction, ratings]);
 
   const managerEmail = user?.email || "";
   const resolvedInfoServicesManagerName = selfName.trim() || infoServicesReportingManagerName.trim();
@@ -646,7 +632,6 @@ export function ClientRMFeedbackTab({
    */
   const showManagerEditor =
     clientRmSurface === "team-submit" && hasTeamMembers && !isLeadership;
-  const showLeadershipRouting = isLeadership;
 
   const periodById = useMemo(() => {
     const m = new Map<string, Period>();
@@ -937,9 +922,6 @@ export function ClientRMFeedbackTab({
     setEditingId(null);
     setStartedAt(null);
     setBillingStatus("");
-    setClientName("");
-    setProjectName("");
-    setClientReportingManagerName("");
     setInfoServicesReportingManagerName(selfName || "");
     setAdditionalFeedback("");
     setOverallSatisfaction(0);
@@ -991,9 +973,6 @@ export function ClientRMFeedbackTab({
       setBillingStatus(
         draft.billing_status && isValidBillingStatus(draft.billing_status) ? draft.billing_status : ""
       );
-      setClientName(draft.client_name || "");
-      setProjectName(draft.project_name || "");
-      setClientReportingManagerName(draft.client_reporting_manager_name || "");
       setInfoServicesReportingManagerName(draft.info_services_reporting_manager_name || "");
       setAdditionalFeedback(draft.additional_feedback || "");
       const os = draft.overall_satisfaction;
@@ -1010,9 +989,6 @@ export function ClientRMFeedbackTab({
         period_id: periodId,
         employee_id: reporteeId,
         billing_status: draft.billing_status && isValidBillingStatus(draft.billing_status) ? draft.billing_status : "",
-        client_name: draft.client_name || "",
-        project_name: draft.project_name || "",
-        client_reporting_manager_name: draft.client_reporting_manager_name || "",
         info_services_reporting_manager_name: draft.info_services_reporting_manager_name || "",
         additional_feedback: draft.additional_feedback || "",
         overall_satisfaction:
@@ -1056,9 +1032,6 @@ export function ClientRMFeedbackTab({
       period_id: periodId,
       employee_id: selectedReportee.id,
       billing_status: isValidBillingStatus(billingStatus) ? billingStatus : "",
-      client_name: clientName,
-      project_name: projectName,
-      client_reporting_manager_name: clientReportingManagerName,
       info_services_reporting_manager_name: resolvedInfoServicesManagerName,
       additional_feedback: additionalFeedback,
       overall_satisfaction: overallSatisfaction >= 1 && overallSatisfaction <= 5 ? overallSatisfaction : 0,
@@ -1076,9 +1049,6 @@ export function ClientRMFeedbackTab({
           employee_name: selectedReportee.name,
           employee_code: selectedReportee.employee_id,
           billing_status: isValidBillingStatus(billingStatus) ? billingStatus : undefined,
-          client_name: clientName || undefined,
-          project_name: projectName || undefined,
-          client_reporting_manager_name: clientReportingManagerName || undefined,
           info_services_reporting_manager_name: resolvedInfoServicesManagerName || undefined,
           ratings: Object.keys(draftRatings).length ? draftRatings : undefined,
           additional_feedback: additionalFeedback || undefined,
@@ -1116,10 +1086,7 @@ export function ClientRMFeedbackTab({
     selectedReportee,
     editingId,
     billingStatus,
-    clientName,
-    projectName,
-    clientReportingManagerName,
-    infoServicesReportingManagerName,
+    resolvedInfoServicesManagerName,
     additionalFeedback,
     overallSatisfaction,
     ratings,
@@ -1135,11 +1102,6 @@ export function ClientRMFeedbackTab({
     const missing: { key: string; label: string }[] = [];
     if (!periodId) missing.push({ key: "period", label: "Feedback period" });
     if (!isValidBillingStatus(billingStatus)) missing.push({ key: "billing", label: "Billing status" });
-    if (!clientName.trim()) missing.push({ key: "client_name", label: "Client name" });
-    if (!projectName.trim()) missing.push({ key: "project_name", label: "Project name" });
-    if (!clientReportingManagerName.trim()) {
-      missing.push({ key: "client_reporting_manager_name", label: "Client reporting manager name" });
-    }
     if (!resolvedInfoServicesManagerName.trim()) {
       missing.push({
         key: "info_services_reporting_manager_name",
@@ -1162,9 +1124,6 @@ export function ClientRMFeedbackTab({
   }, [
     periodId,
     billingStatus,
-    clientName,
-    projectName,
-    clientReportingManagerName,
     resolvedInfoServicesManagerName,
     ratings,
     overallSatisfaction,
@@ -1209,9 +1168,6 @@ export function ClientRMFeedbackTab({
         employee_name: selectedReportee.name,
         employee_code: selectedReportee.employee_id,
         billing_status: billingStatus as (typeof BILLING_VALUES)[number],
-        client_name: clientName,
-        project_name: projectName,
-        client_reporting_manager_name: clientReportingManagerName,
         info_services_reporting_manager_name: resolvedInfoServicesManagerName,
         ratings: ratingsOut,
         additional_feedback: additionalFeedback || undefined,
@@ -1316,9 +1272,6 @@ export function ClientRMFeedbackTab({
     activeDraft,
     formLoadedFromDraft,
     billingStatus,
-    clientName,
-    projectName,
-    clientReportingManagerName,
     resolvedInfoServicesManagerName,
     additionalFeedback,
     overallSatisfaction,
@@ -1404,23 +1357,6 @@ export function ClientRMFeedbackTab({
 
   return (
     <div className="space-y-6">
-      {showLeadershipRouting && (
-        <Card className="border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background shadow-md">
-          <CardHeader>
-            <CardTitle className={CRM_SECTION_TITLE_LG}>Organization-wide monthly feedback</CardTitle>
-            <CardDescription>
-              Leadership can review all submissions from the Monthly Feedback reports workspace.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="default" onClick={() => navigate("/performance/monthly-feedback")}>
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Open Monthly Feedback reports
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Org alignment (same reporting_to as Directory org chart) — mirrors annual review “cycle context” clarity */}
       {showReadOnlyReportingContext && lineManager && (
         <Card className="border-border/60 bg-muted/20 shadow-sm">
@@ -1669,9 +1605,6 @@ export function ClientRMFeedbackTab({
                     <DialogDescription>
                       Complete all sections below and submit for the selected month.
                     </DialogDescription>
-                    <p className="text-xs text-muted-foreground">
-                      Submitting as <span className="font-medium text-foreground">{selfName || "Manager"}</span>
-                    </p>
                   </DialogHeader>
 
                   <div className="space-y-4">
@@ -1684,7 +1617,7 @@ export function ClientRMFeedbackTab({
                           <div
                             id="crm-field-period"
                             className={cn(
-                              "space-y-2 rounded-md md:col-span-3 md:max-w-[14rem] md:justify-self-start w-full min-w-0",
+                              "space-y-2 rounded-md md:col-span-4 w-full min-w-0",
                               submitHighlightKeys.has("period") && "ring-2 ring-destructive ring-offset-2 ring-offset-background p-1 -m-1"
                             )}
                           >
@@ -1723,7 +1656,7 @@ export function ClientRMFeedbackTab({
                               </>
                             )}
                           </div>
-                          <div className="space-y-2 md:col-span-6 min-w-0">
+                          <div className="space-y-2 md:col-span-5 min-w-0">
                             <Label>Employee name *</Label>
                             <div className="rounded-lg border border-primary/20 bg-muted/20 px-3 py-3 min-h-[2.75rem] flex items-center min-w-0">
                               <span
@@ -1748,21 +1681,15 @@ export function ClientRMFeedbackTab({
 
                     <Card className="border-border/60">
                       <CardHeader className="py-3">
-                        <CardTitle className={CRM_SECTION_TITLE_CARD}>Engagement and project context</CardTitle>
+                        <CardTitle className={CRM_SECTION_TITLE_CARD}>Assignment context</CardTitle>
                       </CardHeader>
                       <CardContent className="pt-0">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 md:gap-x-6 md:gap-y-0 gap-y-5 md:items-start">
                           <div
                             id="crm-field-billing"
-                            className="space-y-3 md:col-span-2 w-full min-w-0"
+                            className="space-y-2 min-w-0"
                           >
-                            <div className="space-y-1.5">
-                              <Label htmlFor="crm-billing-status-select">Billing status *</Label>
-                              <p className="text-xs text-muted-foreground leading-relaxed max-w-none">
-                                Choose one option from the list below (dropdown). This classifies the assignment for
-                                billing.
-                              </p>
-                            </div>
+                            <Label htmlFor="crm-billing-status-select">Billing status *</Label>
                             <Select
                               value={billingStatus || undefined}
                               onValueChange={(v) => setBillingStatus(v)}
@@ -1784,50 +1711,10 @@ export function ClientRMFeedbackTab({
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-2">
-                            <Label>Client name *</Label>
-                            <Input
-                              id="crm-field-client_name"
-                              value={clientName}
-                              onChange={(e) => setClientName(e.target.value)}
-                              className={cn(
-                                "bg-background",
-                                submitHighlightKeys.has("client_name") && "border-destructive ring-1 ring-destructive"
-                              )}
-                              aria-invalid={submitHighlightKeys.has("client_name")}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Project name *</Label>
-                            <Input
-                              id="crm-field-project_name"
-                              value={projectName}
-                              onChange={(e) => setProjectName(e.target.value)}
-                              className={cn(
-                                "bg-background",
-                                submitHighlightKeys.has("project_name") && "border-destructive ring-1 ring-destructive"
-                              )}
-                              aria-invalid={submitHighlightKeys.has("project_name")}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Client reporting manager name *</Label>
-                            <Input
-                              id="crm-field-client_reporting_manager_name"
-                              value={clientReportingManagerName}
-                              onChange={(e) => setClientReportingManagerName(e.target.value)}
-                              className={cn(
-                                "bg-background",
-                                submitHighlightKeys.has("client_reporting_manager_name") &&
-                                  "border-destructive ring-1 ring-destructive"
-                              )}
-                              aria-invalid={submitHighlightKeys.has("client_reporting_manager_name")}
-                            />
-                          </div>
                           <div
                             id="crm-field-info_services_reporting_manager_name"
                             className={cn(
-                              "space-y-2 rounded-md",
+                              "space-y-2 rounded-md min-w-0",
                               submitHighlightKeys.has("info_services_reporting_manager_name") &&
                                 "ring-2 ring-destructive ring-offset-2 ring-offset-background p-1 -m-1"
                             )}
@@ -1946,7 +1833,7 @@ export function ClientRMFeedbackTab({
               </h3>
               <p className="text-sm text-muted-foreground">
                 {isLeadership
-                  ? "Organization-wide reporting is available from Monthly Feedback reports."
+                  ? "Organization-wide reporting and exports: use Reports → Monthly Feedback in the header."
                   : clientRmSurface === "self"
                     ? "Your line manager submits this assessment. Read-only here. To give feedback for a direct report, use Client RM Feedback on their card under My Team."
                     : "Submitted by your reporting manager. This view is read-only for employees."}{" "}

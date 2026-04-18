@@ -25,9 +25,10 @@ class ClientRMFeedbackSubmissionCreate(BaseModel):
     employee_name: str
     employee_code: Optional[str] = None
     billing_status: BillingStatus
-    client_name: str
-    project_name: str
-    client_reporting_manager_name: str
+    # Deprecated from UI — kept as optional empty strings for backward compatibility with stored items.
+    client_name: str = ""
+    project_name: str = ""
+    client_reporting_manager_name: str = ""
     info_services_reporting_manager_name: str
     ratings: Dict[str, int]
     additional_feedback: Optional[str] = None

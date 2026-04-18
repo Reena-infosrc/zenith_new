@@ -49,7 +49,7 @@ export function ClientRmFeedbackSessionChrome({
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                  <Link to={CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-team")}>
+                  <Link to={CLIENT_RM_FEEDBACK_ROUTES.performanceManager()}>
                     Performance
                   </Link>
                 </BreadcrumbLink>
@@ -68,8 +68,7 @@ export function ClientRmFeedbackSessionChrome({
               Monthly Client RM feedback
             </h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-              Submit structured feedback for a direct report for the active monthly period. Records are
-              versioned per period and submission; certain edits retain snapshots for audit.
+              Submit structured feedback for a direct report for the active monthly period.
             </p>
           </div>
         </div>

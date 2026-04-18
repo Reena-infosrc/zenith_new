@@ -201,7 +201,7 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
           className="fixed z-[100] bg-black/50 flex items-center justify-center p-4"
           style={{ position: 'fixed', top: 0, left: 255, right: 0, bottom: 0 }}
         >
-          <div className="bg-background rounded-lg shadow-lg max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+          <div className="bg-background rounded-lg shadow-lg max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col">
             <div className="flex-1 overflow-y-auto p-6">
               <ClientRMFeedbackAccess onClose={() => setShowClientRmAccess(false)} />
             </div>

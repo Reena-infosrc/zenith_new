@@ -187,15 +187,10 @@ export default function MonthlyRmFeedbackSession() {
                       ? "Use Monthly Feedback reports for organization-wide visibility. Line managers submit from Performance → My Team."
                       : "You need an active manager role with direct reports to submit here."}
                   </p>
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="mt-4">
                     <Button variant="outline" onClick={goBackPrimary}>
                       Return to Performance
                     </Button>
-                    {ctx?.can_view_all ? (
-                      <Button variant="secondary" onClick={() => navigate("/performance/monthly-feedback")}>
-                        Monthly Feedback reports
-                      </Button>
-                    ) : null}
                   </div>
                 </div>
               </div>

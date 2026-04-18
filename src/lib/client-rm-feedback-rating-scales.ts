@@ -40,6 +40,28 @@ export function labelForCommunicationRating(value: number): string {
   return COMMUNICATION_COLLABORATION_SCALE.find((x) => x.value === v)?.label ?? "—";
 }
 
+/**
+ * Work-performance text for CSV / Microsoft Forms–style reports (plural “Expectations” on 3–4).
+ * Use for matrix criteria as text; overall satisfaction column in CSV stays numeric 1–5.
+ */
+export function csvExportLabelForWorkPerformanceRating(value: number): string {
+  const v = clampRatingStored(value);
+  if (!v) return "—";
+  const map: Record<number, string> = {
+    1: "Poor",
+    2: "Needs Improvement",
+    3: "Meets Expectations",
+    4: "Exceeds Expectations",
+    5: "Outstanding",
+  };
+  return map[v] ?? "—";
+}
+
+/** Communication & collaboration criteria — same labels as the live form scale (text, not 1–5). */
+export function csvExportLabelForCommunicationRating(value: number): string {
+  return labelForCommunicationRating(value);
+}
+
 /** Aligns with the prior overall dropdown copy (stars-only control in the form). */
 export function labelForOverallSatisfaction(value: number): string {
   const v = clampRatingStored(value);

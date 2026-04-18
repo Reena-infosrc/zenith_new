@@ -41,7 +41,7 @@ export function resolveSessionBackHref(fromHint: SessionFromHint | null): string
       return CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-goals");
     case "team":
     default:
-      return CLIENT_RM_FEEDBACK_ROUTES.performanceManager("my-team");
+      return CLIENT_RM_FEEDBACK_ROUTES.performanceManager();
   }
 }
 
@@ -53,6 +53,6 @@ export function sessionPrimaryBackButtonLabel(fromHint: SessionFromHint | null):
       return "Back to My Goals";
     case "team":
     default:
-      return "Back to My Team";
+      return "Back to Performance";
   }
 }

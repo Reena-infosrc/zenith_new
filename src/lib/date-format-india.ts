@@ -14,3 +14,15 @@ export function formatDateTimeInIndia(value?: string | null): string {
     return "—";
   }
 }
+
+/** Calendar date only (IST), for CSV “Date” style columns. */
+export function formatDateInIndia(value?: string | null): string {
+  if (!value) return "";
+  try {
+    return new Date(value).toLocaleDateString(INDIA_LOCALE, {
+      timeZone: INDIA_TIMEZONE,
+    });
+  } catch {
+    return "";
+  }
+}

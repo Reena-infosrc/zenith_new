@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -44,13 +45,29 @@ def _is_admin(current_user: Dict[str, Any]) -> bool:
     return bool(current_user.get("is_admin"))
 
 
-async def _list_leadership_emails() -> List[str]:
-    """List leadership access emails stored in the Leadership Access table."""
+async def _list_leadership_entries() -> List[Dict[str, Any]]:
+    """List leadership rows with email and created_at (for admin UI)."""
     table = await get_leadership_access_table()
     response = await table.scan()
     items = [parse_dynamodb_item(i) for i in response.get("Items", [])]
-    emails = sorted({_normalize_email(i.get("email")) for i in items if _normalize_email(i.get("email"))})
-    return emails
+    by_email: Dict[str, str] = {}
+    for i in items:
+        em = _normalize_email(i.get("email"))
+        if not em:
+            continue
+        created = (i.get("created_at") or "").strip()
+        prev = by_email.get(em)
+        if prev is None or (created and (not prev or created > prev)):
+            by_email[em] = created
+    rows = [{"email": em, "created_at": c or None} for em, c in by_email.items()]
+    rows.sort(key=lambda r: (r.get("created_at") or "", r["email"]), reverse=True)
+    return rows
+
+
+async def _list_leadership_emails() -> List[str]:
+    """List leadership access emails stored in the Leadership Access table."""
+    entries = await _list_leadership_entries()
+    return sorted({e["email"] for e in entries})
 
 
 async def _is_leadership_email(email: str) -> bool:
@@ -191,11 +208,32 @@ async def get_me_context(current_user: dict = Depends(get_current_active_user)):
     )
 
 
+async def _enrich_leadership_entry_for_admin(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach directory fields so the admin UI does not need to load the full employee list."""
+    emp = await _get_employee_by_email(entry["email"])
+    if not emp:
+        return {**entry, "employee": None}
+    return {
+        **entry,
+        "employee": {
+            "employee_id": emp.get("employee_id") or "",
+            "name": emp.get("name") or "",
+            "department": emp.get("department") or "",
+            "position": emp.get("position") or "",
+        },
+    }
+
+
 @router.get("/access/leadership")
 async def list_leadership_access(_: dict = Depends(require_admin_user)):
-    """Admin UI: list leadership emails allowed to view this module."""
-    emails = await _list_leadership_emails()
-    return {"emails": emails, "count": len(emails)}
+    """Admin UI: list leadership rows with optional directory snapshot per email."""
+    entries = await _list_leadership_entries()
+    enriched = await asyncio.gather(*[_enrich_leadership_entry_for_admin(e) for e in entries])
+    return {
+        "entries": list(enriched),
+        "count": len(enriched),
+        "emails": [e["email"] for e in enriched],
+    }
 
 
 @router.post("/access/leadership", status_code=201)
@@ -207,6 +245,12 @@ async def add_leadership_access(
     normalized = _normalize_email(email)
     if "@" not in normalized or "." not in normalized.split("@")[-1]:
         raise HTTPException(status_code=400, detail="Invalid email")
+    employee = await _get_employee_by_email(normalized)
+    if not employee:
+        raise HTTPException(
+            status_code=400,
+            detail="That email is not in the employee directory. Leadership access can only be granted to directory employees.",
+        )
     existing = set(await _list_leadership_emails())
     if normalized in existing:
         return {"ok": True, "email": normalized, "already_exists": True}

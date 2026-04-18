@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Download, Eye, Loader2, Lock, Plus, Search } from "lucide-react";
+import { CalendarRange, Download, Eye, Loader2, Lock, Plus, Search } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,8 +31,13 @@ import {
   ReportKV,
   SubmittedRatingRead,
 } from "@/components/performance/monthly-feedback-report-primitives";
-import { labelForOverallSatisfaction } from "@/lib/client-rm-feedback-rating-scales";
-import { formatDateTimeInIndia } from "@/lib/date-format-india";
+import {
+  csvExportLabelForCommunicationRating,
+  csvExportLabelForWorkPerformanceRating,
+  labelForOverallSatisfaction,
+} from "@/lib/client-rm-feedback-rating-scales";
+import { formatDateInIndia, formatDateTimeInIndia } from "@/lib/date-format-india";
+import { cn } from "@/lib/utils";
 
 type Period = {
   period_id: string;
@@ -50,13 +56,16 @@ type FeedbackSubmission = {
   manager_name: string;
   manager_email?: string;
   billing_status: string;
-  client_name: string;
-  project_name: string;
+  /** Legacy snapshots only — no longer collected in UI. */
+  client_name?: string;
+  project_name?: string;
   client_reporting_manager_name?: string;
   info_services_reporting_manager_name?: string;
   ratings?: Record<string, number>;
   additional_feedback?: string;
   overall_satisfaction: number;
+  /** When the manager first opened / started the feedback (mirrors Microsoft Forms “Start time”). */
+  started_at?: string;
   submitted_at?: string;
   updated_at?: string;
 };
@@ -85,10 +94,24 @@ const RATING_FIELDS: RatingFieldDef[] = [
   { key: "participation_in_discussions", label: "Participation in Discussions" },
 ];
 
+function readStoredRating(raw: unknown): number {
+  if (typeof raw === "number" && !Number.isNaN(raw)) return raw;
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
 function pickRatingValue(ratings: Record<string, number> | undefined, f: RatingFieldDef): number {
-  const r = ratings || {};
-  if (typeof r[f.key] === "number") return r[f.key];
-  if (f.legacyKey && typeof r[f.legacyKey] === "number") return r[f.legacyKey];
+  const r = ratings as Record<string, unknown> | undefined;
+  const bag = r || {};
+  const primary = readStoredRating(bag[f.key]);
+  if (primary !== 0) return primary;
+  if (f.legacyKey) {
+    const leg = readStoredRating(bag[f.legacyKey]);
+    if (leg !== 0) return leg;
+  }
   return 0;
 }
 
@@ -96,36 +119,127 @@ function pickRatingValue(ratings: Record<string, number> | undefined, f: RatingF
 const WORK_PERFORMANCE_RATING_FIELDS = RATING_FIELDS.slice(0, 9);
 const COMMUNICATION_RATING_FIELDS = RATING_FIELDS.slice(9);
 
-const CSV_COLUMNS: { key: string; header: string }[] = [
-  { key: "id", header: "ID" },
-  { key: "submitted_at", header: "Completion time" },
-  { key: "updated_at", header: "Last modified time" },
-  { key: "manager_email", header: "Email" },
-  { key: "manager_name", header: "Name" },
-  { key: "employee_name", header: "Employee Name" },
-  { key: "employee_code", header: "Employee ID" },
-  { key: "billing_status", header: "Billing Status" },
-  { key: "client_name", header: "Client Name" },
-  { key: "project_name", header: "Project Name" },
-  { key: "client_reporting_manager_name", header: "Client Reporting Manager Name" },
-  { key: "info_services_reporting_manager_name", header: "Info Services Reporting Manager Name" },
-  { key: "quality_of_deliverables", header: "Quality of Deliverables" },
-  { key: "adherence_to_deadlines", header: "Adherence to Deadlines" },
-  { key: "technical_competency", header: "Technical Competency" },
-  { key: "problem_solving_skills", header: "Problem-Solving Skills" },
-  { key: "productivity_efficiency", header: "Productivity & Efficiency" },
-  { key: "accuracy_attention_to_detail", header: "Accuracy and Attention to Detail" },
-  { key: "ability_to_work_independently", header: "Ability to Work Independently" },
-  { key: "understanding_of_requirements", header: "Understanding of Requirements" },
-  { key: "responsiveness_to_work_assignments", header: "Responsiveness to Work Assignments" },
-  { key: "clarity_in_communication", header: "Clarity in Communication" },
-  { key: "responsiveness_to_emails_calls", header: "Responsiveness to Emails/Calls" },
-  { key: "understanding_of_requirements_2", header: "Understanding of Requirements (secondary)" },
-  { key: "status_reporting_updates", header: "Status Reporting and Updates" },
-  { key: "team_collaboration", header: "Team Collaboration" },
-  { key: "participation_in_discussions", header: "Participation in Discussions" },
-  { key: "overall_satisfaction", header: "Overall Satisfaction with Employee Performance" },
-  { key: "additional_feedback", header: "Any additional feedback or suggestions?" },
+function csvNa(value: unknown): string {
+  if (value === null || value === undefined) return "NA";
+  const s = String(value).trim();
+  return s === "" ? "NA" : s;
+}
+
+function csvRatingCell(ratings: Record<string, number>, fieldKey: string): string {
+  const idx = RATING_FIELDS.findIndex((f) => f.key === fieldKey);
+  if (idx < 0) return "NA";
+  const def = RATING_FIELDS[idx];
+  const raw = pickRatingValue(ratings, def);
+  if (!raw) return "NA";
+  const label =
+    idx < 9
+      ? csvExportLabelForWorkPerformanceRating(raw)
+      : csvExportLabelForCommunicationRating(raw);
+  return label === "—" ? "NA" : label.trim();
+}
+
+type ExportCtx = {
+  rowIndex: number;
+  sub: FeedbackSubmission;
+  ratings: Record<string, number>;
+  periodLabel: string;
+};
+
+/** Column order aligned with Microsoft Forms / leadership export expectations. */
+const CSV_COLUMN_DEFS: { header: string; get: (ctx: ExportCtx) => string }[] = [
+  { header: "ID", get: ({ rowIndex }) => String(rowIndex + 1) },
+  {
+    header: "Start time",
+    get: ({ sub }) => {
+      const t = sub.started_at || sub.submitted_at;
+      return t ? formatDateTimeInIndia(t) : "NA";
+    },
+  },
+  {
+    header: "Completion time",
+    get: ({ sub }) => (sub.submitted_at ? formatDateTimeInIndia(sub.submitted_at) : "NA"),
+  },
+  { header: "Email", get: ({ sub }) => csvNa(sub.manager_email) },
+  { header: "Name", get: ({ sub }) => csvNa(sub.manager_name) },
+  {
+    header: "Last modified time",
+    get: ({ sub }) => (sub.updated_at ? formatDateTimeInIndia(sub.updated_at) : "NA"),
+  },
+  { header: "Employee Name", get: ({ sub }) => csvNa(sub.employee_name) },
+  { header: "Employee ID", get: ({ sub }) => csvNa(sub.employee_code) },
+  { header: "Billing Status", get: ({ sub }) => csvNa(sub.billing_status) },
+  {
+    header: "Info Services Reporting Manager Name",
+    get: ({ sub }) => csvNa(sub.info_services_reporting_manager_name),
+  },
+  { header: "Feedback Period", get: ({ periodLabel }) => csvNa(periodLabel) },
+  {
+    header: "Date",
+    get: ({ sub }) => {
+      const d = formatDateInIndia(sub.submitted_at);
+      return d || "NA";
+    },
+  },
+  { header: "Quality of Deliverables", get: ({ ratings }) => csvRatingCell(ratings, "quality_of_deliverables") },
+  { header: "Adherence to Deadlines", get: ({ ratings }) => csvRatingCell(ratings, "adherence_to_deadlines") },
+  { header: "Technical Competency", get: ({ ratings }) => csvRatingCell(ratings, "technical_competency") },
+  { header: "Problem-Solving Skills", get: ({ ratings }) => csvRatingCell(ratings, "problem_solving_skills") },
+  {
+    header: "Productivity & Efficiency",
+    get: ({ ratings }) => csvRatingCell(ratings, "productivity_efficiency"),
+  },
+  {
+    header: "Accuracy and Attention to Detail",
+    get: ({ ratings }) => csvRatingCell(ratings, "accuracy_attention_to_detail"),
+  },
+  {
+    header: "Ability to Work Independently",
+    get: ({ ratings }) => csvRatingCell(ratings, "ability_to_work_independently"),
+  },
+  {
+    header: "Understanding of Requirements",
+    get: ({ ratings }) => csvRatingCell(ratings, "understanding_of_requirements"),
+  },
+  {
+    header: "Responsiveness to Work Assignments",
+    get: ({ ratings }) => csvRatingCell(ratings, "responsiveness_to_work_assignments"),
+  },
+  { header: "Clarity in Communication", get: ({ ratings }) => csvRatingCell(ratings, "clarity_in_communication") },
+  {
+    header: "Responsiveness to Emails/Calls",
+    get: ({ ratings }) => csvRatingCell(ratings, "responsiveness_to_emails_calls"),
+  },
+  {
+    header: "Understanding of Requirements2",
+    get: ({ ratings }) => csvRatingCell(ratings, "understanding_of_requirements_2"),
+  },
+  {
+    header: "Status Reporting and Updates",
+    get: ({ ratings }) => csvRatingCell(ratings, "status_reporting_updates"),
+  },
+  { header: "Team Collaboration", get: ({ ratings }) => csvRatingCell(ratings, "team_collaboration") },
+  {
+    header: "Participation in Discussions",
+    get: ({ ratings }) => csvRatingCell(ratings, "participation_in_discussions"),
+  },
+  {
+    header: "Any additional feedback or suggestions?",
+    get: ({ sub }) => csvNa(sub.additional_feedback),
+  },
+  {
+    header: "Overall Satisfaction with Employee Performance",
+    get: ({ sub }) => {
+      const raw = sub.overall_satisfaction as unknown;
+      const n =
+        typeof raw === "number" && !Number.isNaN(raw)
+          ? raw
+          : typeof raw === "string" && raw.trim() !== ""
+            ? Number(raw)
+            : NaN;
+      if (Number.isNaN(n) || n < 1 || n > 5) return "NA";
+      return String(Math.round(n));
+    },
+  },
 ];
 
 function csvEscape(value: unknown): string {
@@ -135,6 +249,34 @@ function csvEscape(value: unknown): string {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
+}
+
+function sanitizeCsvFilenamePart(s: string): string {
+  return s.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_").slice(0, 72) || "export";
+}
+
+/**
+ * Audit-friendly filename: period scope + row count + export mode + UTC timestamp.
+ */
+function buildMonthlyFeedbackExportFilename(params: {
+  periodId: string;
+  periodLabelForSlug: string | null;
+  rowCount: number;
+  visibleCount: number;
+  exportScope: "all_visible" | "selected";
+}): string {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const periodSlug =
+    params.periodId === "all"
+      ? "all_periods"
+      : sanitizeCsvFilenamePart(params.periodLabelForSlug || params.periodId || "period");
+  const mode =
+    params.exportScope === "selected"
+      ? params.rowCount < params.visibleCount
+        ? "selected_subset"
+        : "selected_full"
+      : "all_visible";
+  return `monthly_feedback_${periodSlug}_${params.rowCount}rows_${mode}_${ts}.csv`;
 }
 
 function downloadCsv(filename: string, headerRow: string[], rows: string[][]) {
@@ -150,6 +292,14 @@ function downloadCsv(filename: string, headerRow: string[], rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
+function overallSatisfactionPillClass(value: number): string {
+  const n = Math.min(5, Math.max(0, Math.round(Number(value) || 0)));
+  if (n <= 0) return "border-border/60 bg-muted/30 text-muted-foreground";
+  if (n <= 2) return "border-rose-500/35 bg-rose-500/10 text-rose-900 dark:text-rose-100";
+  if (n === 3) return "border-sky-500/35 bg-sky-500/10 text-sky-900 dark:text-sky-100";
+  return "border-emerald-600/40 bg-emerald-600/12 text-emerald-900 dark:text-emerald-100";
+}
+
 const statusBadge = (status: Period["period_status"]) => {
   switch (status) {
     case "open":
@@ -161,6 +311,48 @@ const statusBadge = (status: Period["period_status"]) => {
       return <Badge variant="outline">Draft</Badge>;
   }
 };
+
+/** Compact status chip for the history grid — sits inline with the cycle name (no raw ISO dates below). */
+function PeriodStatusTableChip({ status }: { status: Period["period_status"] }) {
+  const base =
+    "inline-flex shrink-0 items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold leading-none shadow-sm";
+  switch (status) {
+    case "open":
+      return (
+        <span
+          className={cn(
+            base,
+            "border-emerald-500/45 bg-emerald-500/15 text-emerald-950 dark:border-emerald-500/40 dark:bg-emerald-950/40 dark:text-emerald-50"
+          )}
+        >
+          Open
+        </span>
+      );
+    case "closed":
+      return (
+        <span
+          className={cn(
+            base,
+            "border-border/80 bg-muted/90 text-foreground/95 dark:bg-muted/50"
+          )}
+        >
+          Closed
+        </span>
+      );
+    case "draft":
+    default:
+      return (
+        <span
+          className={cn(
+            base,
+            "border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100"
+          )}
+        >
+          Draft
+        </span>
+      );
+  }
+}
 
 export function MonthlyFeedbackManagement() {
   const { toast } = useToast();
@@ -179,6 +371,9 @@ export function MonthlyFeedbackManagement() {
   const [newStatus, setNewStatus] = useState<Period["period_status"]>("open");
   const [closeConfirmPeriod, setCloseConfirmPeriod] = useState<Period | null>(null);
   const [closingPeriodId, setClosingPeriodId] = useState<string | null>(null);
+  /** Which rows are included in CSV: entire filtered table, or only checked rows (when scope is `selected`). */
+  const [csvExportScope, setCsvExportScope] = useState<"all_visible" | "selected">("all_visible");
+  const [exportSelectionIds, setExportSelectionIds] = useState<Set<string>>(() => new Set());
 
   const load = async () => {
     setLoading(true);
@@ -270,22 +465,98 @@ export function MonthlyFeedbackManagement() {
     load();
   }, []);
 
+  const periodById = useMemo(() => {
+    const m = new Map<string, Period>();
+    periods.forEach((p) => m.set(p.period_id, p));
+    return m;
+  }, [periods]);
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     return submissions
       .filter((x) => (periodId === "all" ? true : x.period_id === periodId))
       .filter((x) => {
         if (!s) return true;
+        const cycle = periodById.get(x.period_id);
+        const periodHaystack = [cycle?.label, cycle?.start_date, cycle?.end_date]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
         return (
           (x.employee_name || "").toLowerCase().includes(s) ||
           (x.employee_code || "").toLowerCase().includes(s) ||
-          (x.client_name || "").toLowerCase().includes(s) ||
-          (x.project_name || "").toLowerCase().includes(s) ||
-          (x.manager_name || "").toLowerCase().includes(s)
+          (x.manager_name || "").toLowerCase().includes(s) ||
+          periodHaystack.includes(s)
         );
       })
       .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
-  }, [submissions, periodId, search]);
+  }, [submissions, periodId, search, periodById]);
+
+  /** When switching back to “all rows in view”, clear row checks so the next “selected” session starts clean. */
+  useEffect(() => {
+    if (csvExportScope === "all_visible") {
+      setExportSelectionIds(new Set());
+    }
+  }, [csvExportScope]);
+
+  /** Drop selections that are no longer visible after period/search changes (avoid stale IDs). */
+  useEffect(() => {
+    const visible = new Set(filtered.map((r) => r.id));
+    setExportSelectionIds((prev) => {
+      const next = new Set<string>();
+      let changed = false;
+      prev.forEach((id) => {
+        if (visible.has(id)) next.add(id);
+        else changed = true;
+      });
+      if (prev.size !== next.size) changed = true;
+      return changed ? next : prev;
+    });
+  }, [filtered]);
+
+  const csvExportRows = useMemo(() => {
+    if (csvExportScope === "all_visible") return filtered;
+    return filtered.filter((r) => exportSelectionIds.has(r.id));
+  }, [filtered, exportSelectionIds, csvExportScope]);
+
+  const showExportCheckboxes = csvExportScope === "selected";
+
+  const allVisibleExportChecked =
+    filtered.length > 0 && filtered.every((r) => exportSelectionIds.has(r.id));
+  const someVisibleExportChecked = filtered.some((r) => exportSelectionIds.has(r.id));
+  const exportHeaderCheckboxState: boolean | "indeterminate" = allVisibleExportChecked
+    ? true
+    : someVisibleExportChecked
+      ? "indeterminate"
+      : false;
+
+  const toggleExportRow = useCallback((id: string) => {
+    setExportSelectionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleExportAllVisible = useCallback(() => {
+    setExportSelectionIds((prev) => {
+      const ids = filtered.map((r) => r.id);
+      if (ids.length === 0) return prev;
+      const allSelected = ids.every((id) => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) {
+        ids.forEach((id) => next.delete(id));
+        return next;
+      }
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [filtered]);
+
+  const clearExportSelection = useCallback(() => {
+    setExportSelectionIds(new Set());
+  }, []);
 
   const selectedPeriod = useMemo(
     () => periods.find((p) => p.period_id === periodId) || null,
@@ -298,31 +569,49 @@ export function MonthlyFeedbackManagement() {
     return periods.find((p) => p.period_id === selected.period_id)?.label?.trim() ?? null;
   }, [selected, periods]);
 
-  const exportRows = useMemo(() => {
-    // Export should respect the selected period, but not the free-text search (so export is complete).
-    const periodFiltered =
-      periodId === "all" ? submissions : submissions.filter((x) => x.period_id === periodId);
-    return periodFiltered;
-  }, [submissions, periodId]);
-
   const handleExport = () => {
-    const periodLabelSafe =
-      selectedPeriod?.label?.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_") ||
-      (periodId === "all" ? "all_periods" : periodId);
-    const filename = `monthly_feedback_${periodLabelSafe}.csv`;
-    const headers = CSV_COLUMNS.map((c) => c.header);
-    const rows = exportRows.map((x) => {
+    if (csvExportScope === "selected" && exportSelectionIds.size === 0) {
+      toast({
+        title: "Select rows first",
+        description: "Choose “Selected rows only” is on — check one or more rows, then download.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (csvExportRows.length === 0) {
+      toast({
+        title: "Nothing to export",
+        description: "Adjust the period filter or search so at least one row appears.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const filename = buildMonthlyFeedbackExportFilename({
+      periodId,
+      periodLabelForSlug: selectedPeriod?.label ?? null,
+      rowCount: csvExportRows.length,
+      visibleCount: filtered.length,
+      exportScope: csvExportScope,
+    });
+    const headers = CSV_COLUMN_DEFS.map((c) => c.header);
+    const rows = csvExportRows.map((x, rowIndex) => {
       const ratings = { ...(x.ratings || {}) };
-      if (ratings.understanding_of_requirements_2 === undefined && ratings.business_domain_understanding !== undefined) {
+      if (
+        ratings.understanding_of_requirements_2 === undefined &&
+        ratings.business_domain_understanding !== undefined
+      ) {
         ratings.understanding_of_requirements_2 = ratings.business_domain_understanding;
       }
-      const rowObj: Record<string, unknown> = {
-        ...x,
-        ...ratings,
-      };
-      return CSV_COLUMNS.map((c) => csvEscape(rowObj[c.key]));
+      const periodLabel =
+        periods.find((p) => p.period_id === x.period_id)?.label?.trim() || "";
+      const ctx: ExportCtx = { rowIndex, sub: x, ratings, periodLabel };
+      return CSV_COLUMN_DEFS.map((c) => csvEscape(c.get(ctx)));
     });
     downloadCsv(filename, headers, rows);
+    toast({
+      title: "Download started",
+      description: `Exporting ${csvExportRows.length} row(s) as ${filename}.`,
+    });
   };
 
   if (loading) {
@@ -486,12 +775,21 @@ export function MonthlyFeedbackManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Card className="overflow-hidden border-border/60 bg-gradient-to-br from-background/95 to-muted/10 shadow-lg">
-        <CardHeader className={REPORT_CARD_HEADER_BAND}>
-          <CardTitle className={REPORT_CARD_TITLE}>Monthly feedback history</CardTitle>
-          <CardDescription className="text-xs leading-relaxed">
-            Filter by period, search, and open a read-only submission report.
-          </CardDescription>
+      <Card className="overflow-hidden border-border/60 bg-gradient-to-br from-background via-background to-primary/[0.04] shadow-lg ring-1 ring-border/40">
+        <CardHeader className={cn(REPORT_CARD_HEADER_BAND, "border-b border-primary/15 bg-gradient-to-r from-primary/[0.08] via-muted/30 to-transparent")}>
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary ring-1 ring-primary/20">
+              <CalendarRange className="h-5 w-5" aria-hidden />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <CardTitle className={REPORT_CARD_TITLE}>Monthly feedback history</CardTitle>
+              <CardDescription className="text-xs leading-relaxed sm:text-sm">
+                Filter by period or search. Use{" "}
+                <span className="font-medium text-foreground">CSV export</span> below for a full download or a
+                selection-based export.
+              </CardDescription>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -518,48 +816,93 @@ export function MonthlyFeedbackManagement() {
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by employee, client, project, manager..."
+                  placeholder="Search by employee, employee ID, manager, or period / dates…"
                   className="pl-10"
                 />
               </div>
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-sm text-muted-foreground">
-              {periodId === "all"
-                ? `Export will include all periods (${exportRows.length} records).`
-                : `Export will include the selected period (${exportRows.length} records).`}
-            </p>
-            <Button
-              variant="outline"
-              onClick={handleExport}
-              disabled={exportRows.length === 0 || periodId === "all"}
-              title={periodId === "all" ? "Select a period to export" : "Download CSV"}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download CSV
-            </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end sm:gap-x-3 sm:gap-y-2">
+            <div className="w-full sm:w-auto sm:min-w-[16rem] space-y-1.5">
+              <Label htmlFor="csv-export-scope" className="text-xs text-muted-foreground">
+                CSV export
+              </Label>
+              <Select
+                value={csvExportScope}
+                onValueChange={(v) => setCsvExportScope(v as "all_visible" | "selected")}
+              >
+                <SelectTrigger id="csv-export-scope" className="h-10 bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="all_visible">All rows in current view</SelectItem>
+                  <SelectItem value="selected">Selected rows only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+              {showExportCheckboxes && exportSelectionIds.size > 0 ? (
+                <Button type="button" variant="ghost" size="sm" className="h-9" onClick={clearExportSelection}>
+                  Clear selection
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleExport}
+                disabled={
+                  filtered.length === 0 ||
+                  (csvExportScope === "selected" && exportSelectionIds.size === 0)
+                }
+                title={
+                  csvExportScope === "all_visible"
+                    ? "Download every row shown in the table (respects period + search filters)"
+                    : exportSelectionIds.size === 0
+                      ? "Check one or more rows in the table first"
+                      : "Download a CSV with only the checked rows (full row data)"
+                }
+                className="shadow-sm"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download CSV
+              </Button>
+            </div>
           </div>
 
-          <div className="border-2 border-border/60 rounded-lg overflow-x-auto shadow-inner bg-muted/10">
+          <div className="rounded-xl border border-border/70 bg-card/80 overflow-x-auto shadow-md ring-1 ring-black/[0.03] dark:ring-white/[0.04]">
             <Table>
               <TableHeader>
-                <TableRow className="border-b-2 border-border/60 bg-muted/50 hover:bg-muted/50">
+                <TableRow className="border-b border-primary/20 bg-gradient-to-r from-muted/80 to-muted/40 hover:from-muted/80 hover:to-muted/40">
+                  {showExportCheckboxes ? (
+                    <TableHead className="w-12 pl-3">
+                      <Checkbox
+                        checked={exportHeaderCheckboxState}
+                        onCheckedChange={() => toggleExportAllVisible()}
+                        disabled={filtered.length === 0}
+                        aria-label="Select all visible rows for CSV export"
+                        className="translate-y-0.5"
+                      />
+                    </TableHead>
+                  ) : null}
+                  <TableHead className="min-w-[12rem] text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    <span className="inline-flex items-center gap-1.5">
+                      <CalendarRange className="h-3.5 w-3.5 opacity-70" />
+                      Feedback period
+                    </span>
+                  </TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
                     Employee Name
                   </TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
                     Employee ID
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">Client</TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">Project</TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">Manager</TableHead>
                   <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
                     Overall
                   </TableHead>
                   <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
-                    Updated
+                    Last updated
                   </TableHead>
                   <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
                     View
@@ -567,29 +910,80 @@ export function MonthlyFeedbackManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((x) => (
-                  <TableRow key={x.id} className="border-border/50 hover:bg-muted/30">
-                    <TableCell className="font-semibold text-foreground">{x.employee_name || "—"}</TableCell>
-                    <TableCell className="text-muted-foreground">{x.employee_code || x.employee_id || "—"}</TableCell>
-                    <TableCell>{x.client_name}</TableCell>
-                    <TableCell>{x.project_name}</TableCell>
-                    <TableCell>{x.manager_name}</TableCell>
-                    <TableCell className="text-right text-sm font-semibold text-foreground">
-                      {labelForOverallSatisfaction(Number(x.overall_satisfaction || 0))}
-                    </TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">
-                      {(x.updated_at || x.submitted_at || "").toString().slice(0, 10) || "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm" onClick={() => setSelected(x)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filtered.map((x, rowIdx) => {
+                  const cycle = periodById.get(x.period_id);
+                  const overallN = Number(x.overall_satisfaction || 0);
+                  return (
+                    <TableRow
+                      key={x.id}
+                      className={cn(
+                        "border-border/40 transition-colors hover:bg-primary/[0.04]",
+                        rowIdx % 2 === 1 && "bg-muted/20",
+                        showExportCheckboxes &&
+                          exportSelectionIds.size > 0 &&
+                          exportSelectionIds.has(x.id) &&
+                          "bg-primary/[0.06] ring-1 ring-inset ring-primary/15"
+                      )}
+                    >
+                      {showExportCheckboxes ? (
+                        <TableCell className="align-middle w-12 pl-3">
+                          <Checkbox
+                            checked={exportSelectionIds.has(x.id)}
+                            onCheckedChange={() => toggleExportRow(x.id)}
+                            aria-label={`Include ${x.employee_name || "employee"} in CSV export`}
+                            className="translate-y-0.5"
+                          />
+                        </TableCell>
+                      ) : null}
+                      <TableCell className="align-middle py-2.5">
+                        {cycle ? (
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0 pr-2">
+                            <span className="font-semibold text-foreground leading-tight min-w-0 break-words">
+                              {cycle.label?.trim() || "Unknown cycle"}
+                            </span>
+                            <PeriodStatusTableChip status={cycle.period_status} />
+                          </div>
+                        ) : (
+                          <div className="flex min-w-0 flex-col gap-0.5 pr-2">
+                            <span className="font-medium text-muted-foreground">Unknown cycle</span>
+                            <span
+                              className="text-[11px] font-mono text-muted-foreground/90 truncate max-w-[14rem]"
+                              title={x.period_id}
+                            >
+                              {x.period_id}
+                            </span>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-semibold text-foreground align-middle">{x.employee_name || "—"}</TableCell>
+                      <TableCell className="text-muted-foreground align-middle">
+                        {x.employee_code || x.employee_id || "—"}
+                      </TableCell>
+                      <TableCell className="align-middle">{x.manager_name}</TableCell>
+                      <TableCell className="text-right align-middle">
+                        <span
+                          className={cn(
+                            "inline-flex max-w-[12rem] justify-end rounded-full border px-2.5 py-1 text-xs font-medium leading-tight",
+                            overallSatisfactionPillClass(overallN)
+                          )}
+                        >
+                          {labelForOverallSatisfaction(overallN)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums text-muted-foreground align-middle">
+                        {(x.updated_at || x.submitted_at || "").toString().slice(0, 10) || "—"}
+                      </TableCell>
+                      <TableCell className="text-right align-middle">
+                        <Button variant="outline" size="sm" onClick={() => setSelected(x)} className="shadow-sm">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    <TableCell colSpan={showExportCheckboxes ? 8 : 7} className="text-center text-muted-foreground py-10">
                       No monthly feedback records found.
                     </TableCell>
                   </TableRow>
@@ -605,8 +999,13 @@ export function MonthlyFeedbackManagement() {
           <DialogHeader>
             <DialogTitle className="text-xl font-bold tracking-tight text-foreground leading-snug">
               Monthly feedback report
+              {selected && submissionPeriodLabel ? (
+                <span className="mt-2 block text-base font-semibold text-primary">{submissionPeriodLabel}</span>
+              ) : null}
             </DialogTitle>
-            <DialogDescription>Read-only snapshot of this submission.</DialogDescription>
+            <DialogDescription>
+              Read-only view of ratings, assignment context, and timestamps for this record.
+            </DialogDescription>
           </DialogHeader>
           {selected && (
             <div className="space-y-4">
@@ -620,13 +1019,9 @@ export function MonthlyFeedbackManagement() {
                   />
                   <ReportKV label="Period" value={submissionPeriodLabel || "—"} />
                   <ReportKV label="Billing status" value={selected.billing_status} />
-                  <ReportKV label="Client name" value={selected.client_name} />
-                  <ReportKV label="Project name" value={selected.project_name} />
-                  <ReportKV label="Client reporting manager name" value={selected.client_reporting_manager_name || "—"} />
                   <ReportKV
                     label="Info Services reporting manager name"
                     value={selected.info_services_reporting_manager_name || "—"}
-                    className="md:col-span-2"
                   />
                   <ReportKV label="Completion time" value={formatDateTimeInIndia(selected.submitted_at)} />
                   <ReportKV label="Last modified time" value={formatDateTimeInIndia(selected.updated_at)} />
