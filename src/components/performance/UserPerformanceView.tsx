@@ -1099,13 +1099,7 @@ export function UserPerformanceView({
           <TabsTrigger value="client-rm-feedback" className="relative pr-6">
             <span className="relative inline-flex items-center">
               Monthly feedback
-              {clientRmOpenPeriodActive && (
-                <span
-                  className="absolute -right-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-teal-500 shadow-[0_0_12px_rgba(20,184,166,0.85)] animate-pulse"
-                  aria-hidden
-                  title="A monthly feedback period is open"
-                />
-              )}
+
             </span>
             {clientRmNotificationCount > 0 && (
               <span className="ml-2 inline-flex min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-xs items-center justify-center">

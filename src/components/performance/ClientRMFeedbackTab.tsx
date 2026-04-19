@@ -1366,10 +1366,6 @@ export function ClientRMFeedbackTab({
               <Network className="h-4 w-4 text-primary shrink-0" />
               Reporting line
             </CardTitle>
-            <CardDescription>
-              Feedback below is submitted about you by your line manager (reporting relationship from the employee
-              directory / org chart).
-            </CardDescription>
           </CardHeader>
           <CardContent className="pt-0 pb-4">
             <div className="flex items-center gap-3 rounded-lg border bg-background/80 px-3 py-2.5 text-sm">
@@ -1821,22 +1817,15 @@ export function ClientRMFeedbackTab({
       <div className="space-y-4">
         {!showManagerEditor && (
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
+            <div className="flex items-center gap-3">
               <h3 className={CRM_SECTION_TITLE_LG}>
                 {isLeadership
-                  ? "Your feedback (read-only)"
+                  ? "Your feedback"
                   : clientRmSurface === "self"
                     ? "Feedback from your line manager"
                     : "Feedback records"}
               </h3>
-              <p className="text-sm text-muted-foreground">
-                {isLeadership
-                  ? "Organization-wide reporting and exports: use Monthly feedback in the header (Reports)."
-                  : clientRmSurface === "self"
-                    ? "Your line manager submits this assessment. Read-only here. To give feedback for a direct report, use Monthly feedback on their card under My Team."
-                    : "Submitted by your reporting manager. This view is read-only for employees."}{" "}
-                Expand a row to view details. Closed periods are labeled and kept for audit.
-              </p>
+              <Badge variant="secondary" className="font-normal text-xs px-2.5 py-0.5">Read-only</Badge>
             </div>
             <div className="inline-flex items-center rounded-lg border bg-background p-1">
               <Button
