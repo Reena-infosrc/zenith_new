@@ -1002,7 +1002,7 @@ export function ClientRMFeedbackTab({
     } catch {
       // keep resilient; draft support is additive
     }
-  }, [showManagerEditor, periodId, reporteeId, editingId, ratings]);
+  }, [showManagerEditor, periodId, reporteeId, editingId]);
 
   useEffect(() => {
     void loadDraftForSelection();

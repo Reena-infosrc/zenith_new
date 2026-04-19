@@ -28,6 +28,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [isLeadership, setIsLeadership] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
   const navigate = useNavigate();
   const { isEnabled, isHidden } = useFeatureFlags();
   const { instance, accounts } = useMsal();
@@ -53,19 +54,40 @@ export function Header({ onMenuToggle }: HeaderProps) {
   }, []);
 
   useEffect(() => {
-    const fetchLeadershipFlag = async () => {
+    const fetchHeaderContext = async () => {
       if (!userEmail) return;
       try {
-        const res = await authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`);
-        if (!res.ok) return;
-        const data = await res.json();
-        setIsLeadership(Boolean(data.is_leadership));
-        setIsAdmin(Boolean(data.is_admin));
+        const [ctxRes, notifRes] = await Promise.all([
+          authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/me-context`),
+          authenticatedFetch(`${API_BASE_URL}/client-rm-feedback/notifications/summary`),
+        ]);
+        let userIsAdmin = isAdmin;
+        let userIsLeadership = isLeadership;
+
+        if (ctxRes.ok) {
+          const data = await ctxRes.json();
+          userIsAdmin = Boolean(data.is_admin);
+          userIsLeadership = Boolean(data.is_leadership);
+          setIsLeadership(userIsLeadership);
+          setIsAdmin(userIsAdmin);
+        }
+        if (notifRes.ok) {
+          const notifData = await notifRes.json();
+          let count = Number(notifData.manager_pending_count || 0) + Number(notifData.reportee_unread_count || 0);
+
+          if (userIsAdmin) {
+            count += Number(notifData.hr_new_count || 0);
+          } else if (userIsLeadership) {
+            count += Number(notifData.leadership_new_count || 0);
+          }
+
+          setNotificationCount(count);
+        }
       } catch {
         // keep header resilient
       }
     };
-    fetchLeadershipFlag();
+    fetchHeaderContext();
   }, [userEmail]);
 
   const handleSignOut = async () => {
@@ -119,7 +141,11 @@ export function Header({ onMenuToggle }: HeaderProps) {
               disabled={!isEnabled('notifications')}
             >
               <BellIcon className="w-5 h-5" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full"></span>
+              {notificationCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground shadow-sm">
+                  {notificationCount > 9 ? '9+' : notificationCount}
+                </span>
+              )}
             </Button>
           )}
 

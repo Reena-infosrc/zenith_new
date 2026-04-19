@@ -32,6 +32,7 @@ type Employee = {
   email?: string;
   department?: string;
   position?: string;
+  status?: string;
 };
 
 type LeadershipEntry = {
@@ -271,6 +272,7 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
   const filteredEmployees = useMemo(() => {
     const already = new Set(normalizedEmails);
     const base = employees.filter((e) => {
+      if (e.status === "inactive") return false;
       const em = (e.email || "").trim().toLowerCase();
       return em && !already.has(em);
     });
@@ -496,7 +498,7 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
                       </TableCell>
                       <TableCell className="font-medium min-w-[10rem] max-w-[14rem]">
                         <span className="line-clamp-2 break-words" title={resolved?.name ?? email}>
-                          {resolved?.name ?? "—"}
+                          {resolved?.name ?? <span className="text-destructive font-semibold">Ghost: Account Missing</span>}
                         </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{email}</TableCell>
@@ -506,8 +508,8 @@ export function ClientRMFeedbackAccess({ onClose }: Props) {
                         {formatEntryCreatedAt(created_at)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="default" className="font-normal">
-                          Active
+                        <Badge variant={resolved ? "default" : "destructive"} className="font-normal">
+                          {resolved ? "Active" : "Ghost"}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">

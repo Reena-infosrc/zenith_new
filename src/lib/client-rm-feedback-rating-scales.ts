@@ -6,8 +6,8 @@
 export const WORK_PERFORMANCE_SCALE: { value: number; label: string }[] = [
   { value: 1, label: "Poor" },
   { value: 2, label: "Needs Improvement" },
-  { value: 3, label: "Meets Expectation" },
-  { value: 4, label: "Exceeds Expectation" },
+  { value: 3, label: "Meets Expectations" },
+  { value: 4, label: "Exceeds Expectations" },
   { value: 5, label: "Outstanding" },
 ];
 

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -26,7 +26,6 @@ from ..models.client_rm_feedback import (
     ClientRMFeedbackPeriodCreate,
     ClientRMFeedbackPeriodUpdate,
     ClientRMFeedbackSubmissionCreate,
-    ClientRMFeedbackSubmissionUpdate,
 )
 from ..security import get_current_active_user, require_admin_user
 
@@ -34,7 +33,7 @@ router = APIRouter(prefix="/api/client-rm-feedback", tags=["monthly-feedback"])
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def _normalize_email(value: Optional[str]) -> str:
@@ -44,12 +43,23 @@ def _normalize_email(value: Optional[str]) -> str:
 def _is_admin(current_user: Dict[str, Any]) -> bool:
     return bool(current_user.get("is_admin"))
 
+async def _scan_full(table, **kwargs) -> List[Dict[str, Any]]:
+    """Helper to paginate through entire table scan to avoid 1MB truncation bounds."""
+    items = []
+    while True:
+        response = await table.scan(**kwargs)
+        items.extend(response.get("Items", []))
+        if "LastEvaluatedKey" not in response:
+            break
+        kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+    return items
+
 
 async def _list_leadership_entries() -> List[Dict[str, Any]]:
     """List leadership rows with email and created_at (for admin UI)."""
     table = await get_leadership_access_table()
-    response = await table.scan()
-    items = [parse_dynamodb_item(i) for i in response.get("Items", [])]
+    raw_items = await _scan_full(table)
+    items = [parse_dynamodb_item(i) for i in raw_items]
     by_email: Dict[str, str] = {}
     for i in items:
         em = _normalize_email(i.get("email"))
@@ -88,10 +98,8 @@ async def _is_leadership_email(email: str) -> bool:
         # Local fallback when index is absent or table isn't provisioned in this environment.
         if code in {"ValidationException", "ResourceNotFoundException"}:
             try:
-                response = await table.scan(
-                    FilterExpression=Attr("email").eq(normalized),
-                    Limit=1,
-                )
+                raw_items = await _scan_full(table, FilterExpression=Attr("email").eq(normalized))
+                return bool(raw_items)
             except ClientError as fallback_error:
                 fallback_code = fallback_error.response.get("Error", {}).get("Code", "")
                 if fallback_code == "ResourceNotFoundException":
@@ -174,10 +182,7 @@ async def _get_direct_reports(manager_employee_id: str) -> List[Dict[str, Any]]:
         )
         raw = response.get("Items", [])
     except Exception:
-        response = await table.scan(
-            FilterExpression=Attr("reporting_to").eq(manager_employee_id)
-        )
-        raw = response.get("Items", [])
+        raw = await _scan_full(table, FilterExpression=Attr("reporting_to").eq(manager_employee_id))
     reportees: List[Dict[str, Any]] = []
     for item in raw:
         parsed = parse_dynamodb_item(item, "employees")
@@ -276,6 +281,11 @@ async def add_leadership_access(
             status_code=400,
             detail="That email is not in the employee directory. Leadership access can only be granted to directory employees.",
         )
+    if employee.get("status", "active") == "inactive":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot grant leadership access to an inactive or terminated employee.",
+        )
     existing = set(await _list_leadership_emails())
     if normalized in existing:
         return {"ok": True, "email": normalized, "already_exists": True}
@@ -310,14 +320,15 @@ async def remove_leadership_access(
     except ClientError as error:
         code = error.response.get("Error", {}).get("Code", "")
         if code == "ValidationException":
-            response = await table.scan(
-                FilterExpression=Attr("email").eq(normalized),
-            )
+            raw_items = await _scan_full(table, FilterExpression=Attr("email").eq(normalized))
         elif code == "ResourceNotFoundException":
             return {"ok": True, "email": normalized}
         else:
             raise
-    for it in response.get("Items", []):
+    else:
+        raw_items = response.get("Items", [])
+        
+    for it in raw_items:
         parsed = parse_dynamodb_item(it)
         if parsed.get("id"):
             await table.delete_item(Key={"id": parsed["id"]})
@@ -350,10 +361,8 @@ async def create_period(
 @router.get("/periods")
 async def list_periods(current_user: dict = Depends(get_current_active_user)):
     table = await get_client_rm_feedback_table()
-    response = await table.scan(
-        FilterExpression=Attr("entity_type").eq("period")
-    )
-    items = [parse_dynamodb_item(i) for i in response.get("Items", [])]
+    raw_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("period"))
+    items = [parse_dynamodb_item(i) for i in raw_items]
     # Stable, predictable order: most recent window first (then newest created).
     items.sort(
         key=lambda x: (x.get("start_date") or "", x.get("created_at") or ""),
@@ -369,13 +378,10 @@ async def update_period(
     _: dict = Depends(require_admin_user),
 ):
     table = await get_client_rm_feedback_table()
-    response = await table.scan(
-        FilterExpression=Attr("entity_type").eq("period") & Attr("period_id").eq(period_id)
-    )
-    items = response.get("Items", [])
-    if not items:
+    raw_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("period") & Attr("period_id").eq(period_id))
+    if not raw_items:
         raise HTTPException(status_code=404, detail="Period not found")
-    existing = parse_dynamodb_item(items[0])
+    existing = parse_dynamodb_item(raw_items[0])
     updates = payload.model_dump(exclude_none=True)
     updates["updated_at"] = _now_iso()
     if "status" in updates:
@@ -419,8 +425,7 @@ async def get_active_draft(
         raise HTTPException(status_code=403, detail="You can access drafts only for your direct reportees")
 
     table = await get_client_rm_feedback_table()
-    response = await table.scan(
-        FilterExpression=(
+    raw_items = await _scan_full(table, FilterExpression=(
             Attr("entity_type").eq("draft")
             & Attr("period_id").eq(period_id)
             & Attr("employee_id").eq(employee_id)
@@ -428,7 +433,7 @@ async def get_active_draft(
             & Attr("is_active").eq(True)
         )
     )
-    drafts = [parse_dynamodb_item(i) for i in response.get("Items", [])]
+    drafts = [parse_dynamodb_item(i) for i in raw_items]
     drafts.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return drafts[0] if drafts else None
 
@@ -453,8 +458,7 @@ async def upsert_active_draft(
     table = await get_client_rm_feedback_table()
     now = _now_iso()
 
-    existing_res = await table.scan(
-        FilterExpression=(
+    raw_items = await _scan_full(table, FilterExpression=(
             Attr("entity_type").eq("draft")
             & Attr("period_id").eq(payload.period_id)
             & Attr("employee_id").eq(payload.employee_id)
@@ -462,7 +466,7 @@ async def upsert_active_draft(
             & Attr("is_active").eq(True)
         )
     )
-    existing = [parse_dynamodb_item(i) for i in existing_res.get("Items", [])]
+    existing = [parse_dynamodb_item(i) for i in raw_items]
     existing.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     current = existing[0] if existing else None
 
@@ -528,17 +532,14 @@ async def create_submission(
         raise HTTPException(status_code=403, detail="You can submit feedback only for your direct reportees")
 
     table = await get_client_rm_feedback_table()
-    periods = await table.scan(
-        FilterExpression=Attr("entity_type").eq("period") & Attr("period_id").eq(payload.period_id)
-    )
-    p_items = [parse_dynamodb_item(i) for i in periods.get("Items", [])]
+    p_raw = await _scan_full(table, FilterExpression=Attr("entity_type").eq("period") & Attr("period_id").eq(payload.period_id))
+    p_items = [parse_dynamodb_item(i) for i in p_raw]
     if not p_items:
         raise HTTPException(status_code=400, detail="Invalid feedback period")
     if p_items[0].get("period_status") != "open":
         raise HTTPException(status_code=400, detail="Feedback period is not open")
 
-    existing_submissions = await table.scan(
-        FilterExpression=(
+    raw_subs = await _scan_full(table, FilterExpression=(
             Attr("entity_type").eq("submission")
             & Attr("period_id").eq(payload.period_id)
             & Attr("employee_id").eq(payload.employee_id)
@@ -546,7 +547,7 @@ async def create_submission(
             & Attr("is_active").eq(True)
         )
     )
-    existing_items = [parse_dynamodb_item(i) for i in existing_submissions.get("Items", [])]
+    existing_items = [parse_dynamodb_item(i) for i in raw_subs]
     if existing_items:
         existing_items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         raise HTTPException(
@@ -595,8 +596,7 @@ async def create_submission(
 
     # Archive matching active draft (if any) after successful submission.
     try:
-        drafts_res = await table.scan(
-            FilterExpression=(
+        drafts_raw = await _scan_full(table, FilterExpression=(
                 Attr("entity_type").eq("draft")
                 & Attr("period_id").eq(payload.period_id)
                 & Attr("employee_id").eq(payload.employee_id)
@@ -604,7 +604,7 @@ async def create_submission(
                 & Attr("is_active").eq(True)
             )
         )
-        for raw in drafts_res.get("Items", []):
+        for raw in drafts_raw:
             parsed = parse_dynamodb_item(raw)
             parsed["is_active"] = False
             parsed["archived_at"] = now
@@ -620,9 +620,9 @@ async def create_submission(
 @router.put("/submissions/{submission_id}")
 async def update_submission(
     submission_id: str,
-    _payload: ClientRMFeedbackSubmissionUpdate,
     _current_user: dict = Depends(get_current_active_user),
 ):
+    """Submitted feedback is immutable. This endpoint exists to return a clear 409 status."""
     table = await get_client_rm_feedback_table()
     response = await table.get_item(Key={"id": submission_id})
     if "Item" not in response:
@@ -634,46 +634,9 @@ async def update_submission(
     # Product rule: submitted feedback is immutable.
     raise HTTPException(status_code=409, detail="Submitted feedback is read-only and cannot be edited")
 
-    user_email = _normalize_email(current_user.get("email") or current_user.get("username"))
-    if not await _can_view_all_async(current_user) and user_email != _normalize_email(item.get("manager_email")):
-        raise HTTPException(status_code=403, detail="Only the submitting manager can edit")
 
-    updates = payload.model_dump(exclude_none=True)
-    if "ratings" in updates:
-        _validate_ratings(updates["ratings"])
-    if "overall_satisfaction" in updates:
-        val = updates["overall_satisfaction"]
-        if val < 1 or val > 5:
-            raise HTTPException(status_code=400, detail="overall_satisfaction must be 1-5")
-
-    context_fields = [
-        "billing_status",
-        "client_name",
-        "project_name",
-        "client_reporting_manager_name",
-        "info_services_reporting_manager_name",
-    ]
-    changed = any(item.get(f) != updates.get(f) for f in context_fields if f in updates)
-
-    item.update(updates)
-    item["updated_at"] = _now_iso()
-    await table.put_item(Item=format_dynamodb_item(item))
-
-    if changed:
-        snapshot = {
-            "id": generate_id(),
-            "entity_type": "snapshot",
-            "submission_id": submission_id,
-            "changed_at": _now_iso(),
-            "changed_by_email": user_email,
-            "before": {k: response["Item"].get(k) for k in context_fields},
-            "after": {k: item.get(k) for k in context_fields},
-        }
-        await table.put_item(Item=format_dynamodb_item(snapshot))
-
-    return item
-
-
+# TODO: Add DynamoDB GSIs on entity_type+period_id and entity_type+employee_id
+# to replace full-table scans with efficient queries before production scaling.
 @router.get("/submissions")
 async def list_submissions(
     period_id: Optional[str] = Query(default=None),
@@ -691,10 +654,8 @@ async def list_submissions(
         reportees = await _get_direct_reports(requester_employee_id)
         reportee_ids = {_norm_employee_id(r.get("id")) for r in reportees if r.get("id")}
 
-    response = await table.scan(
-        FilterExpression=Attr("entity_type").eq("submission")
-    )
-    all_items = [parse_dynamodb_item(i) for i in response.get("Items", [])]
+    raw_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("submission"))
+    all_items = [parse_dynamodb_item(i) for i in raw_items]
     filtered: List[Dict[str, Any]] = []
     q_emp = _norm_employee_id(employee_id) if employee_id else ""
     req_eid = _norm_employee_id(requester_employee_id)
@@ -740,10 +701,7 @@ async def mark_submission_seen(
     user_email = _normalize_email(current_user.get("email") or current_user.get("username"))
     requester = await _get_employee_by_email(user_email) if user_email else None
     requester_employee_id = requester.get("id") if requester else None
-    if (
-        _norm_employee_id(item.get("employee_id")) != _norm_employee_id(requester_employee_id)
-        and not await _can_view_all_async(current_user)
-    ):
+    if _norm_employee_id(item.get("employee_id")) != _norm_employee_id(requester_employee_id):
         raise HTTPException(status_code=403, detail="Not authorized")
     item["reportee_seen"] = True
     item["updated_at"] = _now_iso()
@@ -758,10 +716,10 @@ async def get_notification_summary(current_user: dict = Depends(get_current_acti
     requester_employee_id = requester.get("id") if requester else None
     can_view_all = await _can_view_all_async(current_user)
     table = await get_client_rm_feedback_table()
-    all_items = await table.scan(FilterExpression=Attr("entity_type").eq("submission"))
-    submissions = [parse_dynamodb_item(i) for i in all_items.get("Items", [])]
-    periods = await table.scan(FilterExpression=Attr("entity_type").eq("period"))
-    period_items = [parse_dynamodb_item(p) for p in periods.get("Items", [])]
+    all_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("submission"))
+    submissions = [parse_dynamodb_item(i) for i in all_items]
+    periods = await _scan_full(table, FilterExpression=Attr("entity_type").eq("period"))
+    period_items = [parse_dynamodb_item(p) for p in periods]
     open_period_ids = {p.get("period_id") for p in period_items if p.get("period_status") == "open"}
     open_period_count = sum(1 for p in period_items if p.get("period_status") == "open")
 

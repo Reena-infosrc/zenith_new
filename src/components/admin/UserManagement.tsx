@@ -305,6 +305,7 @@ export function UserManagement({ onClose }: UserManagementProps) {
                           <Button
                             variant="outline"
                             size="sm"
+                            type="button"
                             onClick={() => handleEmployeeSelect(employee)}
                           >
                             Select
@@ -325,24 +326,24 @@ export function UserManagement({ onClose }: UserManagementProps) {
                   <CardContent className="space-y-2">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label>Employee ID</Label>
-                        <Input value={formData.employee_id} readOnly />
+                        <Label className="text-muted-foreground text-xs">Employee ID</Label>
+                        <div className="mt-1 font-medium text-sm">{formData.employee_id || "—"}</div>
                       </div>
                       <div>
-                        <Label>Name</Label>
-                        <Input value={formData.name} readOnly />
+                        <Label className="text-muted-foreground text-xs">Name</Label>
+                        <div className="mt-1 font-medium text-sm">{formData.name || "—"}</div>
                       </div>
                       <div>
-                        <Label>Email</Label>
-                        <Input value={formData.email} readOnly />
+                        <Label className="text-muted-foreground text-xs">Email</Label>
+                        <div className="mt-1 font-medium text-sm">{formData.email || "—"}</div>
                       </div>
                       <div>
-                        <Label>Department</Label>
-                        <Input value={formData.department} readOnly />
+                        <Label className="text-muted-foreground text-xs">Department</Label>
+                        <div className="mt-1 font-medium text-sm">{formData.department || "—"}</div>
                       </div>
                       <div className="col-span-2">
-                        <Label>Position</Label>
-                        <Input value={formData.position} readOnly />
+                        <Label className="text-muted-foreground text-xs">Position</Label>
+                        <div className="mt-1 font-medium text-sm">{formData.position || "—"}</div>
                       </div>
                     </div>
                   </CardContent>
@@ -351,10 +352,10 @@ export function UserManagement({ onClose }: UserManagementProps) {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleAddAdmin} disabled={!selectedEmployee}>
+              <Button type="button" onClick={handleAddAdmin} disabled={!selectedEmployee}>
                 Add Admin
               </Button>
             </DialogFooter>
