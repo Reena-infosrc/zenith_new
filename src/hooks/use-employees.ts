@@ -186,7 +186,9 @@ export function useEmployees(options?: { includeInactive?: boolean }) {
         const params = new URLSearchParams();
         params.append('skip', String(skip));
         params.append('limit', String(limit));
-        if (includeInactive) params.append('include_inactive', 'true');
+        // Always fetch all employees (including inactive) to maintain a complete global cache.
+        // Components will filter the local state gracefully using filterInactive.
+        params.append('include_inactive', 'true');
         if (sortBy) params.append('sort_by', sortBy);
         if (sortOrder) params.append('sort_order', sortOrder);
         const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, { headers });

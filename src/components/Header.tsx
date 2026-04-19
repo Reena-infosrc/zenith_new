@@ -152,7 +152,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
           <ModeToggle />
 
           {/* Leadership Reports Dropdown (separate from profile) */}
-          {isLeadership && (
+          {isLeadership && !isAdmin && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
