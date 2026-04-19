@@ -159,10 +159,10 @@ export function Header({ onMenuToggle }: HeaderProps) {
                   variant="ghost"
                   size="sm"
                   className="hover:bg-accent/50 transition-colors"
-                  aria-label="Reports"
-                  title="Reports"
+                  aria-label="Org Insights"
+                  title="Org Insights"
                 >
-                  <span className="text-sm font-medium">Reports</span>
+                  <span className="text-sm font-medium">Org Insights</span>
                   <ChevronDown className="w-4 h-4 ml-1 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -172,7 +172,7 @@ export function Header({ onMenuToggle }: HeaderProps) {
                 sideOffset={8}
               >
                 <DropdownMenuLabel className="px-3 py-2 text-xs text-muted-foreground">
-                  Reports
+                  Org Insights
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

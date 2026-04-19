@@ -701,11 +701,18 @@ export function MonthlyFeedbackManagement() {
               {openPeriodsSorted.map((p) => (
                 <div
                   key={p.period_id}
-                  className="rounded-xl border-2 border-border/60 bg-card p-4 shadow-sm transition-shadow hover:shadow-md flex flex-col gap-3"
+                  onClick={() => {
+                    setPeriodId(p.period_id);
+                    document.getElementById("monthly-feedback-history-section")?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className="rounded-xl border-2 border-border/60 bg-card p-4 shadow-sm transition-all hover:shadow-md hover:border-primary/40 cursor-pointer flex flex-col gap-3"
+                  title="Click to view feedback for this period"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-base font-bold tracking-tight text-foreground leading-tight">{p.label}</span>
-                    {statusBadge(p.period_status)}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      {statusBadge(p.period_status)}
+                    </div>
                   </div>
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {p.start_date} → {p.end_date}
@@ -764,7 +771,7 @@ export function MonthlyFeedbackManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Card className="overflow-hidden border-border/60 bg-gradient-to-br from-background via-background to-primary/[0.04] shadow-lg ring-1 ring-border/40">
+      <Card id="monthly-feedback-history-section" className="overflow-hidden border-border/60 bg-gradient-to-br from-background via-background to-primary/[0.04] shadow-lg ring-1 ring-border/40 scroll-mt-24">
         <CardHeader className={cn(REPORT_CARD_HEADER_BAND, "border-b border-primary/15 bg-gradient-to-r from-primary/[0.08] via-muted/30 to-transparent")}>
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary ring-1 ring-primary/20">
@@ -914,9 +921,9 @@ export function MonthlyFeedbackManagement() {
                         "border-border/40 transition-colors hover:bg-primary/[0.04]",
                         rowIdx % 2 === 1 && "bg-muted/20",
                         showExportCheckboxes &&
-                          exportSelectionIds.size > 0 &&
-                          exportSelectionIds.has(x.id) &&
-                          "bg-primary/[0.06] ring-1 ring-inset ring-primary/15"
+                        exportSelectionIds.size > 0 &&
+                        exportSelectionIds.has(x.id) &&
+                        "bg-primary/[0.06] ring-1 ring-inset ring-primary/15"
                       )}
                     >
                       {showExportCheckboxes ? (
