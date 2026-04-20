@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -280,6 +279,14 @@ function downloadCsv(filename: string, headerRow: string[], rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
+/** Readable period label in the table (collapse spaces; insert space before 4-digit years when jammed). */
+function displayPeriodLabel(raw: string | undefined | null): string {
+  let s = (raw ?? "").trim().replace(/\s+/g, " ");
+  if (!s) return "Unknown cycle";
+  s = s.replace(/([A-Za-z])(\d{4})/g, "$1 $2");
+  return s;
+}
+
 function overallSatisfactionPillClass(value: number): string {
   const n = Math.min(5, Math.max(0, Math.round(Number(value) || 0)));
   if (n <= 0) return "border-border/60 bg-muted/30 text-muted-foreground";
@@ -287,18 +294,6 @@ function overallSatisfactionPillClass(value: number): string {
   if (n === 3) return "border-sky-500/35 bg-sky-500/10 text-sky-900 dark:text-sky-100";
   return "border-emerald-600/40 bg-emerald-600/12 text-emerald-900 dark:text-emerald-100";
 }
-
-const statusBadge = (status: Period["period_status"]) => {
-  switch (status) {
-    case "open":
-      return <Badge className="bg-green-500/10 text-green-700 border border-green-500/20">Open</Badge>;
-    case "closed":
-      return <Badge variant="secondary">Closed</Badge>;
-    case "draft":
-    default:
-      return <Badge variant="outline">Draft</Badge>;
-  }
-};
 
 /** Compact status chip for the history grid — sits inline with the cycle name (no raw ISO dates below). */
 function PeriodStatusTableChip({ status }: { status: Period["period_status"] }) {
@@ -385,6 +380,14 @@ export function MonthlyFeedbackManagement() {
   };
 
   const handleCreatePeriod = async () => {
+    if (openPeriodsSorted.length > 0) {
+      toast({
+        title: "Close current period first",
+        description: "You can create a new monthly feedback period only after closing the existing open period.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!newLabel.trim() || !newStart || !newEnd) {
       toast({ title: "Missing fields", description: "Label, start date, and end date are required.", variant: "destructive" });
       return;
@@ -623,9 +626,19 @@ export function MonthlyFeedbackManagement() {
               <CardTitle className={REPORT_CARD_TITLE}>Monthly feedback periods</CardTitle>
               <p className="text-sm text-muted-foreground mt-1.5 max-w-prose">
                 Open a new cycle so managers can submit structured feedback for their teams.
+                {openPeriodsSorted.length > 0 ? " Close the existing open period to enable period creation." : ""}
               </p>
             </div>
-            <Button onClick={() => setCreateOpen(true)} className="shrink-0">
+            <Button
+              onClick={() => setCreateOpen(true)}
+              className="shrink-0"
+              disabled={openPeriodsSorted.length > 0}
+              title={
+                openPeriodsSorted.length > 0
+                  ? "Close the current open period before creating a new one"
+                  : "Create a new monthly feedback period"
+              }
+            >
               <Plus className="h-4 w-4 mr-2" />
               Create period
             </Button>
@@ -710,9 +723,6 @@ export function MonthlyFeedbackManagement() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-base font-bold tracking-tight text-foreground leading-tight">{p.label}</span>
-                    <div onClick={(e) => e.stopPropagation()}>
-                      {statusBadge(p.period_status)}
-                    </div>
                   </div>
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {p.start_date} → {p.end_date}
@@ -787,12 +797,12 @@ export function MonthlyFeedbackManagement() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="space-y-2">
-              <Label>Period</Label>
+        <CardContent className="min-w-0 space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-end">
+            <div className="space-y-1.5 lg:col-span-2">
+              <Label className="text-xs font-medium text-foreground">Period</Label>
               <Select value={periodId} onValueChange={setPeriodId}>
-                <SelectTrigger>
+                <SelectTrigger className="h-10 w-full">
                   <SelectValue placeholder="Select period" />
                 </SelectTrigger>
                 <SelectContent>
@@ -805,73 +815,73 @@ export function MonthlyFeedbackManagement() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Search</Label>
+            <div className="space-y-1.5 lg:col-span-5">
+              <Label className="text-xs font-medium text-foreground">Search</Label>
               <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by employee, employee ID, manager, or period / dates…"
-                  className="pl-10"
+                  placeholder="Employee, ID, manager, period…"
+                  className="h-10 pl-10"
                 />
+              </div>
+            </div>
+            <div className="space-y-1.5 lg:col-span-5">
+              <Label htmlFor="csv-export-scope" className="text-xs font-medium text-foreground">
+                CSV export
+              </Label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Select
+                  value={csvExportScope}
+                  onValueChange={(v) => setCsvExportScope(v as "all_visible" | "selected")}
+                >
+                  <SelectTrigger id="csv-export-scope" className="h-10 w-full min-w-0 flex-1 bg-background sm:min-w-[12rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="all_visible">All rows in current view</SelectItem>
+                    <SelectItem value="selected">Selected rows only</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex shrink-0 items-center gap-2">
+                  {showExportCheckboxes && exportSelectionIds.size > 0 ? (
+                    <Button type="button" variant="ghost" size="sm" className="h-10" onClick={clearExportSelection}>
+                      Clear
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 shadow-sm"
+                    onClick={handleExport}
+                    disabled={
+                      filtered.length === 0 ||
+                      (csvExportScope === "selected" && exportSelectionIds.size === 0)
+                    }
+                    title={
+                      csvExportScope === "all_visible"
+                        ? "Download every row shown in the table (respects period + search filters)"
+                        : exportSelectionIds.size === 0
+                          ? "Check one or more rows in the table first"
+                          : "Download a CSV with only the checked rows (full row data)"
+                    }
+                  >
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Download CSV</span>
+                    <span className="sm:hidden">Download</span>
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end sm:gap-x-3 sm:gap-y-2">
-            <div className="w-full sm:w-auto sm:min-w-[16rem] space-y-1.5">
-              <Label htmlFor="csv-export-scope" className="text-xs text-muted-foreground">
-                CSV export
-              </Label>
-              <Select
-                value={csvExportScope}
-                onValueChange={(v) => setCsvExportScope(v as "all_visible" | "selected")}
-              >
-                <SelectTrigger id="csv-export-scope" className="h-10 bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent position="popper">
-                  <SelectItem value="all_visible">All rows in current view</SelectItem>
-                  <SelectItem value="selected">Selected rows only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
-              {showExportCheckboxes && exportSelectionIds.size > 0 ? (
-                <Button type="button" variant="ghost" size="sm" className="h-9" onClick={clearExportSelection}>
-                  Clear selection
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleExport}
-                disabled={
-                  filtered.length === 0 ||
-                  (csvExportScope === "selected" && exportSelectionIds.size === 0)
-                }
-                title={
-                  csvExportScope === "all_visible"
-                    ? "Download every row shown in the table (respects period + search filters)"
-                    : exportSelectionIds.size === 0
-                      ? "Check one or more rows in the table first"
-                      : "Download a CSV with only the checked rows (full row data)"
-                }
-                className="shadow-sm"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Download CSV
-              </Button>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border/70 bg-card/80 overflow-x-auto shadow-md ring-1 ring-black/[0.03] dark:ring-white/[0.04]">
-            <Table>
+          <div className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-border/70 bg-card/80 shadow-md ring-1 ring-black/[0.03] dark:ring-white/[0.04]">
+            <Table className="w-full max-w-full table-auto border-collapse text-left text-xs sm:text-sm [&_th]:h-auto [&_th]:py-2.5 [&_th]:px-3 [&_td]:py-2.5 [&_td]:px-3">
               <TableHeader>
                 <TableRow className="border-b border-primary/20 bg-gradient-to-r from-muted/80 to-muted/40 hover:from-muted/80 hover:to-muted/40">
                   {showExportCheckboxes ? (
-                    <TableHead className="w-12 pl-3">
+                    <TableHead className="w-10 min-w-[2.5rem] px-2 align-middle">
                       <Checkbox
                         checked={exportHeaderCheckboxState}
                         onCheckedChange={() => toggleExportAllVisible()}
@@ -881,32 +891,29 @@ export function MonthlyFeedbackManagement() {
                       />
                     </TableHead>
                   ) : null}
-                  <TableHead className="min-w-[12rem] text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                  <TableHead className="align-middle text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-foreground/90">
                     <span className="inline-flex items-center gap-1.5">
-                      <CalendarRange className="h-3.5 w-3.5 opacity-70" />
-                      Feedback period
+                      <CalendarRange className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+                      <span className="leading-tight">Feedback period</span>
                     </span>
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
-                    Employee Name
+                  <TableHead className="align-middle text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    <span className="leading-tight">Employee name</span>
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
-                    Employee ID
+                  <TableHead className="whitespace-nowrap align-middle text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    <span className="leading-tight">Employee ID</span>
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
-                    Reportee email
+                  <TableHead className="align-middle text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    <span className="leading-tight">Submitted by</span>
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wide text-foreground/90">
-                    Submitted by
+                  <TableHead className="align-middle text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    <span className="leading-tight">Overall</span>
                   </TableHead>
-                  <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
-                    Overall
+                  <TableHead className="whitespace-nowrap align-middle text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    <span className="leading-tight">Last updated</span>
                   </TableHead>
-                  <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
-                    Last updated
-                  </TableHead>
-                  <TableHead className="text-right text-[11px] font-bold uppercase tracking-wide text-foreground/90">
-                    View
+                  <TableHead className="w-12 align-middle text-[10px] sm:text-[11px] font-bold uppercase tracking-wide text-foreground/90">
+                    <span className="leading-tight">View</span>
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -927,7 +934,7 @@ export function MonthlyFeedbackManagement() {
                       )}
                     >
                       {showExportCheckboxes ? (
-                        <TableCell className="align-middle w-12 pl-3">
+                        <TableCell className="w-10 min-w-[2.5rem] align-middle px-2">
                           <Checkbox
                             checked={exportSelectionIds.has(x.id)}
                             onCheckedChange={() => toggleExportRow(x.id)}
@@ -936,19 +943,19 @@ export function MonthlyFeedbackManagement() {
                           />
                         </TableCell>
                       ) : null}
-                      <TableCell className="align-middle py-2.5">
+                      <TableCell className="max-w-[11rem] align-middle">
                         {cycle ? (
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 min-w-0 pr-2">
-                            <span className="font-semibold text-foreground leading-tight min-w-0 break-words">
-                              {cycle.label?.trim() || "Unknown cycle"}
+                          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                            <span className="font-semibold text-foreground text-xs sm:text-sm leading-snug break-words">
+                              {displayPeriodLabel(cycle.label)}
                             </span>
                             <PeriodStatusTableChip status={cycle.period_status} />
                           </div>
                         ) : (
-                          <div className="flex min-w-0 flex-col gap-0.5 pr-2">
-                            <span className="font-medium text-muted-foreground">Unknown cycle</span>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium text-muted-foreground text-xs">Unknown cycle</span>
                             <span
-                              className="text-[11px] font-mono text-muted-foreground/90 truncate max-w-[14rem]"
+                              className="truncate font-mono text-[10px] text-muted-foreground/90"
                               title={x.period_id}
                             >
                               {x.period_id}
@@ -956,30 +963,38 @@ export function MonthlyFeedbackManagement() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="font-semibold text-foreground align-middle">{x.employee_name || "—"}</TableCell>
-                      <TableCell className="text-muted-foreground align-middle">
+                      <TableCell className="max-w-[10rem] align-middle text-xs sm:text-sm font-semibold text-foreground leading-snug sm:max-w-[14rem]">
+                        <span className="line-clamp-2 break-words">{x.employee_name || "—"}</span>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap align-middle text-muted-foreground text-xs tabular-nums">
                         {x.employee_code || x.employee_id || "—"}
                       </TableCell>
-                      <TableCell className="align-middle text-muted-foreground text-xs break-all max-w-[14rem]">
-                        {x.employee_email?.trim() || "—"}
+                      <TableCell className="max-w-[12rem] align-middle text-xs sm:text-sm text-foreground leading-snug sm:max-w-[16rem]">
+                        <span className="line-clamp-2 break-words">{x.manager_name}</span>
                       </TableCell>
-                      <TableCell className="align-middle">{x.manager_name}</TableCell>
-                      <TableCell className="text-right align-middle">
+                      <TableCell className="align-middle">
                         <span
                           className={cn(
-                            "inline-flex max-w-[12rem] justify-end rounded-full border px-2.5 py-1 text-xs font-medium leading-tight",
+                            "inline-block max-w-[11rem] rounded-full border px-2 py-0.5 text-left text-[10px] sm:text-[11px] font-medium leading-snug",
                             overallSatisfactionPillClass(overallN)
                           )}
                         >
                           {labelForOverallSatisfaction(overallN)}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums text-muted-foreground align-middle">
+                      <TableCell className="whitespace-nowrap align-middle text-[11px] sm:text-xs tabular-nums text-muted-foreground">
                         {(x.updated_at || x.submitted_at || "").toString().slice(0, 10) || "—"}
                       </TableCell>
-                      <TableCell className="text-right align-middle">
-                        <Button variant="outline" size="sm" onClick={() => setSelected(x)} className="shadow-sm">
-                          <Eye className="h-4 w-4" />
+                      <TableCell className="w-12 align-middle">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setSelected(x)}
+                          aria-label="View report"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -987,7 +1002,7 @@ export function MonthlyFeedbackManagement() {
                 })}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={showExportCheckboxes ? 9 : 8} className="text-center text-muted-foreground py-10">
+                    <TableCell colSpan={showExportCheckboxes ? 8 : 7} className="text-center text-muted-foreground py-10">
                       No monthly feedback records found.
                     </TableCell>
                   </TableRow>

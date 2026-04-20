@@ -53,8 +53,8 @@ export default function MonthlyFeedbackReports() {
           <div className="fixed inset-0 bg-black/20 z-10 lg:hidden" onClick={toggleSidebar} />
         )}
 
-        <main className="flex-1 transition-all duration-300 lg:ml-60 pt-16">
-          <div className="container px-6 py-8 max-w-6xl">
+        <main className="flex-1 min-w-0 transition-all duration-300 lg:ml-60 pt-16">
+          <div className="w-full max-w-[min(92rem,calc(100vw-1rem))] mx-auto px-3 sm:px-5 lg:px-8 py-5 sm:py-7">
             {role.status === "loading" ? (
               <div className="py-10 text-sm text-muted-foreground">Loading…</div>
             ) : role.status === "unauthorized" ? (

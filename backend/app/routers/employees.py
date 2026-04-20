@@ -882,6 +882,18 @@ async def update_employee(employee_id: str, request: Request, current_user: dict
                 update_data[key] = raw_body[key] if raw_body[key] is not None else ""
         print(f"DEBUG: Update data: {update_data}")
         
+        # Restrict reporting line edits to admins only.
+        requested_reporting_to = update_data.get("reporting_to", existing_employee.get("reporting_to"))
+        current_reporting_to = existing_employee.get("reporting_to")
+        reporting_to_changed = requested_reporting_to != current_reporting_to
+        if reporting_to_changed:
+            requester_email = (current_user.get("email") or current_user.get("username") or "").strip().lower()
+            if not requester_email or not await is_user_admin(requester_email):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only admins can change an employee's reporting manager.",
+                )
+
         # Merge existing data with update data
         merged_data = existing_employee.copy()
         merged_data.update(update_data)

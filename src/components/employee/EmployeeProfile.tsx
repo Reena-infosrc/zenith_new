@@ -395,7 +395,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         emergencyContactRelationship: profileData.emergencyContactRelationship,
         emergencyContactPhone: profileData.emergencyContactPhone,
         department: profileData.department,
-        reporting_to: profileData.reporting_to,
+        ...(isAdmin ? { reporting_to: profileData.reporting_to } : {}),
         bio: profileData.bio,
         projectStartDate: profileData.projectStartDate,
         projectEndDate: profileData.projectEndDate,
@@ -852,9 +852,14 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     )}
                   </div>
 
-                  {/* Manager */}
+                  {/* Reporting manager */}
                   <div className="space-y-2">
-                    <Label htmlFor="manager">Manager</Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="manager">Reporting manager</Label>
+                      {isEditing && !canEditBasicInfo ? (
+                        <span className="text-[11px] text-muted-foreground">Admin only</span>
+                      ) : null}
+                    </div>
                     {isEditing ? (
                       <>
                         {/* Searchable Combobox */}

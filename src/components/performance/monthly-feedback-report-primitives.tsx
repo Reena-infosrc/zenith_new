@@ -43,9 +43,10 @@ export function ReportKV({
   );
 }
 
-export const REPORT_PAGE_TITLE = "text-2xl font-bold tracking-tight text-foreground";
-export const REPORT_CARD_TITLE = "text-lg font-bold tracking-tight text-foreground";
-export const REPORT_CARD_HEADER_BAND = "space-y-2 border-b border-border/70 bg-muted/35 py-4";
+/** Responsive scale: comfortable on laptop, not oversized on large monitors. */
+export const REPORT_PAGE_TITLE = "text-xl sm:text-2xl font-bold tracking-tight text-foreground";
+export const REPORT_CARD_TITLE = "text-base sm:text-lg font-bold tracking-tight text-foreground";
+export const REPORT_CARD_HEADER_BAND = "space-y-2 border-b border-border/70 bg-muted/35 py-3 sm:py-4";
 
 /** Criterion / question line above a rating answer in read-only reports. */
 export const REPORT_RATING_QUESTION_CLASS =

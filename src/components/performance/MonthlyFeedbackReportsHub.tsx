@@ -15,7 +15,7 @@ import { CLIENT_RM_FEEDBACK_ROUTES } from "@/lib/client-rm-feedback-routes";
  */
 export function MonthlyFeedbackReportsHub() {
   return (
-    <div className="space-y-6 mb-8">
+    <div className="space-y-4 sm:space-y-6 mb-6 sm:mb-8">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -38,7 +38,7 @@ export function MonthlyFeedbackReportsHub() {
 
       <div>
         <h1 className={REPORT_PAGE_TITLE}>Monthly feedback</h1>
-        <p className="text-sm text-muted-foreground mt-2 max-w-2xl leading-relaxed">
+        <p className="text-sm text-muted-foreground mt-1.5 sm:mt-2 max-w-3xl leading-relaxed">
           Organization-wide visibility into periods, submissions, and exports. Line managers submit feedback from
           Performance → My Team; records are keyed by period and submission with optional edit snapshots.
         </p>

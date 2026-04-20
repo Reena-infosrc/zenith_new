@@ -341,6 +341,15 @@ async def create_period(
     current_user: dict = Depends(require_admin_user),
 ):
     table = await get_client_rm_feedback_table()
+    existing_open = await _scan_full(
+        table,
+        FilterExpression=Attr("entity_type").eq("period") & Attr("period_status").eq("open"),
+    )
+    if existing_open:
+        raise HTTPException(
+            status_code=409,
+            detail="An open monthly feedback period already exists. Close it before creating a new period.",
+        )
     now = _now_iso()
     item = {
         "id": generate_id(),
