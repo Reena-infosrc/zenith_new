@@ -37,6 +37,15 @@ class ClientRMFeedbackSubmissionCreate(BaseModel):
     additional_feedback: Optional[str] = None
     overall_satisfaction: int
     started_at: Optional[str] = None
+    # Organisational context snapshot — auto-populated by backend at submit time.
+    # These capture the employee's org state at the moment of submission so that
+    # historical records remain accurate when managers, clients, or departments change.
+    snapshot_reporting_to_id: Optional[str] = None
+    snapshot_reporting_to_name: Optional[str] = None
+    snapshot_reporting_to_email: Optional[str] = None
+    snapshot_employee_department: Optional[str] = None
+    snapshot_employee_position: Optional[str] = None
+    snapshot_employee_account: Optional[str] = None
 
 
 class ClientRMFeedbackSubmissionUpdate(BaseModel):
@@ -68,6 +77,13 @@ class ClientRMFeedbackDraftUpsert(BaseModel):
     additional_feedback: Optional[str] = None
     overall_satisfaction: Optional[int] = None
     started_at: Optional[str] = None
+    # Organisational context snapshot — auto-populated by backend at draft save time.
+    snapshot_reporting_to_id: Optional[str] = None
+    snapshot_reporting_to_name: Optional[str] = None
+    snapshot_reporting_to_email: Optional[str] = None
+    snapshot_employee_department: Optional[str] = None
+    snapshot_employee_position: Optional[str] = None
+    snapshot_employee_account: Optional[str] = None
 
 
 class ClientRMFeedbackNotificationSummary(BaseModel):
@@ -90,3 +106,4 @@ class ClientRMFeedbackMeContext(BaseModel):
     is_admin: bool = False
     is_leadership: bool = False
     reportees: List[Dict[str, Any]] = []
+

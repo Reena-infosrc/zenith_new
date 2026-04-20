@@ -72,6 +72,13 @@ type FeedbackSubmission = {
   started_at?: string;
   submitted_at?: string;
   updated_at?: string;
+  /** Organisational context snapshot at submit time */
+  snapshot_reporting_to_id?: string;
+  snapshot_reporting_to_name?: string;
+  snapshot_reporting_to_email?: string;
+  snapshot_employee_department?: string;
+  snapshot_employee_position?: string;
+  snapshot_employee_account?: string;
 };
 
 type RatingFieldDef = { key: string; label: string; legacyKey?: string };
@@ -157,6 +164,10 @@ const CSV_COLUMN_DEFS: { header: string; get: (ctx: ExportCtx) => string }[] = [
   { header: "Employee Name", get: ({ sub }) => csvNa(sub.employee_name) },
   { header: "Employee ID", get: ({ sub }) => csvNa(sub.employee_code) },
   { header: "Billing Status", get: ({ sub }) => csvNa(sub.billing_status) },
+  { header: "Reporting To (at time)", get: ({ sub }) => csvNa(sub.snapshot_reporting_to_name) },
+  { header: "Department (at time)", get: ({ sub }) => csvNa(sub.snapshot_employee_department) },
+  { header: "Position (at time)", get: ({ sub }) => csvNa(sub.snapshot_employee_position) },
+  { header: "Account (at time)", get: ({ sub }) => csvNa(sub.snapshot_employee_account) },
   {
     header: "Client Name",
     get: ({ sub }) => sub.billing_status === "billable" ? csvNa(sub.client_name) : "NA",
@@ -1048,6 +1059,18 @@ export function MonthlyFeedbackManagement() {
                   <ReportKV label="Employee name" value={selected.employee_name || "—"} />
                   <ReportKV label="Reportee email" value={selected.employee_email?.trim() || "—"} />
                   <ReportKV label="Submitted by" value={selected.manager_name || "—"} />
+                  {selected.snapshot_reporting_to_name && selected.snapshot_reporting_to_name !== selected.manager_name && (
+                    <ReportKV label="Reporting To (at time)" value={selected.snapshot_reporting_to_name} />
+                  )}
+                  {selected.snapshot_employee_department && (
+                    <ReportKV label="Department (at time)" value={selected.snapshot_employee_department} />
+                  )}
+                  {selected.snapshot_employee_position && (
+                    <ReportKV label="Position (at time)" value={selected.snapshot_employee_position} />
+                  )}
+                  {selected.snapshot_employee_account && (
+                    <ReportKV label="Account (at time)" value={selected.snapshot_employee_account} />
+                  )}
                   <ReportKV
                     label="Employee ID"
                     value={selected.employee_code?.trim() || selected.employee_id || "—"}

@@ -59,6 +59,7 @@ class DynamoDBService:
             "features": os.getenv("DYNAMODB_TABLE_FEATURES"),
             "clientRmFeedback": os.getenv("DYNAMODB_TABLE_CLIENT_RM_FEEDBACK"),
             "leadershipAccess": os.getenv("DYNAMODB_TABLE_LEADERSHIP_ACCESS"),
+            "monthlyFeedbackPeriods": os.getenv("DYNAMODB_TABLE_MONTHLY_FEEDBACK_PERIODS"),
         }
         self.session = None
         self.dynamodb = None
@@ -293,6 +294,11 @@ async def get_client_rm_feedback_table():
 async def get_leadership_access_table():
     """Get leadership access table"""
     return await dynamodb_service.get_table("leadershipAccess")
+
+
+async def get_monthly_feedback_periods_table():
+    """Get dedicated monthly feedback periods table (separated from feedback submissions)."""
+    return await dynamodb_service.get_table("monthlyFeedbackPeriods")
 
 async def get_review_table_by_draft_status(is_draft: bool):
     """Get review table based on draft status"""

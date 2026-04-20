@@ -993,6 +993,27 @@ resources:
             Projection:
               ProjectionType: ALL
 
+    ZenithHrMonthlyFeedbackPeriods:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: zenith-hr-monthly-feedback-periods-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: period_id
+            AttributeType: S
+          - AttributeName: period_status
+            AttributeType: S
+        KeySchema:
+          - AttributeName: period_id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: StatusIndex
+            KeySchema:
+              - AttributeName: period_status
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+
     ZenithHrPulsePhotosBucket:
       Type: AWS::S3::Bucket
       Properties:

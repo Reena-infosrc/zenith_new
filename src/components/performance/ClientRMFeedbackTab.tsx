@@ -77,6 +77,13 @@ type FeedbackSubmission = {
   updated_at?: string;
   /** Set when the reportee has opened the record (server). */
   reportee_seen?: boolean;
+  /** Organisational context snapshot at submit time */
+  snapshot_reporting_to_id?: string;
+  snapshot_reporting_to_name?: string;
+  snapshot_reporting_to_email?: string;
+  snapshot_employee_department?: string;
+  snapshot_employee_position?: string;
+  snapshot_employee_account?: string;
 };
 
 type FeedbackDraft = {
@@ -97,7 +104,13 @@ type FeedbackDraft = {
   ratings?: Record<string, number>;
   overall_satisfaction?: number;
   started_at?: string;
-  updated_at?: string;
+  /** Organisational context snapshot at draft save time */
+  snapshot_reporting_to_id?: string;
+  snapshot_reporting_to_name?: string;
+  snapshot_reporting_to_email?: string;
+  snapshot_employee_department?: string;
+  snapshot_employee_position?: string;
+  snapshot_employee_account?: string;
 };
 
 type HistorySortOrder = "desc" | "asc";
@@ -481,6 +494,18 @@ function SubmissionDetailContent({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
           <ReportKV label="Employee name" value={entry.employee_name || "—"} />
           <ReportKV label="Name (submitter)" value={entry.manager_name} />
+          {entry.snapshot_reporting_to_name && entry.snapshot_reporting_to_name !== entry.manager_name && (
+            <ReportKV label="Reporting To (at time)" value={entry.snapshot_reporting_to_name} />
+          )}
+          {entry.snapshot_employee_department && (
+            <ReportKV label="Department (at time)" value={entry.snapshot_employee_department} />
+          )}
+          {entry.snapshot_employee_position && (
+            <ReportKV label="Position (at time)" value={entry.snapshot_employee_position} />
+          )}
+          {entry.snapshot_employee_account && (
+            <ReportKV label="Account (at time)" value={entry.snapshot_employee_account} />
+          )}
           <ReportKV
             label="Employee ID"
             value={entry.employee_code?.trim() || entry.employee_id || "—"}

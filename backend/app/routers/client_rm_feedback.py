@@ -17,6 +17,7 @@ from ..database_dynamodb import (
     get_client_rm_feedback_table,
     get_leadership_access_table,
     get_employees_table,
+    get_monthly_feedback_periods_table,
     parse_dynamodb_item,
 )
 from ..models.client_rm_feedback import (
@@ -200,6 +201,25 @@ async def _get_direct_reports(manager_employee_id: str) -> List[Dict[str, Any]]:
     return reportees
 
 
+async def _build_org_snapshot(subject_employee: Dict[str, Any]) -> Dict[str, Any]:
+    """Build point-in-time organisational context snapshot for a subject employee.
+
+    Captures the employee's reporting line, department, position, and account
+    at the moment of the call so that historical submissions remain accurate
+    even when managers, clients, or departments change between months.
+    """
+    reporting_to_id = str(subject_employee.get("reporting_to") or "").strip()
+    reporting_to_emp = await _get_employee_by_id(reporting_to_id) if reporting_to_id else None
+    return {
+        "snapshot_reporting_to_id": reporting_to_id,
+        "snapshot_reporting_to_name": (reporting_to_emp.get("name") or "") if reporting_to_emp else "",
+        "snapshot_reporting_to_email": _normalize_email(reporting_to_emp.get("email") or "") if reporting_to_emp else "",
+        "snapshot_employee_department": str(subject_employee.get("department") or ""),
+        "snapshot_employee_position": str(subject_employee.get("position") or ""),
+        "snapshot_employee_account": str(subject_employee.get("account") or ""),
+    }
+
+
 def _validate_ratings(ratings: Dict[str, int]) -> None:
     for key, value in ratings.items():
         if not isinstance(value, int) or value < 1 or value > 5:
@@ -340,21 +360,27 @@ async def create_period(
     payload: ClientRMFeedbackPeriodCreate,
     current_user: dict = Depends(require_admin_user),
 ):
-    table = await get_client_rm_feedback_table()
-    existing_open = await _scan_full(
-        table,
-        FilterExpression=Attr("entity_type").eq("period") & Attr("period_status").eq("open"),
-    )
+    periods_table = await get_monthly_feedback_periods_table()
+    # Check for existing open periods via the StatusIndex GSI.
+    try:
+        response = await periods_table.query(
+            IndexName="StatusIndex",
+            KeyConditionExpression="period_status = :st",
+            ExpressionAttributeValues={":st": "open"},
+        )
+        existing_open = response.get("Items", [])
+    except ClientError:
+        # Fallback: full scan (e.g. local DynamoDB without GSI).
+        existing_open = await _scan_full(periods_table, FilterExpression=Attr("period_status").eq("open"))
     if existing_open:
         raise HTTPException(
             status_code=409,
             detail="An open monthly feedback period already exists. Close it before creating a new period.",
         )
     now = _now_iso()
+    period_id = generate_id()
     item = {
-        "id": generate_id(),
-        "entity_type": "period",
-        "period_id": generate_id(),
+        "period_id": period_id,
         "label": payload.label,
         "start_date": payload.start_date,
         "end_date": payload.end_date,
@@ -363,14 +389,14 @@ async def create_period(
         "updated_at": now,
         "created_by_email": _normalize_email(current_user.get("email") or current_user.get("username")),
     }
-    await table.put_item(Item=format_dynamodb_item(item))
+    await periods_table.put_item(Item=format_dynamodb_item(item))
     return item
 
 
 @router.get("/periods")
 async def list_periods(current_user: dict = Depends(get_current_active_user)):
-    table = await get_client_rm_feedback_table()
-    raw_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("period"))
+    periods_table = await get_monthly_feedback_periods_table()
+    raw_items = await _scan_full(periods_table)
     items = [parse_dynamodb_item(i) for i in raw_items]
     # Stable, predictable order: most recent window first (then newest created).
     items.sort(
@@ -386,11 +412,11 @@ async def update_period(
     payload: ClientRMFeedbackPeriodUpdate,
     _: dict = Depends(require_admin_user),
 ):
-    table = await get_client_rm_feedback_table()
-    raw_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("period") & Attr("period_id").eq(period_id))
-    if not raw_items:
+    periods_table = await get_monthly_feedback_periods_table()
+    response = await periods_table.get_item(Key={"period_id": period_id})
+    if "Item" not in response:
         raise HTTPException(status_code=404, detail="Period not found")
-    existing = parse_dynamodb_item(raw_items[0])
+    existing = parse_dynamodb_item(response["Item"])
     updates = payload.model_dump(exclude_none=True)
     updates["updated_at"] = _now_iso()
     if "status" in updates:
@@ -400,7 +426,7 @@ async def update_period(
     if "end_date" in updates:
         updates["end_date"] = updates.pop("end_date")
     existing.update(updates)
-    await table.put_item(Item=format_dynamodb_item(existing))
+    await periods_table.put_item(Item=format_dynamodb_item(existing))
     return existing
 
 
@@ -512,6 +538,9 @@ async def upsert_active_draft(
         subj_em = subject_employee.get("email")
         if subj_em:
             item["employee_email"] = _normalize_email(subj_em)
+        # Organisational context snapshot — captures org state at draft-save time.
+        snapshot = await _build_org_snapshot(subject_employee)
+        item.update(snapshot)
     if not item.get("employee_code"):
         item["employee_code"] = payload.employee_id
     if current and current.get("created_at"):
@@ -543,11 +572,13 @@ async def create_submission(
         raise HTTPException(status_code=403, detail="You can submit feedback only for your direct reportees")
 
     table = await get_client_rm_feedback_table()
-    p_raw = await _scan_full(table, FilterExpression=Attr("entity_type").eq("period") & Attr("period_id").eq(payload.period_id))
-    p_items = [parse_dynamodb_item(i) for i in p_raw]
-    if not p_items:
+    # Validate period exists and is open — direct get from dedicated periods table.
+    periods_table = await get_monthly_feedback_periods_table()
+    p_response = await periods_table.get_item(Key={"period_id": payload.period_id})
+    if "Item" not in p_response:
         raise HTTPException(status_code=400, detail="Invalid feedback period")
-    if p_items[0].get("period_status") != "open":
+    period_item = parse_dynamodb_item(p_response["Item"])
+    if period_item.get("period_status") != "open":
         raise HTTPException(status_code=400, detail="Feedback period is not open")
 
     raw_subs = await _scan_full(table, FilterExpression=(
@@ -603,6 +634,9 @@ async def create_submission(
         subj_em = subject_employee.get("email")
         if subj_em:
             item["employee_email"] = _normalize_email(subj_em)
+        # Organisational context snapshot — captures org state at submit time.
+        snapshot = await _build_org_snapshot(subject_employee)
+        item.update(snapshot)
     if not item.get("employee_code"):
         item["employee_code"] = payload.employee_id
     await table.put_item(Item=format_dynamodb_item(item))
@@ -731,8 +765,10 @@ async def get_notification_summary(current_user: dict = Depends(get_current_acti
     table = await get_client_rm_feedback_table()
     all_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("submission"))
     submissions = [parse_dynamodb_item(i) for i in all_items]
-    periods = await _scan_full(table, FilterExpression=Attr("entity_type").eq("period"))
-    period_items = [parse_dynamodb_item(p) for p in periods]
+    # Read periods from the dedicated periods table (lightweight, ~12 rows/year).
+    periods_table = await get_monthly_feedback_periods_table()
+    periods_raw = await _scan_full(periods_table)
+    period_items = [parse_dynamodb_item(p) for p in periods_raw]
     open_period_ids = {p.get("period_id") for p in period_items if p.get("period_status") == "open"}
     open_period_count = sum(1 for p in period_items if p.get("period_status") == "open")
 
