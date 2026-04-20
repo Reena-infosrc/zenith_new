@@ -11,11 +11,11 @@ import {
 /** Section card for read-only report / dashboard detail views. */
 export function ReportDetailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-muted/15 overflow-hidden shadow-sm">
-      <div className="border-b-2 border-border/60 bg-gradient-to-r from-muted/60 to-muted/30 px-4 py-2.5">
-        <h4 className="text-sm font-bold tracking-tight text-foreground">{title}</h4>
+    <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="px-5 pt-5 pb-3">
+        <h4 className="text-[15px] font-semibold tracking-tight text-foreground">{title}</h4>
       </div>
-      <div className="p-4">{children}</div>
+      <div className="px-5 pb-5">{children}</div>
     </div>
   );
 }
@@ -33,12 +33,12 @@ export function ReportKV({
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
-      <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <div className="rounded-lg border-2 border-border/60 bg-background px-3 py-2.5 text-sm font-semibold text-foreground shadow-sm min-h-[2.75rem] flex items-center">
+    <div className={cn("space-y-1.5", className)}>
+      <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <div className="text-sm font-medium text-foreground min-h-[1.5rem] flex items-center">
         {value}
       </div>
-      {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
+      {sub ? <p className="text-xs text-muted-foreground/80">{sub}</p> : null}
     </div>
   );
 }

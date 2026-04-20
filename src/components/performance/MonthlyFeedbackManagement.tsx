@@ -8,8 +8,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { authenticatedFetch } from "@/utils/auth-utils";
 import { API_BASE_URL } from "@/config/api";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { CalendarRange, Download, Eye, Loader2, Lock, Plus, Search } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -729,12 +731,25 @@ export function MonthlyFeedbackManagement() {
         </CardHeader>
         <CardContent className="space-y-3 pt-2">
           {periods.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No monthly feedback periods created yet.</p>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/10 py-12 text-center shadow-sm px-4 mt-2">
+              <div className="rounded-full bg-primary/5 p-4 mb-3">
+                <CalendarRange className="h-6 w-6 text-primary/40" />
+              </div>
+              <h3 className="text-base font-semibold text-foreground tracking-tight mb-1">No feedback periods</h3>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                You haven't created any feedback cycles yet. Open a new period above to start collecting reports.
+              </p>
+            </div>
           ) : openPeriodsSorted.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No open periods right now. Create one above, or use{" "}
-              <span className="font-medium text-foreground">Monthly feedback history</span> to review past cycles.
-            </p>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/10 py-12 text-center shadow-sm px-4 mt-2">
+              <div className="rounded-full bg-primary/5 p-4 mb-3">
+                <CalendarRange className="h-6 w-6 text-primary/40" />
+              </div>
+              <h3 className="text-base font-semibold text-foreground tracking-tight mb-1">No open periods right now</h3>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                Create one above, or use <span className="font-medium text-foreground">Monthly feedback history</span> to review past cycles.
+              </p>
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {openPeriodsSorted.map((p) => (
@@ -990,13 +1005,27 @@ export function MonthlyFeedbackManagement() {
                         )}
                       </TableCell>
                       <TableCell className="max-w-[10rem] align-middle text-xs sm:text-sm font-semibold text-foreground leading-snug sm:max-w-[14rem]">
-                        <span className="line-clamp-2 break-words">{x.employee_name || "—"}</span>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-6 w-6">
+                            <AvatarFallback className="text-[10px] bg-primary/10 text-primary font-bold">
+                              {x.employee_name?.charAt(0) || "U"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="line-clamp-2 break-words">{x.employee_name || "—"}</span>
+                        </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap align-middle text-muted-foreground text-xs tabular-nums">
                         {x.employee_code || x.employee_id || "—"}
                       </TableCell>
                       <TableCell className="max-w-[12rem] align-middle text-xs sm:text-sm text-foreground leading-snug sm:max-w-[16rem]">
-                        <span className="line-clamp-2 break-words">{x.manager_name}</span>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-6 w-6">
+                            <AvatarFallback className="text-[10px] bg-muted-foreground/10 text-muted-foreground font-semibold">
+                              {x.manager_name?.charAt(0) || "U"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="line-clamp-2 break-words">{x.manager_name}</span>
+                        </div>
                       </TableCell>
                       <TableCell className="align-middle">
                         <span
@@ -1028,8 +1057,16 @@ export function MonthlyFeedbackManagement() {
                 })}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={showExportCheckboxes ? 8 : 7} className="text-center text-muted-foreground py-10">
-                      No monthly feedback records found.
+                    <TableCell colSpan={showExportCheckboxes ? 8 : 7} className="text-center p-0">
+                      <div className="flex flex-col items-center justify-center py-16 px-4">
+                        <div className="rounded-full bg-muted/50 p-5 mb-4">
+                          <Search className="h-7 w-7 text-muted-foreground/60" />
+                        </div>
+                        <h3 className="text-base font-semibold text-foreground tracking-tight">No records found</h3>
+                        <p className="text-sm text-muted-foreground mt-1 max-w-[16rem]">
+                          We couldn't find any feedback submissions matching your current filters.
+                        </p>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )}
@@ -1076,7 +1113,11 @@ export function MonthlyFeedbackManagement() {
                     value={selected.employee_code?.trim() || selected.employee_id || "—"}
                   />
                   <ReportKV label="Period" value={submissionPeriodLabel || "—"} />
-                  <ReportKV label="Billing status" value={selected.billing_status} />
+                  <ReportKV label="Billing status" value={
+                    <Badge variant={selected.billing_status === "billable" ? "default" : "secondary"}>
+                      {selected.billing_status}
+                    </Badge>
+                  } />
                   {selected.billing_status === "billable" && (
                     <>
                       <ReportKV label="Client name" value={selected.client_name || "—"} />

@@ -12,7 +12,7 @@ import { API_BASE_URL } from "@/config/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useEmployees } from "@/hooks/use-employees";
-import { Loader2, Star, Users, Network, CalendarRange, Lock } from "lucide-react";
+import { Loader2, Star, Users, Network, CalendarRange, Lock, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   OverallSatisfactionReadOnly,
@@ -273,11 +273,11 @@ function RatingMatrixTable({
                               aria-checked={selected}
                               title={opt.label}
                               className={cn(
-                                "flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] rounded-md px-1 py-2 sm:px-1.5 text-center text-[11px] sm:text-xs leading-tight transition-all duration-150",
+                                "flex-1 min-w-[4.75rem] sm:min-w-[5.25rem] rounded-md px-1 py-2 sm:px-1.5 text-center text-[11px] sm:text-xs leading-tight transition-all duration-200 active:scale-95",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                                 selected
-                                  ? "bg-primary font-semibold text-primary-foreground shadow-md ring-1 ring-primary/30"
-                                  : "font-medium text-foreground/75 hover:bg-background hover:text-foreground hover:shadow-sm"
+                                  ? "bg-primary font-semibold text-primary-foreground shadow-md ring-1 ring-primary/30 scale-[1.02]"
+                                  : "font-medium text-foreground/75 hover:bg-background hover:text-foreground hover:shadow-sm hover:scale-[1.01]"
                               )}
                               onClick={() => onPick(field.key, opt.value)}
                             >
@@ -511,7 +511,11 @@ function SubmissionDetailContent({
             value={entry.employee_code?.trim() || entry.employee_id || "—"}
           />
           <ReportKV label="Period" value={period?.label?.trim() || "—"} />
-          <ReportKV label="Billing status" value={billingLabel(entry.billing_status)} />
+          <ReportKV label="Billing status" value={
+            <Badge variant={entry.billing_status === "billable" ? "default" : "secondary"}>
+              {billingLabel(entry.billing_status)}
+            </Badge>
+          } />
           {entry.billing_status === "billable" && (
             <>
               <ReportKV label="Client name" value={entry.client_name || "—"} />
@@ -1923,25 +1927,41 @@ export function ClientRMFeedbackTab({
                     </Card>
                   </div>
 
-                  <div className="flex flex-wrap gap-3 pt-1">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={onSaveDraft}
-                      disabled={savingDraft || submitting || !periodId || !reporteeId || !!editingId}
-                    >
-                      {savingDraft && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                      Save draft
-                    </Button>
-                    <Button
-                      onClick={onSubmit}
-                      disabled={submitting || (!editingId && pendingOpenPeriods.length === 0) || !periodId}
-                      size="lg"
-                      className="min-w-[160px]"
-                    >
-                      {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                      {editingId ? "Save changes" : "Submit feedback"}
-                    </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+                    <div className="flex flex-wrap gap-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={onSaveDraft}
+                        disabled={savingDraft || submitting || !periodId || !reporteeId || !!editingId}
+                      >
+                        {savingDraft && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                        Save draft
+                      </Button>
+                      <Button
+                        onClick={onSubmit}
+                        disabled={submitting || (!editingId && pendingOpenPeriods.length === 0) || !periodId}
+                        size="lg"
+                        className="min-w-[160px]"
+                      >
+                        {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                        {editingId ? "Save changes" : "Submit feedback"}
+                      </Button>
+                    </div>
+                    {!editingId && (
+                      <div className="flex items-center text-xs font-medium text-muted-foreground sm:mr-3">
+                        {savingDraft ? (
+                          <span className="flex items-center animate-pulse">
+                            <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Saving draft...
+                          </span>
+                        ) : activeDraft?.updated_at ? (
+                          <span className="flex items-center">
+                            <Check className="h-3.5 w-3.5 mr-1.5 text-green-500" />
+                            Draft saved at {new Date(activeDraft.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </DialogContent>
               </Dialog>
@@ -1986,11 +2006,19 @@ export function ClientRMFeedbackTab({
           </div>
         )}
         {!showManagerEditor && reporteeHistoryRows.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                {historyScope === "this-month"
-                  ? "No feedback records available for this month."
-                  : "No feedback records available from previous months."}
+            <Card className="border-dashed bg-muted/10 shadow-sm border-border/70">
+              <CardContent className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                <div className="rounded-full bg-primary/5 p-4 mb-3">
+                  <CalendarRange className="h-6 w-6 text-primary/40" />
+                </div>
+                <h3 className="text-base font-semibold text-foreground tracking-tight mb-1">
+                  No feedback records
+                </h3>
+                <p className="text-sm text-muted-foreground max-w-sm">
+                  {historyScope === "this-month"
+                    ? "Your line manager hasn't submitted any feedback for you during the current month."
+                    : "There are no historical feedback records available from previous months."}
+                </p>
               </CardContent>
             </Card>
           ) : !showManagerEditor ? (
