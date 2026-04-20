@@ -31,6 +31,7 @@ custom:
     revenueForecasts: ${env:DYNAMODB_TABLE_REVENUE_FORECASTS}
     clientRmFeedback: ${env:DYNAMODB_TABLE_CLIENT_RM_FEEDBACK}
     leadershipAccess: ${env:DYNAMODB_TABLE_LEADERSHIP_ACCESS}
+    monthlyFeedbackPeriods: ${env:DYNAMODB_TABLE_MONTHLY_FEEDBACK_PERIODS}
 
   # VPC Configuration
   vpcId: !Ref ZenithHrPulseVPC
@@ -92,6 +93,8 @@ provider:
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.clientRmFeedback}/index/*
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.leadershipAccess}
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.leadershipAccess}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.monthlyFeedbackPeriods}
+            - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.monthlyFeedbackPeriods}/index/*
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.users}
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.users}/index/*
 
@@ -388,6 +391,8 @@ resources:
                 Value: zenith-hr-client-rm-feedback-${self:provider.stage}
               - Name: DYNAMODB_TABLE_LEADERSHIP_ACCESS
                 Value: zenith-hr-leadership-access-${self:provider.stage}
+              - Name: DYNAMODB_TABLE_MONTHLY_FEEDBACK_PERIODS
+                Value: zenith-hr-monthly-feedback-periods-${self:provider.stage}
               - Name: S3_BUCKET_PHOTOS
                 Value: zenith-hr-pulse-photos-${self:provider.stage}
               - Name: S3_BUCKET_DOCUMENTS
