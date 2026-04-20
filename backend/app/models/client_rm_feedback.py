@@ -29,6 +29,9 @@ class ClientRMFeedbackSubmissionCreate(BaseModel):
     client_name: str = ""
     project_name: str = ""
     client_reporting_manager_name: str = ""
+    # Billable-only fields: required when billing_status == "billable".
+    client_manager_name: Optional[str] = None
+    client_manager_email: Optional[str] = None
     info_services_reporting_manager_name: str
     ratings: Dict[str, int]
     additional_feedback: Optional[str] = None
@@ -41,6 +44,8 @@ class ClientRMFeedbackSubmissionUpdate(BaseModel):
     client_name: Optional[str] = None
     project_name: Optional[str] = None
     client_reporting_manager_name: Optional[str] = None
+    client_manager_name: Optional[str] = None
+    client_manager_email: Optional[str] = None
     info_services_reporting_manager_name: Optional[str] = None
     ratings: Optional[Dict[str, int]] = None
     additional_feedback: Optional[str] = None
@@ -56,6 +61,8 @@ class ClientRMFeedbackDraftUpsert(BaseModel):
     client_name: Optional[str] = None
     project_name: Optional[str] = None
     client_reporting_manager_name: Optional[str] = None
+    client_manager_name: Optional[str] = None
+    client_manager_email: Optional[str] = None
     info_services_reporting_manager_name: Optional[str] = None
     ratings: Optional[Dict[str, int]] = None
     additional_feedback: Optional[str] = None

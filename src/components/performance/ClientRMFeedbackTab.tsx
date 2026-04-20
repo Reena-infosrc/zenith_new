@@ -65,6 +65,9 @@ type FeedbackSubmission = {
   client_name?: string;
   project_name?: string;
   client_reporting_manager_name?: string;
+  /** Billable-only fields — populated when billing_status === "billable". */
+  client_manager_name?: string;
+  client_manager_email?: string;
   info_services_reporting_manager_name?: string;
   additional_feedback?: string;
   ratings?: Record<string, number>;
@@ -87,6 +90,8 @@ type FeedbackDraft = {
   client_name?: string;
   project_name?: string;
   client_reporting_manager_name?: string;
+  client_manager_name?: string;
+  client_manager_email?: string;
   info_services_reporting_manager_name?: string;
   additional_feedback?: string;
   ratings?: Record<string, number>;
@@ -482,6 +487,13 @@ function SubmissionDetailContent({
           />
           <ReportKV label="Period" value={period?.label?.trim() || "—"} />
           <ReportKV label="Billing status" value={billingLabel(entry.billing_status)} />
+          {entry.billing_status === "billable" && (
+            <>
+              <ReportKV label="Client name" value={entry.client_name || "—"} />
+              <ReportKV label="Client manager name" value={entry.client_manager_name || "—"} />
+              <ReportKV label="Client manager email" value={entry.client_manager_email || "—"} />
+            </>
+          )}
           <ReportKV
             label="Info Services reporting manager name"
             value={entry.info_services_reporting_manager_name || "—"}
@@ -603,6 +615,9 @@ export function ClientRMFeedbackTab({
   const [periodId, setPeriodId] = useState<string>("");
   const [reporteeId, setReporteeId] = useState<string>("");
   const [billingStatus, setBillingStatus] = useState<string>("");
+  const [clientName, setClientName] = useState<string>("");
+  const [clientManagerName, setClientManagerName] = useState<string>("");
+  const [clientManagerEmail, setClientManagerEmail] = useState<string>("");
   const [infoServicesReportingManagerName, setInfoServicesReportingManagerName] = useState("");
   const [additionalFeedback, setAdditionalFeedback] = useState("");
   const [overallSatisfaction, setOverallSatisfaction] = useState<number>(0);
@@ -623,7 +638,7 @@ export function ClientRMFeedbackTab({
 
   useEffect(() => {
     setSubmitHighlightKeys(new Set());
-  }, [billingStatus, additionalFeedback, overallSatisfaction, ratings]);
+  }, [billingStatus, clientName, clientManagerName, clientManagerEmail, additionalFeedback, overallSatisfaction, ratings]);
 
   const managerEmail = user?.email || "";
   const resolvedInfoServicesManagerName = selfName.trim() || infoServicesReportingManagerName.trim();
@@ -923,6 +938,9 @@ export function ClientRMFeedbackTab({
     setEditingId(null);
     setStartedAt(null);
     setBillingStatus("");
+    setClientName("");
+    setClientManagerName("");
+    setClientManagerEmail("");
     setInfoServicesReportingManagerName(selfName || "");
     setAdditionalFeedback("");
     setOverallSatisfaction(0);
@@ -974,6 +992,9 @@ export function ClientRMFeedbackTab({
       setBillingStatus(
         draft.billing_status && isValidBillingStatus(draft.billing_status) ? draft.billing_status : ""
       );
+      setClientName(draft.client_name || "");
+      setClientManagerName(draft.client_manager_name || "");
+      setClientManagerEmail(draft.client_manager_email || "");
       setInfoServicesReportingManagerName(draft.info_services_reporting_manager_name || "");
       setAdditionalFeedback(draft.additional_feedback || "");
       const os = draft.overall_satisfaction;
@@ -990,6 +1011,9 @@ export function ClientRMFeedbackTab({
         period_id: periodId,
         employee_id: reporteeId,
         billing_status: draft.billing_status && isValidBillingStatus(draft.billing_status) ? draft.billing_status : "",
+        client_name: draft.client_name || "",
+        client_manager_name: draft.client_manager_name || "",
+        client_manager_email: draft.client_manager_email || "",
         info_services_reporting_manager_name: draft.info_services_reporting_manager_name || "",
         additional_feedback: draft.additional_feedback || "",
         overall_satisfaction:
@@ -1029,10 +1053,14 @@ export function ClientRMFeedbackTab({
       return;
     }
     const draftRatings = collectRatingsPayload(ratings);
+    const isBillable = billingStatus === "billable";
     const signature = JSON.stringify({
       period_id: periodId,
       employee_id: selectedReportee.id,
       billing_status: isValidBillingStatus(billingStatus) ? billingStatus : "",
+      client_name: isBillable ? clientName : "",
+      client_manager_name: isBillable ? clientManagerName : "",
+      client_manager_email: isBillable ? clientManagerEmail : "",
       info_services_reporting_manager_name: resolvedInfoServicesManagerName,
       additional_feedback: additionalFeedback,
       overall_satisfaction: overallSatisfaction >= 1 && overallSatisfaction <= 5 ? overallSatisfaction : 0,
@@ -1050,6 +1078,9 @@ export function ClientRMFeedbackTab({
           employee_name: selectedReportee.name,
           employee_code: selectedReportee.employee_id,
           billing_status: isValidBillingStatus(billingStatus) ? billingStatus : undefined,
+          client_name: isBillable ? (clientName || undefined) : undefined,
+          client_manager_name: isBillable ? (clientManagerName || undefined) : undefined,
+          client_manager_email: isBillable ? (clientManagerEmail || undefined) : undefined,
           info_services_reporting_manager_name: resolvedInfoServicesManagerName || undefined,
           ratings: Object.keys(draftRatings).length ? draftRatings : undefined,
           additional_feedback: additionalFeedback || undefined,
@@ -1087,6 +1118,9 @@ export function ClientRMFeedbackTab({
     selectedReportee,
     editingId,
     billingStatus,
+    clientName,
+    clientManagerName,
+    clientManagerEmail,
     resolvedInfoServicesManagerName,
     additionalFeedback,
     overallSatisfaction,
@@ -1103,6 +1137,11 @@ export function ClientRMFeedbackTab({
     const missing: { key: string; label: string }[] = [];
     if (!periodId) missing.push({ key: "period", label: "Feedback period" });
     if (!isValidBillingStatus(billingStatus)) missing.push({ key: "billing", label: "Billing status" });
+    if (billingStatus === "billable") {
+      if (!clientName.trim()) missing.push({ key: "client_name", label: "Client name" });
+      if (!clientManagerName.trim()) missing.push({ key: "client_manager_name", label: "Client manager name" });
+      if (!clientManagerEmail.trim()) missing.push({ key: "client_manager_email", label: "Client manager email" });
+    }
     if (!resolvedInfoServicesManagerName.trim()) {
       missing.push({
         key: "info_services_reporting_manager_name",
@@ -1125,6 +1164,9 @@ export function ClientRMFeedbackTab({
   }, [
     periodId,
     billingStatus,
+    clientName,
+    clientManagerName,
+    clientManagerEmail,
     resolvedInfoServicesManagerName,
     ratings,
     overallSatisfaction,
@@ -1163,12 +1205,16 @@ export function ClientRMFeedbackTab({
     const ratingsOut = collectRatingsPayload(ratings);
     setSubmitting(true);
     try {
+      const isBillableSubmit = billingStatus === "billable";
       const body = {
         period_id: periodId,
         employee_id: selectedReportee.id,
         employee_name: selectedReportee.name,
         employee_code: selectedReportee.employee_id,
         billing_status: billingStatus as (typeof BILLING_VALUES)[number],
+        client_name: isBillableSubmit ? clientName : "",
+        client_manager_name: isBillableSubmit ? clientManagerName : undefined,
+        client_manager_email: isBillableSubmit ? clientManagerEmail : undefined,
         info_services_reporting_manager_name: resolvedInfoServicesManagerName,
         ratings: ratingsOut,
         additional_feedback: additionalFeedback || undefined,
@@ -1721,6 +1767,71 @@ export function ClientRMFeedbackTab({
                             </div>
                           </div>
                         </div>
+                        {billingStatus === "billable" && (
+                          <div className="mt-5 grid grid-cols-1 md:grid-cols-3 md:gap-x-6 gap-y-5 md:items-start">
+                            <div
+                              id="crm-field-client_name"
+                              className={cn(
+                                "space-y-2 rounded-md min-w-0",
+                                submitHighlightKeys.has("client_name") &&
+                                  "ring-2 ring-destructive ring-offset-2 ring-offset-background p-1 -m-1"
+                              )}
+                            >
+                              <Label htmlFor="crm-client-name">Client name *</Label>
+                              <Input
+                                id="crm-client-name"
+                                value={clientName}
+                                onChange={(e) => setClientName(e.target.value)}
+                                placeholder="Client name…"
+                                className={cn(
+                                  "bg-background",
+                                  submitHighlightKeys.has("client_name") && "border-destructive ring-1 ring-destructive"
+                                )}
+                              />
+                            </div>
+                            <div
+                              id="crm-field-client_manager_name"
+                              className={cn(
+                                "space-y-2 rounded-md min-w-0",
+                                submitHighlightKeys.has("client_manager_name") &&
+                                  "ring-2 ring-destructive ring-offset-2 ring-offset-background p-1 -m-1"
+                              )}
+                            >
+                              <Label htmlFor="crm-client-manager-name">Client manager name *</Label>
+                              <Input
+                                id="crm-client-manager-name"
+                                value={clientManagerName}
+                                onChange={(e) => setClientManagerName(e.target.value)}
+                                placeholder="Client manager name…"
+                                className={cn(
+                                  "bg-background",
+                                  submitHighlightKeys.has("client_manager_name") && "border-destructive ring-1 ring-destructive"
+                                )}
+                              />
+                            </div>
+                            <div
+                              id="crm-field-client_manager_email"
+                              className={cn(
+                                "space-y-2 rounded-md min-w-0",
+                                submitHighlightKeys.has("client_manager_email") &&
+                                  "ring-2 ring-destructive ring-offset-2 ring-offset-background p-1 -m-1"
+                              )}
+                            >
+                              <Label htmlFor="crm-client-manager-email">Client manager email *</Label>
+                              <Input
+                                id="crm-client-manager-email"
+                                type="email"
+                                value={clientManagerEmail}
+                                onChange={(e) => setClientManagerEmail(e.target.value)}
+                                placeholder="client.manager@example.com"
+                                className={cn(
+                                  "bg-background",
+                                  submitHighlightKeys.has("client_manager_email") && "border-destructive ring-1 ring-destructive"
+                                )}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
 

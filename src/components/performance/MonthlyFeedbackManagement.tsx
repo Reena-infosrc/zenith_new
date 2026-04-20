@@ -61,6 +61,9 @@ type FeedbackSubmission = {
   client_name?: string;
   project_name?: string;
   client_reporting_manager_name?: string;
+  /** Billable-only fields — populated when billing_status === "billable". */
+  client_manager_name?: string;
+  client_manager_email?: string;
   info_services_reporting_manager_name?: string;
   ratings?: Record<string, number>;
   additional_feedback?: string;
@@ -154,6 +157,18 @@ const CSV_COLUMN_DEFS: { header: string; get: (ctx: ExportCtx) => string }[] = [
   { header: "Employee Name", get: ({ sub }) => csvNa(sub.employee_name) },
   { header: "Employee ID", get: ({ sub }) => csvNa(sub.employee_code) },
   { header: "Billing Status", get: ({ sub }) => csvNa(sub.billing_status) },
+  {
+    header: "Client Name",
+    get: ({ sub }) => sub.billing_status === "billable" ? csvNa(sub.client_name) : "NA",
+  },
+  {
+    header: "Client Manager Name",
+    get: ({ sub }) => sub.billing_status === "billable" ? csvNa(sub.client_manager_name) : "NA",
+  },
+  {
+    header: "Client Manager Email",
+    get: ({ sub }) => sub.billing_status === "billable" ? csvNa(sub.client_manager_email) : "NA",
+  },
   {
     header: "Info Services Reporting Manager Name",
     get: ({ sub }) => csvNa(sub.info_services_reporting_manager_name),
@@ -1039,6 +1054,13 @@ export function MonthlyFeedbackManagement() {
                   />
                   <ReportKV label="Period" value={submissionPeriodLabel || "—"} />
                   <ReportKV label="Billing status" value={selected.billing_status} />
+                  {selected.billing_status === "billable" && (
+                    <>
+                      <ReportKV label="Client name" value={selected.client_name || "—"} />
+                      <ReportKV label="Client manager name" value={selected.client_manager_name || "—"} />
+                      <ReportKV label="Client manager email" value={selected.client_manager_email || "—"} />
+                    </>
+                  )}
                   <ReportKV
                     label="Info Services reporting manager name"
                     value={selected.info_services_reporting_manager_name || "—"}
