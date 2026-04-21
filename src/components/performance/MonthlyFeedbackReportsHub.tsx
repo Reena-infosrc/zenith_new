@@ -20,12 +20,6 @@ export function MonthlyFeedbackReportsHub() {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link to={CLIENT_RM_FEEDBACK_ROUTES.home}>Home</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
               <Link to={CLIENT_RM_FEEDBACK_ROUTES.performanceManager()}>Performance</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
