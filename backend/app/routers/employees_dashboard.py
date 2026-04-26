@@ -125,7 +125,7 @@ async def get_employees_dashboard(
             if not all_items:
                 return _EMPTY_DASHBOARD
 
-            employees = [parse_dynamodb_item(item) for item in all_items]
+            employees = [parse_dynamodb_item(item, "employees") for item in all_items]
             _warm_shared_employee_cache(employees)
 
         # --- 2. Single-pass aggregation ---

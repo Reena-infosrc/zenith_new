@@ -132,7 +132,7 @@ def _review_sk(review_id: str) -> str:
 
 
 def _map_cycle(item: Dict[str, Any]) -> ReviewCycleInDB:
-    parsed = parse_dynamodb_item(item)
+    parsed = parse_dynamodb_item(item, "cycle")
     
     # Ensure date fields are ISO strings, not datetime objects
     def to_iso_string(value: Any) -> Optional[str]:
@@ -231,7 +231,7 @@ async def _get_active_cycle() -> Dict[str, Any]:
         
         if items:
             # Parse and return the first active cycle found
-            parsed_item = parse_dynamodb_item(items[0])
+            parsed_item = parse_dynamodb_item(items[0], "cycle")
             return parsed_item
         
         last_evaluated_key = response.get("LastEvaluatedKey")
@@ -453,7 +453,7 @@ async def create_cycle(
 
     try:
         await cycles_table.put_item(
-            Item=format_dynamodb_item(item),
+            Item=format_dynamodb_item(item, "cycle"),
             ConditionExpression="attribute_not_exists(#year)",
             ExpressionAttributeNames={"#year": "year"},
         )
@@ -1088,7 +1088,7 @@ async def get_dashboard_stats(
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await employees_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "employees")
                     emp_status = parsed.get("status", "active")
                     if emp_status != "inactive":
                         emp_id = parsed.get("id")
@@ -1115,7 +1115,7 @@ async def get_dashboard_stats(
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await drafts_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "reviewDraft")
                     if parsed.get("reviewType") == "self" and parsed.get("employeeId") in active_employee_ids:
                         count += 1
                 last_evaluated_key = response.get("LastEvaluatedKey")
@@ -1235,7 +1235,7 @@ async def get_completion_trend(
                         scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                     response = await cycles_table.scan(**scan_kwargs)
                     for item in response.get("Items", []):
-                        parsed = parse_dynamodb_item(item)
+                        parsed = parse_dynamodb_item(item, "cycle")
                         active_cycles.append(parsed)
                     last_evaluated_key = response.get("LastEvaluatedKey")
                     if not last_evaluated_key:
@@ -1259,7 +1259,7 @@ async def get_completion_trend(
                     ProjectionExpression="startDate",
                 )
                 if "Item" in response:
-                    cycle_data = parse_dynamodb_item(response["Item"])
+                    cycle_data = parse_dynamodb_item(response["Item"], "cycle")
                     cycle_start_date = cycle_data.get("startDate")
             except:
                 cycle_start_date = None
@@ -1632,7 +1632,7 @@ async def get_team_performance(
                         scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                     response = await cycles_table.scan(**scan_kwargs)
                     for item in response.get("Items", []):
-                        parsed = parse_dynamodb_item(item)
+                        parsed = parse_dynamodb_item(item, "cycle")
                         active_cycles.append(parsed)
                     last_evaluated_key = response.get("LastEvaluatedKey")
                     if not last_evaluated_key:
@@ -1906,7 +1906,7 @@ async def upload_review_attachment(
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await cycles_table.scan(**scan_kwargs)
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item)
+                    parsed = parse_dynamodb_item(item, "cycle")
                     if parsed.get("status") in ["open", "active"]:
                         active_cycles.append(parsed)
                 last_evaluated_key = response.get("LastEvaluatedKey")

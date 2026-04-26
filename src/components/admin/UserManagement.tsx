@@ -295,7 +295,14 @@ export function UserManagement({ onClose }: UserManagementProps) {
                   </TableHeader>
                   <TableBody>
                     {filteredEmployees.map((employee) => (
-                      <TableRow key={employee.id}>
+                      <TableRow
+                        key={employee.id}
+                        className={
+                          selectedEmployee?.id === employee.id
+                            ? "bg-muted/50"
+                            : undefined
+                        }
+                      >
                         <TableCell>{employee.employee_id}</TableCell>
                         <TableCell>{employee.name}</TableCell>
                         <TableCell>{employee.email}</TableCell>
@@ -303,12 +310,12 @@ export function UserManagement({ onClose }: UserManagementProps) {
                         <TableCell>{employee.position}</TableCell>
                         <TableCell>
                           <Button
-                            variant="outline"
+                            variant={selectedEmployee?.id === employee.id ? "default" : "outline"}
                             size="sm"
                             type="button"
                             onClick={() => handleEmployeeSelect(employee)}
                           >
-                            Select
+                            {selectedEmployee?.id === employee.id ? "Selected" : "Select"}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -316,39 +323,6 @@ export function UserManagement({ onClose }: UserManagementProps) {
                   </TableBody>
                 </Table>
               </div>
-
-              {selectedEmployee && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Selected Employee</CardTitle>
-                    <CardDescription>Review details before adding as admin</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label className="text-muted-foreground text-xs">Employee ID</Label>
-                        <div className="mt-1 font-medium text-sm">{formData.employee_id || "—"}</div>
-                      </div>
-                      <div>
-                        <Label className="text-muted-foreground text-xs">Name</Label>
-                        <div className="mt-1 font-medium text-sm">{formData.name || "—"}</div>
-                      </div>
-                      <div>
-                        <Label className="text-muted-foreground text-xs">Email</Label>
-                        <div className="mt-1 font-medium text-sm">{formData.email || "—"}</div>
-                      </div>
-                      <div>
-                        <Label className="text-muted-foreground text-xs">Department</Label>
-                        <div className="mt-1 font-medium text-sm">{formData.department || "—"}</div>
-                      </div>
-                      <div className="col-span-2">
-                        <Label className="text-muted-foreground text-xs">Position</Label>
-                        <div className="mt-1 font-medium text-sm">{formData.position || "—"}</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
             </div>
 
             <DialogFooter>

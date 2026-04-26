@@ -70,7 +70,7 @@ async def add_admin(data: dict, _: dict = Depends(require_admin_user)):
             "created_at": datetime.now(),
             "updated_at": datetime.now(),
         }
-        formatted_item = format_dynamodb_item(admin_data)
+        formatted_item = format_dynamodb_item(admin_data, "admin")
         await table.put_item(Item=formatted_item)
         return {
             "success": True,

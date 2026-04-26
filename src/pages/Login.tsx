@@ -16,6 +16,7 @@ import {
   LOGIN_SCOPES,
 } from "@/auth/msal";
 import { setMemoryAuthToken, clearAuthMemory, getValidToken } from "@/utils/auth-utils";
+import { isJwtNearExpiry } from "@/utils/jwt";
 
 const INTRO_VIDEO_SOURCES = [
   "/video/Start.mp4",
@@ -119,12 +120,29 @@ export default function Login() {
 
     // Exchange MSAL ID token for backend token (backend validates by audience=client_id; access token has audience=graph.microsoft.com)
     try {
+      let idTokenToExchange = idToken;
+      // Defensive: if we somehow got a near-expired idToken (clock skew / stale cache),
+      // force refresh before exchanging to prevent backend 401 loops.
+      if (isJwtNearExpiry(idTokenToExchange, 90) && accounts?.[0]) {
+        try {
+          const refreshed = await instance.acquireTokenSilent({
+            scopes: [...LOGIN_SCOPES],
+            account: accounts[0],
+            forceRefresh: true,
+          });
+          if (refreshed?.idToken) {
+            idTokenToExchange = refreshed.idToken;
+          }
+        } catch {
+          // If refresh fails, we'll try exchange with the original token and let backend reject it.
+        }
+      }
       const backendRes = await fetch(`${API_BASE_URL}/auth/msal-token`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ msal_token: idToken }),
+        body: JSON.stringify({ msal_token: idTokenToExchange }),
       });
       
       

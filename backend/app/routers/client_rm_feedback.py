@@ -60,7 +60,7 @@ async def _list_leadership_entries() -> List[Dict[str, Any]]:
     """List leadership rows with email and created_at (for admin UI)."""
     table = await get_leadership_access_table()
     raw_items = await _scan_full(table)
-    items = [parse_dynamodb_item(i) for i in raw_items]
+    items = [parse_dynamodb_item(i, "leadershipAccess") for i in raw_items]
     by_email: Dict[str, str] = {}
     for i in items:
         em = _normalize_email(i.get("email"))
@@ -182,8 +182,13 @@ async def _get_direct_reports(manager_employee_id: str) -> List[Dict[str, Any]]:
             ExpressionAttributeValues={":manager_id": manager_employee_id},
         )
         raw = response.get("Items", [])
-    except Exception:
-        raw = await _scan_full(table, FilterExpression=Attr("reporting_to").eq(manager_employee_id))
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        # Only fallback when the index isn't present yet.
+        if code == "ValidationException":
+            raw = await _scan_full(table, FilterExpression=Attr("reporting_to").eq(manager_employee_id))
+        else:
+            raise
     reportees: List[Dict[str, Any]] = []
     for item in raw:
         parsed = parse_dynamodb_item(item, "employees")
@@ -319,7 +324,7 @@ async def add_leadership_access(
         "created_by_email": _normalize_email(current_user.get("email") or current_user.get("username")),
         "is_active": True,
     }
-    await table.put_item(Item=format_dynamodb_item(item))
+    await table.put_item(Item=format_dynamodb_item(item, "leadershipAccess"))
     return {"ok": True, "email": normalized}
 
 
@@ -349,7 +354,7 @@ async def remove_leadership_access(
         raw_items = response.get("Items", [])
         
     for it in raw_items:
-        parsed = parse_dynamodb_item(it)
+        parsed = parse_dynamodb_item(it, "leadershipAccess")
         if parsed.get("id"):
             await table.delete_item(Key={"id": parsed["id"]})
     return {"ok": True, "email": normalized}
@@ -389,7 +394,7 @@ async def create_period(
         "updated_at": now,
         "created_by_email": _normalize_email(current_user.get("email") or current_user.get("username")),
     }
-    await periods_table.put_item(Item=format_dynamodb_item(item))
+    await periods_table.put_item(Item=format_dynamodb_item(item, "monthlyFeedbackPeriods"))
     return item
 
 
@@ -397,7 +402,7 @@ async def create_period(
 async def list_periods(current_user: dict = Depends(get_current_active_user)):
     periods_table = await get_monthly_feedback_periods_table()
     raw_items = await _scan_full(periods_table)
-    items = [parse_dynamodb_item(i) for i in raw_items]
+    items = [parse_dynamodb_item(i, "monthlyFeedbackPeriods") for i in raw_items]
     # Stable, predictable order: most recent window first (then newest created).
     items.sort(
         key=lambda x: (x.get("start_date") or "", x.get("created_at") or ""),
@@ -416,7 +421,7 @@ async def update_period(
     response = await periods_table.get_item(Key={"period_id": period_id})
     if "Item" not in response:
         raise HTTPException(status_code=404, detail="Period not found")
-    existing = parse_dynamodb_item(response["Item"])
+    existing = parse_dynamodb_item(response["Item"], "monthlyFeedbackPeriods")
     updates = payload.model_dump(exclude_none=True)
     updates["updated_at"] = _now_iso()
     if "status" in updates:
@@ -426,7 +431,7 @@ async def update_period(
     if "end_date" in updates:
         updates["end_date"] = updates.pop("end_date")
     existing.update(updates)
-    await periods_table.put_item(Item=format_dynamodb_item(existing))
+    await periods_table.put_item(Item=format_dynamodb_item(existing, "monthlyFeedbackPeriods"))
     return existing
 
 
@@ -468,7 +473,7 @@ async def get_active_draft(
             & Attr("is_active").eq(True)
         )
     )
-    drafts = [parse_dynamodb_item(i) for i in raw_items]
+    drafts = [parse_dynamodb_item(i, "clientRmFeedback") for i in raw_items]
     drafts.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return drafts[0] if drafts else None
 
@@ -501,7 +506,7 @@ async def upsert_active_draft(
             & Attr("is_active").eq(True)
         )
     )
-    existing = [parse_dynamodb_item(i) for i in raw_items]
+    existing = [parse_dynamodb_item(i, "clientRmFeedback") for i in raw_items]
     existing.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     current = existing[0] if existing else None
 
@@ -549,7 +554,7 @@ async def upsert_active_draft(
         item["created_at"] = now
         item["created_by_email"] = user_email
 
-    await table.put_item(Item=format_dynamodb_item(item))
+    await table.put_item(Item=format_dynamodb_item(item, "clientRmFeedback"))
     return item
 
 
@@ -577,7 +582,7 @@ async def create_submission(
     p_response = await periods_table.get_item(Key={"period_id": payload.period_id})
     if "Item" not in p_response:
         raise HTTPException(status_code=400, detail="Invalid feedback period")
-    period_item = parse_dynamodb_item(p_response["Item"])
+    period_item = parse_dynamodb_item(p_response["Item"], "monthlyFeedbackPeriods")
     if period_item.get("period_status") != "open":
         raise HTTPException(status_code=400, detail="Feedback period is not open")
 
@@ -589,7 +594,7 @@ async def create_submission(
             & Attr("is_active").eq(True)
         )
     )
-    existing_items = [parse_dynamodb_item(i) for i in raw_subs]
+    existing_items = [parse_dynamodb_item(i, "clientRmFeedback") for i in raw_subs]
     if existing_items:
         existing_items.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         raise HTTPException(
@@ -639,7 +644,7 @@ async def create_submission(
         item.update(snapshot)
     if not item.get("employee_code"):
         item["employee_code"] = payload.employee_id
-    await table.put_item(Item=format_dynamodb_item(item))
+    await table.put_item(Item=format_dynamodb_item(item, "clientRmFeedback"))
 
     # Archive matching active draft (if any) after successful submission.
     try:
@@ -652,11 +657,11 @@ async def create_submission(
             )
         )
         for raw in drafts_raw:
-            parsed = parse_dynamodb_item(raw)
+            parsed = parse_dynamodb_item(raw, "clientRmFeedback")
             parsed["is_active"] = False
             parsed["archived_at"] = now
             parsed["updated_at"] = now
-            await table.put_item(Item=format_dynamodb_item(parsed))
+            await table.put_item(Item=format_dynamodb_item(parsed, "clientRmFeedback"))
     except Exception:
         # Draft archival should never block submission success.
         pass
@@ -674,7 +679,7 @@ async def update_submission(
     response = await table.get_item(Key={"id": submission_id})
     if "Item" not in response:
         raise HTTPException(status_code=404, detail="Submission not found")
-    item = parse_dynamodb_item(response["Item"])
+    item = parse_dynamodb_item(response["Item"], "clientRmFeedback")
     if item.get("entity_type") != "submission":
         raise HTTPException(status_code=400, detail="Invalid submission item")
 
@@ -702,7 +707,7 @@ async def list_submissions(
         reportee_ids = {_norm_employee_id(r.get("id")) for r in reportees if r.get("id")}
 
     raw_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("submission"))
-    all_items = [parse_dynamodb_item(i) for i in raw_items]
+    all_items = [parse_dynamodb_item(i, "clientRmFeedback") for i in raw_items]
     filtered: List[Dict[str, Any]] = []
     q_emp = _norm_employee_id(employee_id) if employee_id else ""
     req_eid = _norm_employee_id(requester_employee_id)
@@ -744,7 +749,7 @@ async def mark_submission_seen(
     response = await table.get_item(Key={"id": submission_id})
     if "Item" not in response:
         raise HTTPException(status_code=404, detail="Submission not found")
-    item = parse_dynamodb_item(response["Item"])
+    item = parse_dynamodb_item(response["Item"], "clientRmFeedback")
     user_email = _normalize_email(current_user.get("email") or current_user.get("username"))
     requester = await _get_employee_by_email(user_email) if user_email else None
     requester_employee_id = requester.get("id") if requester else None
@@ -752,7 +757,7 @@ async def mark_submission_seen(
         raise HTTPException(status_code=403, detail="Not authorized")
     item["reportee_seen"] = True
     item["updated_at"] = _now_iso()
-    await table.put_item(Item=format_dynamodb_item(item))
+    await table.put_item(Item=format_dynamodb_item(item, "clientRmFeedback"))
     return {"ok": True}
 
 
@@ -764,11 +769,11 @@ async def get_notification_summary(current_user: dict = Depends(get_current_acti
     can_view_all = await _can_view_all_async(current_user)
     table = await get_client_rm_feedback_table()
     all_items = await _scan_full(table, FilterExpression=Attr("entity_type").eq("submission"))
-    submissions = [parse_dynamodb_item(i) for i in all_items]
+    submissions = [parse_dynamodb_item(i, "clientRmFeedback") for i in all_items]
     # Read periods from the dedicated periods table (lightweight, ~12 rows/year).
     periods_table = await get_monthly_feedback_periods_table()
     periods_raw = await _scan_full(periods_table)
-    period_items = [parse_dynamodb_item(p) for p in periods_raw]
+    period_items = [parse_dynamodb_item(p, "monthlyFeedbackPeriods") for p in periods_raw]
     open_period_ids = {p.get("period_id") for p in period_items if p.get("period_status") == "open"}
     open_period_count = sum(1 for p in period_items if p.get("period_status") == "open")
 

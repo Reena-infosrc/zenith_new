@@ -6,6 +6,7 @@ from ..security import get_current_active_user
 from ..rate_limit import limiter
 from ..services.image_upload import ImageUploadService
 from ..feature_flags import FeatureFlags
+from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 import time
 from datetime import datetime
@@ -196,7 +197,7 @@ async def create_admin(
         }
         
         # Format for DynamoDB
-        formatted_item = format_dynamodb_item(admin_item)
+        formatted_item = format_dynamodb_item(admin_item, "admin")
         
         # Insert into database
         await table.put_item(Item=formatted_item)
@@ -265,7 +266,7 @@ async def update_admin(
         update_data["updated_at"] = datetime.now().isoformat()
         
         # Update in database
-        formatted_item = format_dynamodb_item(update_data)
+        formatted_item = format_dynamodb_item(update_data, "admin")
         await table.update_item(
             Key={"id": admin_id},
             UpdateExpression="SET " + ", ".join([f"{k} = :{k}" for k in update_data.keys()]),
@@ -350,13 +351,12 @@ async def is_user_admin(email: str) -> bool:
         return False
 
 
-def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = False) -> Optional[Dict[str, Any]]:
+def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = True) -> Optional[Dict[str, Any]]:
     """Parse a DynamoDB employee row for list responses; returns None if invalid.
 
-    By default *skips* KMS field decryption because the directory/card view uses
-    none of the encrypted fields (bio, phone, emergency contacts, etc.).  This
-    eliminates ~14 KMS round-trips **per row** and cuts the employees endpoint
-    from ~25 s to < 2 s on staging.
+    By default decrypts allowlisted fields when field encryption is enabled so
+    list/card views and projections stay consistent. Pass ``decrypt=False`` only
+    for scans that project no encrypted attributes and must avoid KMS cost.
     """
     doc = parse_dynamodb_item(raw, "employees" if decrypt else None)
     if "id" not in doc and "_id" in doc:
@@ -601,14 +601,16 @@ async def check_team_members(current_user: dict = Depends(get_current_active_use
             raw_items = reports_response.get("Items", [])
         except ClientError as e:
             # Fallback to scan if index doesn't exist yet (for backward compatibility)
-            logger.warning(f"ReportingToIndex not available, falling back to scan: {e}")
-            reports_scan = await table.scan(
-                FilterExpression="reporting_to = :manager_id",
-                ExpressionAttributeValues={
-                    ":manager_id": current_employee_id
-                }
-            )
-            raw_items = reports_scan.get("Items", [])
+            code = e.response.get("Error", {}).get("Code", "")
+            # Only treat missing-index / schema validation as "fallback-able".
+            if code == "ValidationException":
+                logger.warning("ReportingToIndex not available, falling back to scan: %s", e)
+                reports_scan = await table.scan(
+                    FilterExpression=Attr("reporting_to").eq(current_employee_id)
+                )
+                raw_items = reports_scan.get("Items", [])
+            else:
+                raise
         
         # Parse and filter out inactive team members (default to active if status missing)
         team_members = []

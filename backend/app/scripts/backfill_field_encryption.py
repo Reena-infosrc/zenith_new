@@ -2,8 +2,8 @@
 Backfill DynamoDB field-level encryption for existing plaintext rows.
 
 Uses the same parse → format path as the API (format_dynamodb_item / parse_dynamodb_item +
-field_crypto). Safe to re-run: already-encrypted rows are decrypted in memory then written
-back with ciphertext.
+field_crypto: AES-256-GCM + KMS envelope per field). Safe to re-run: already-encrypted rows are
+decrypted in memory then written back with ciphertext.
 
 Run from the backend directory (see docstring at bottom for prerequisites).
 
@@ -12,7 +12,7 @@ Examples:
   python -m app.scripts.backfill_field_encryption --logical-table reviewDraft --dry-run
   # Trial: only 10 rows per table, then run without --limit for the rest
   python -m app.scripts.backfill_field_encryption --logical-table reviewDraft --limit 10
-  python -m app.scripts.backfill_field_encryption --logical-table employees goals review reviewDraft
+  python -m app.scripts.backfill_field_encryption --logical-table employees goals review reviewDraft clientRmFeedback
   # One person: encrypt employees row by email substring, then goals/reviews by employee id
   python -m app.scripts.backfill_field_encryption --logical-table employees --email-contains mayoori
   python -m app.scripts.backfill_field_encryption --logical-table goals review reviewDraft --employee-id <uuid>
@@ -49,6 +49,7 @@ LOGICAL_KEY_ATTRS: Dict[str, List[str]] = {
     "goals": ["id"],
     "review": ["pk", "sk"],
     "reviewDraft": ["pk", "sk"],
+    "clientRmFeedback": ["id"],
 }
 
 LOGICAL_TO_ENV_TABLE: Dict[str, str] = {
@@ -56,6 +57,7 @@ LOGICAL_TO_ENV_TABLE: Dict[str, str] = {
     "goals": "DYNAMODB_TABLE_GOALS",
     "review": "DYNAMODB_TABLE_REVIEW",
     "reviewDraft": "DYNAMODB_TABLE_REVIEW_DRAFT",
+    "clientRmFeedback": "DYNAMODB_TABLE_CLIENT_RM_FEEDBACK",
 }
 
 
@@ -83,6 +85,9 @@ def _row_matches_filter(
             return raw.get("employeeId") == employee_id
         if logical in ("review", "reviewDraft"):
             return raw.get("employeeId") == employee_id
+        if logical == "clientRmFeedback":
+            # Client RM feedback items use an 'employee_id' attribute (not employeeId).
+            return raw.get("employee_id") == employee_id
     if email_contains and logical == "employees":
         em = (raw.get("email") or "").lower()
         return email_contains.lower() in em
@@ -185,14 +190,14 @@ def backfill_table(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Backfill KMS field encryption for existing DynamoDB items."
+        description="Backfill field-level encryption (AES-256-GCM + KMS) for existing DynamoDB items."
     )
     parser.add_argument(
         "--logical-table",
         nargs="+",
         required=True,
         choices=list(LOGICAL_KEY_ATTRS.keys()),
-        help="Logical table name(s) (employees, goals, review, reviewDraft).",
+        help="Logical table name(s) (employees, goals, review, reviewDraft, clientRmFeedback).",
     )
     parser.add_argument(
         "--env-file",
@@ -231,7 +236,7 @@ def main() -> None:
         "--employee-id",
         default=None,
         metavar="UUID",
-        help="Only rows for this employee: employees.id, or goals/review/reviewDraft.employeeId.",
+        help="Only rows for this employee: employees.id, goals/review/reviewDraft.employeeId, clientRmFeedback.employee_id.",
     )
     parser.add_argument(
         "--email-contains",

@@ -407,6 +407,12 @@ resources:
                 Value: "true"
               - Name: DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN
                 Value: !GetAtt ZenithFieldEncryptionKey.Arn
+              - Name: DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2
+                Value: ""
+              - Name: DYNAMODB_FIELD_ENCRYPTION_VERSION
+                Value: "v1"
+              - Name: DYNAMODB_FIELD_ENCRYPTION_COMPRESS
+                Value: "false"
               - Name: DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP
                 Value: zenith-hr-pulse
               - Name: CORS_ORIGINS
@@ -471,6 +477,8 @@ resources:
             AttributeType: S
           - AttributeName: employee_id
             AttributeType: S
+          - AttributeName: reporting_to
+            AttributeType: S
         KeySchema:
           - AttributeName: id
             KeyType: HASH
@@ -490,6 +498,12 @@ resources:
           - IndexName: EmployeeIdIndex
             KeySchema:
               - AttributeName: employee_id
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: ReportingToIndex
+            KeySchema:
+              - AttributeName: reporting_to
                 KeyType: HASH
             Projection:
               ProjectionType: ALL

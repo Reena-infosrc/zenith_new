@@ -133,7 +133,7 @@ async def create_admin(
         }
         
         # Format for DynamoDB
-        formatted_item = format_dynamodb_item(admin_item)
+        formatted_item = format_dynamodb_item(admin_item, "admin")
         
         # Insert into database
         await table.put_item(Item=formatted_item)

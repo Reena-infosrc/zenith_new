@@ -21,6 +21,7 @@ import {
 } from "@azure/msal-browser";
 import { API_BASE_URL } from "@/config/api";
 import { setMemoryAuthToken } from "@/utils/auth-utils";
+import { isJwtNearExpiry } from "@/utils/jwt";
 
 // ---------------------------------------------------------------------------
 // Scopes used for all login / token requests
@@ -232,7 +233,15 @@ export async function acquireBackendToken(
       account,
     };
 
-    const result = await msalInstance.acquireTokenSilent(silentRequest);
+    // Acquire a token set. If the ID token is near expiry (or missing),
+    // forceRefresh to avoid exchanging an expired token with the backend.
+    let result = await msalInstance.acquireTokenSilent(silentRequest);
+    if (!result?.idToken || isJwtNearExpiry(result.idToken, 90)) {
+      result = await msalInstance.acquireTokenSilent({
+        ...silentRequest,
+        forceRefresh: true,
+      });
+    }
 
     if (!result?.idToken) {
       console.warn("[MSAL] acquireTokenSilent returned no ID token");

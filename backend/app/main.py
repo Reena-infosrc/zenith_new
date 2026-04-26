@@ -269,6 +269,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     """Baseline headers on API responses (CSP is best set on the static site CDN)."""
+    from .services.field_crypto import clear_dek_request_cache
+
+    clear_dek_request_cache()
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"

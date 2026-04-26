@@ -4,9 +4,16 @@ AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
 AWS_DEFAULT_REGION=us-east-1
 AWS_REGION=us-east-1
 
-# DynamoDB field encryption (keep false until KMS + allowlist are ready)
-DYNAMODB_FIELD_ENCRYPTION_ENABLED=false
+# DynamoDB field encryption: set KMS CMK ARN for encryption to actually run (required in prod).
+# If ENABLED=true but ARN is empty, the API treats field encryption as inactive and logs a warning.
+DYNAMODB_FIELD_ENCRYPTION_ENABLED=true
 DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN=
+# Optional second CMK for v2 / rotation (see app/scripts/rotate_field_encryption.py)
+DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2=
+# Active envelope version for new writes: v1 or v2 (default v1)
+DYNAMODB_FIELD_ENCRYPTION_VERSION=v1
+# Optional: zlib-compress JSON payload before AES-GCM for large attributes
+DYNAMODB_FIELD_ENCRYPTION_COMPRESS=false
 DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP=zenith-hr-pulse
 
 # DynamoDB Configuration

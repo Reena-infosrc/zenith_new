@@ -56,8 +56,9 @@ aioboto3==15.5.0
 aiobotocore==2.25.1
 boto3==1.40.61
 botocore==1.40.61
-# Field-level DynamoDB encryption (optional; inactive until DYNAMODB_FIELD_ENCRYPTION_ENABLED=true)
-# Pin to 3.x: 4.x prefers MPL keyrings; our code uses KMSMasterKeyProvider (supported in 3.x).
+# Field-level DynamoDB encryption: AES-256-GCM + KMS envelope (see app/services/field_crypto.py).
+cryptography>=42.0.0
+# Optional: only needed to decrypt legacy rows written with AWS Encryption SDK before AES-GCM migration.
 aws-encryption-sdk>=3.1.1,<4.0.0
 
 # Python compatibility
