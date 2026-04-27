@@ -8,6 +8,8 @@ import logging
 import requests
 import time
 from jose import jwt, jwk, JWTError
+from botocore.exceptions import ClientError
+from boto3.dynamodb.conditions import Attr, Key
 
 from .models import TokenData, MOCK_USERS
 from .security_config import get_jwt_secret_key
@@ -239,15 +241,28 @@ async def get_current_active_user(current_user: dict = Depends(get_current_user)
             normalized_email = user_email.lower().strip()
             
             table = await get_admins_table()
-            response = await table.query(
-                IndexName="EmailIndex",
-                KeyConditionExpression="email = :email",
-                ExpressionAttributeValues={":email": normalized_email}
-            )
-            
-            if response.get("Items"):
-                admin_data = parse_dynamodb_item(response["Items"][0])
-                current_user["is_admin"] = admin_data.get("is_active", True)
+            try:
+                response = await table.query(
+                    IndexName="EmailIndex",
+                    KeyConditionExpression=Key("email").eq(normalized_email),
+                    Limit=1,
+                )
+                items = response.get("Items") or []
+            except ClientError as e:
+                code = e.response.get("Error", {}).get("Code", "")
+                # Local / partially-provisioned environments may not have GSIs yet.
+                if code in {"ValidationException", "ResourceNotFoundException"}:
+                    scan_res = await table.scan(
+                        FilterExpression=Attr("email").eq(normalized_email),
+                        Limit=1,
+                    )
+                    items = scan_res.get("Items") or []
+                else:
+                    raise
+
+            if items:
+                admin_data = parse_dynamodb_item(items[0])
+                current_user["is_admin"] = bool(admin_data.get("is_active", True))
             else:
                 current_user["is_admin"] = False
         else:

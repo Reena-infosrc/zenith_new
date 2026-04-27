@@ -1,7 +1,7 @@
 service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 # Touch this file to trigger CI serverless deploy (see .github/workflows/deploy.yml).
-# Rev: field_crypto StrictAwsKmsMasterKeyProvider (aws-encryption-sdk 3.3+) — 2026-04-06
+# Rev: ECS task role + CMK-scoped KMS IAM; key policy trusts app task role — 2026-04-24
 # using env files
 #updated for table creation
 
@@ -204,6 +204,7 @@ resources:
       Properties:
         ClusterName: zenith-hr-pulse-${self:provider.stage}
 
+    # ECS agent: pull image + write logs only (AWS best practice).
     TaskExecutionRole:
       Type: AWS::IAM::Role
       Properties:
@@ -216,25 +217,18 @@ resources:
               Action: sts:AssumeRole
         ManagedPolicyArns:
           - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-        Policies:
-          - PolicyName: ECSAppPermissions
-            PolicyDocument:
-              Version: "2012-10-17"
-              Statement:
-                - Effect: Allow
-                  Action:
-                    - dynamodb:*
-                    - s3:*
-                    - bedrock:*
-                  Resource: "*"
-                # Field-level encryption (aws_encryption_sdk + KMS). Key policy on the CMK must also allow this role.
-                - Effect: Allow
-                  Action:
-                    - kms:Encrypt
-                    - kms:Decrypt
-                    - kms:GenerateDataKey
-                    - kms:DescribeKey
-                  Resource: "*"
+
+    # Application credentials (boto3 in the API container). KMS is scoped to the field-encryption CMK only.
+    ZenithAppTaskRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: ecs-tasks.amazonaws.com
+              Action: sts:AssumeRole
 
     ZenithFieldEncryptionKey:
       Type: AWS::KMS::Key
@@ -250,10 +244,10 @@ resources:
                 AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
               Action: "kms:*"
               Resource: "*"
-            - Sid: AllowECSTaskRole
+            - Sid: AllowAppTaskRole
               Effect: Allow
               Principal:
-                AWS: !GetAtt TaskExecutionRole.Arn
+                AWS: !GetAtt ZenithAppTaskRole.Arn
               Action:
                 - kms:Encrypt
                 - kms:Decrypt
@@ -266,6 +260,32 @@ resources:
       Properties:
         AliasName: alias/zenith-hr-field-encryption-${self:provider.stage}
         TargetKeyId: !Ref ZenithFieldEncryptionKey
+
+    # Attached after the CMK exists so KMS ARNs resolve. IAM + key policy must both allow the app role.
+    ZenithAppTaskPolicy:
+      Type: AWS::IAM::Policy
+      DependsOn: ZenithFieldEncryptionKey
+      Properties:
+        PolicyName: ZenithApiAppPermissions
+        Roles:
+          - !Ref ZenithAppTaskRole
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:*
+                - s3:*
+                - bedrock:*
+              Resource: "*"
+            - Sid: FieldEncryptionKmsOnStackCmk
+              Effect: Allow
+              Action:
+                - kms:Encrypt
+                - kms:Decrypt
+                - kms:GenerateDataKey
+                - kms:DescribeKey
+              Resource: !GetAtt ZenithFieldEncryptionKey.Arn
 
     ECSLogGroup:
       Type: AWS::Logs::LogGroup
@@ -338,7 +358,7 @@ resources:
         RequiresCompatibilities:
           - FARGATE
         ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
-        TaskRoleArn: !GetAtt TaskExecutionRole.Arn
+        TaskRoleArn: !GetAtt ZenithAppTaskRole.Arn
         ContainerDefinitions:
           - Name: api
             Image: ${self:custom.ecrImageUri}

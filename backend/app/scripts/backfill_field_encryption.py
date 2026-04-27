@@ -9,6 +9,8 @@ Run from the backend directory (see docstring at bottom for prerequisites).
 
 Examples:
   cd backend
+  python -m app.scripts.backfill_field_encryption --all-tables --dry-run
+  python -m app.scripts.backfill_field_encryption --all-tables --sleep 0.05
   python -m app.scripts.backfill_field_encryption --logical-table reviewDraft --dry-run
   # Trial: only 10 rows per table, then run without --limit for the rest
   python -m app.scripts.backfill_field_encryption --logical-table reviewDraft --limit 10
@@ -193,11 +195,16 @@ def main() -> None:
         description="Backfill field-level encryption (AES-256-GCM + KMS) for existing DynamoDB items."
     )
     parser.add_argument(
+        "--all-tables",
+        action="store_true",
+        help="Backfill every logical table that supports field encryption (employees, goals, review, reviewDraft, clientRmFeedback).",
+    )
+    parser.add_argument(
         "--logical-table",
         nargs="+",
-        required=True,
+        default=None,
         choices=list(LOGICAL_KEY_ATTRS.keys()),
-        help="Logical table name(s) (employees, goals, review, reviewDraft, clientRmFeedback).",
+        help="One or more logical table names (omit if using --all-tables).",
     )
     parser.add_argument(
         "--env-file",
@@ -246,11 +253,22 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.all_tables and args.logical_table:
+        print("ERROR: use either --all-tables or --logical-table, not both.", file=sys.stderr)
+        sys.exit(1)
+    if not args.all_tables and not args.logical_table:
+        print("ERROR: pass --all-tables or --logical-table <names...>.", file=sys.stderr)
+        sys.exit(1)
+
+    logical_tables: List[str] = (
+        list(LOGICAL_KEY_ATTRS.keys()) if args.all_tables else list(args.logical_table or [])
+    )
+
     if args.limit is not None and args.limit < 1:
         print("ERROR: --limit must be >= 1", file=sys.stderr)
         sys.exit(1)
 
-    if args.email_contains and "employees" not in args.logical_table:
+    if args.email_contains and "employees" not in logical_tables:
         print(
             "ERROR: --email-contains only applies when --logical-table includes employees "
             "(use --employee-id for goals/review/reviewDraft).",
@@ -260,7 +278,7 @@ def main() -> None:
 
     if (
         args.email_contains
-        and len(args.logical_table) > 1
+        and len(logical_tables) > 1
         and not args.employee_id
     ):
         print(
@@ -290,7 +308,7 @@ def main() -> None:
     print("Field encryption status:", describe_status())
 
     total = 0
-    for logical in args.logical_table:
+    for logical in logical_tables:
         print(f"\n--- Backfilling logical table: {logical} ---")
         n, _skipped = backfill_table(
             dynamodb,

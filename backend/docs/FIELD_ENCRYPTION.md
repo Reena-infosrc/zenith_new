@@ -48,4 +48,6 @@ python -m app.scripts.rotate_field_encryption --logical-table employees goals re
 
 ## IAM
 
-ECS task role (or Lambda) needs at least: `kms:GenerateDataKey`, `kms:Decrypt`, `kms:DescribeKey` (optional) on the CMK(s), plus existing DynamoDB permissions.
+The API principal (ECS **task role**, Lambda execution role, or IAM user running backfill) needs at least **`kms:GenerateDataKey`**, **`kms:Decrypt`**, and optionally **`kms:DescribeKey`** / **`kms:Encrypt`** on **each CMK** referenced by `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN` and `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2`, plus normal DynamoDB/S3 permissions.
+
+In **`serverless.yml`**: `ZenithAppTaskRole` carries app permissions; KMS actions are scoped to `!GetAtt ZenithFieldEncryptionKey.Arn` only. **`ZenithFieldEncryptionKey`** key policy includes **`AllowAppTaskRole`** so the CMK trusts that same role. If you point `..._KMS_KEY_ARN_V2` at a **second** CMK created outside this stack, add the task role to **that** key’s policy and extend **`ZenithAppTaskPolicy`** with a second KMS statement on that key’s ARN.
