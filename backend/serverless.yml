@@ -47,7 +47,10 @@ provider:
   region: ${env:AWS_REGION, 'us-east-1'}
   stage: ${opt:stage, 'prod'}
   stackTags:
-    Name: infosrv-zenith-${self:provider.stage}
+    Name: infosrv-zenith
+    AppOwner: ${env:APP_OWNER}
+    InfraOwner: ${env:INFRA_OWNER}
+    Environment: ${self:provider.stage}
   httpApi:
     metrics: true
   environment:
