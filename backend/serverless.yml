@@ -1,8 +1,6 @@
 service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 # Touch this file to trigger CI serverless deploy (see .github/workflows/deploy.yml).
-# Rev: ECS task role + CMK-scoped KMS IAM; key policy trusts app task role — 2026-04-24
-# using env files
 #updated for table creation
 
 useDotenv: true
