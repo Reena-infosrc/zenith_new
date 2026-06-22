@@ -131,6 +131,8 @@ jobs:
         env:
           AZURE_MSAL_CLIENT_ID: ${{ secrets.AZURE_MSAL_CLIENT_ID }}
           AZURE_MSAL_TENANT_ID: ${{ secrets.AZURE_MSAL_TENANT_ID }}
+          APP_OWNER: ${{ secrets.APP_OWNER }}
+          INFRA_OWNER: ${{ secrets.INFRA_OWNER }}
         run: |
           cd backend
           if [ "${{ matrix.stage }}" = "staging" ]; then
@@ -142,6 +144,8 @@ jobs:
           # Ensure MSAL validation env vars are present for backend
           echo "AZURE_MSAL_CLIENT_ID=${AZURE_MSAL_CLIENT_ID}" >> $GITHUB_ENV
           echo "AZURE_MSAL_TENANT_ID=${AZURE_MSAL_TENANT_ID}" >> $GITHUB_ENV
+          echo "APP_OWNER=${APP_OWNER}" >> $GITHUB_ENV
+          echo "INFRA_OWNER=${INFRA_OWNER}" >> $GITHUB_ENV
 
       - name: Deploy with Serverless Framework (if serverless.yml changed)
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
@@ -156,6 +160,8 @@ jobs:
           SECURITY_SECRET_KEY: ${{ secrets[matrix.security_secret_key_secret] }}
           AZURE_MSAL_CLIENT_ID: ${{ secrets.AZURE_MSAL_CLIENT_ID }}
           AZURE_MSAL_TENANT_ID: ${{ secrets.AZURE_MSAL_TENANT_ID }}
+          APP_OWNER: ${{ secrets.APP_OWNER }}
+          INFRA_OWNER: ${{ secrets.INFRA_OWNER }}
 
       # Always roll ECS after a new :latest push. Otherwise Fargate can keep an old digest until
       # the task definition revision changes — staging API (e.g. zenith-api.apps.infoservices.com) stays stale.
