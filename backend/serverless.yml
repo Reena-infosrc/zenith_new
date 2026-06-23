@@ -66,6 +66,9 @@ provider:
             - dynamodb:Scan
             - dynamodb:Query
             - dynamodb:BatchWriteItem
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:CreateLogGroup
           Resource:
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.employees}
             - arn:aws:dynamodb:${self:provider.region}:${self:custom.awsAccountId}:table/${self:custom.dynamoDbTables.employees}/index/*
