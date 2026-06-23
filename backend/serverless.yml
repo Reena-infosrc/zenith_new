@@ -413,6 +413,8 @@ resources:
 
     ZenithTaskDefinition:
       Type: AWS::ECS::TaskDefinition
+      DependsOn:
+        - ECSLogGroup
       Properties:
         Family: zenith-hr-pulse-${self:provider.stage}
         Cpu: "1024"
@@ -508,6 +510,7 @@ resources:
                 awslogs-group: /ecs/zenith-hr-pulse-${self:provider.stage}
                 awslogs-region: us-east-1
                 awslogs-stream-prefix: api
+                awslogs-create-group: "true"
 
     ZenithHrAdmin:
       Type: AWS::DynamoDB::Table
@@ -1196,6 +1199,7 @@ resources:
       DependsOn:
         - ZenithListener
         - ZenithHttpsListener
+        - ECSLogGroup
       Properties:
         HealthCheckGracePeriodSeconds: 180
         Cluster: !Ref ZenithCluster
