@@ -1,7 +1,7 @@
 service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 # Touch this file to trigger CI serverless deploy (see .github/workflows/deploy.yml).
-#updated for table creation
+# Rev: VPC endpoints for ECR/S3/Logs — fix Fargate image pull timeouts — 2026-06-22
 
 useDotenv: true
 
@@ -180,6 +180,67 @@ resources:
       Properties:
         SubnetId: !Ref PublicSubnet2
         RouteTableId: !Ref PublicRouteTable
+
+    # Fargate tasks need private AWS API reachability for ECR image pull + CloudWatch logs.
+    # Public internet egress to api.ecr.* can time out in locked-down accounts.
+    VpcEndpointSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: HTTPS ingress for VPC interface endpoints
+        VpcId: !Ref ZenithHrPulseVPC
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 10.0.0.0/26
+
+    EcrApiVpcEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+        VpcEndpointType: Interface
+        PrivateDnsEnabled: true
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        SecurityGroupIds:
+          - !Ref VpcEndpointSecurityGroup
+
+    EcrDkrVpcEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+        VpcEndpointType: Interface
+        PrivateDnsEnabled: true
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        SecurityGroupIds:
+          - !Ref VpcEndpointSecurityGroup
+
+    S3VpcEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+        VpcEndpointType: Gateway
+        RouteTableIds:
+          - !Ref PublicRouteTable
+
+    LogsVpcEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcId: !Ref ZenithHrPulseVPC
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+        VpcEndpointType: Interface
+        PrivateDnsEnabled: true
+        SubnetIds:
+          - !Ref PublicSubnet1
+          - !Ref PublicSubnet2
+        SecurityGroupIds:
+          - !Ref VpcEndpointSecurityGroup
 
     ZenithSecurityGroup:
       Type: AWS::EC2::SecurityGroup
@@ -1134,8 +1195,18 @@ resources:
       DependsOn:
         - ZenithListener
         - ZenithHttpsListener
+        - EcrApiVpcEndpoint
+        - EcrDkrVpcEndpoint
+        - S3VpcEndpoint
+        - LogsVpcEndpoint
       Properties:
         HealthCheckGracePeriodSeconds: 180
+        DeploymentConfiguration:
+          MinimumHealthyPercent: 100
+          MaximumPercent: 200
+          DeploymentCircuitBreaker:
+            Enable: true
+            Rollback: true
         Cluster: !Ref ZenithCluster
         LaunchType: FARGATE
         DesiredCount: 1

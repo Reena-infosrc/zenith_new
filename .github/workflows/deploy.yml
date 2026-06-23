@@ -147,11 +147,54 @@ jobs:
           echo "APP_OWNER=${APP_OWNER}" >> $GITHUB_ENV
           echo "INFRA_OWNER=${INFRA_OWNER}" >> $GITHUB_ENV
 
+      - name: Apply CloudFormation stack governance tags
+        if: matrix.branch == github.ref_name
+        env:
+          APP_OWNER: ${{ secrets.APP_OWNER }}
+          INFRA_OWNER: ${{ secrets.INFRA_OWNER }}
+        run: |
+          set -euo pipefail
+          STACK_NAME="${SERVICE_NAME}-${STAGE}"
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || echo "NOT_FOUND")
+
+          if [ "$STACK_STATUS" = "NOT_FOUND" ]; then
+            echo "Stack $STACK_NAME not found; skipping tag update."
+            exit 0
+          fi
+
+          case "$STACK_STATUS" in
+            *IN_PROGRESS*|*FAILED*)
+              echo "Stack $STACK_NAME is $STACK_STATUS; skipping tag-only update."
+              exit 0
+              ;;
+          esac
+
+          echo "Applying governance tags to stack $STACK_NAME"
+          aws cloudformation update-stack \
+            --stack-name "$STACK_NAME" \
+            --use-previous-template \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --tags \
+              Key=Name,Value=infosrv-zenith \
+              Key=AppOwner,Value="${APP_OWNER}" \
+              Key=InfraOwner,Value="${INFRA_OWNER}" \
+              Key=Environment,Value="${STAGE}" \
+            --region "$AWS_REGION"
+
+          aws cloudformation wait stack-update-complete \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION"
+          echo "Governance tags applied."
+
       - name: Deploy with Serverless Framework (if serverless.yml changed)
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
         run: |
           cd backend
-          npx serverless deploy --stage "$STAGE"
+          npx serverless deploy --stage "$STAGE" --verbose
         env:
           ECR_IMAGE_URI: ${{ env.ECR_IMAGE_URI }}
           ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
@@ -162,6 +205,16 @@ jobs:
           AZURE_MSAL_TENANT_ID: ${{ secrets.AZURE_MSAL_TENANT_ID }}
           APP_OWNER: ${{ secrets.APP_OWNER }}
           INFRA_OWNER: ${{ secrets.INFRA_OWNER }}
+
+      - name: Capture CloudFormation events on deploy failure
+        if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true' && failure()
+        run: |
+          STACK_NAME="${SERVICE_NAME}-${STAGE}"
+          aws cloudformation describe-stack-events \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --max-items 25 \
+            --output table
 
       # Always roll ECS after a new :latest push. Otherwise Fargate can keep an old digest until
       # the task definition revision changes — staging API (e.g. zenith-api.apps.infoservices.com) stays stale.
