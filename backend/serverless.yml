@@ -1,7 +1,6 @@
 service: ${env:SERVICE_NAME, 'zenith-hr-platform'}
 
 # Touch this file to trigger CI serverless deploy (see .github/workflows/deploy.yml).
-# Rev: VPC endpoints for ECR/S3/Logs — fix Fargate image pull timeouts — 2026-06-22
 
 useDotenv: true
 
@@ -181,8 +180,7 @@ resources:
         SubnetId: !Ref PublicSubnet2
         RouteTableId: !Ref PublicRouteTable
 
-    # Fargate tasks need private AWS API reachability for ECR image pull + CloudWatch logs.
-    # Public internet egress to api.ecr.* can time out in locked-down accounts.
+    # VPC endpoints so Fargate can pull images when public ECR is unreachable.
     VpcEndpointSecurityGroup:
       Type: AWS::EC2::SecurityGroup
       Properties:
@@ -229,11 +227,11 @@ resources:
         RouteTableIds:
           - !Ref PublicRouteTable
 
-    LogsVpcEndpoint:
+    StsVpcEndpoint:
       Type: AWS::EC2::VPCEndpoint
       Properties:
         VpcId: !Ref ZenithHrPulseVPC
-        ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+        ServiceName: !Sub com.amazonaws.${AWS::Region}.sts
         VpcEndpointType: Interface
         PrivateDnsEnabled: true
         SubnetIds:
@@ -1195,18 +1193,8 @@ resources:
       DependsOn:
         - ZenithListener
         - ZenithHttpsListener
-        - EcrApiVpcEndpoint
-        - EcrDkrVpcEndpoint
-        - S3VpcEndpoint
-        - LogsVpcEndpoint
       Properties:
         HealthCheckGracePeriodSeconds: 180
-        DeploymentConfiguration:
-          MinimumHealthyPercent: 100
-          MaximumPercent: 200
-          DeploymentCircuitBreaker:
-            Enable: true
-            Rollback: true
         Cluster: !Ref ZenithCluster
         LaunchType: FARGATE
         DesiredCount: 1
