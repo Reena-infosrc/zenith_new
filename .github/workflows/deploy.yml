@@ -101,7 +101,7 @@ jobs:
               --encryption-configuration encryptionType=AES
             echo "ECR repository created successfully"
           else
-            echo "ECR repository already exists: $ECR_REPO"
+            echo "ECR repository already exist: $ECR_REPO"
           fi
 
       - name: Build and push Docker image
