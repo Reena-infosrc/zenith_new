@@ -149,6 +149,10 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
         projectStartDate: updatedEmployee.projectStartDate || prev.projectStartDate,
         projectEndDate: updatedEmployee.projectEndDate || prev.projectEndDate,
         reporting_to: updatedEmployee.reporting_to || prev.reporting_to,
+        emergencyContactName: updatedEmployee.emergencyContactName || prev.emergencyContactName,
+        emergencyContactRelationship: updatedEmployee.emergencyContactRelationship || prev.emergencyContactRelationship,
+        emergencyContactPhone: updatedEmployee.emergencyContactPhone || prev.emergencyContactPhone,
+        reasonForResignation: updatedEmployee.reasonForResignation || prev.reasonForResignation,
       }));
       setSkillsInput(updatedEmployee.skills?.length ? updatedEmployee.skills.join(', ') : skillsInput);
     }
@@ -712,7 +716,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                   </div>
 
                   {/* Phone */}
-                  {isAdmin && (
+                  {canViewSensitiveFields && (
                     <div className="space-y-2">
                       <Label htmlFor="phone">Phone</Label>
                       <Input
@@ -916,7 +920,7 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                   </div>
 
                   {/* Gender */}
-                  {isAdmin && (
+                  {canViewSensitiveFields && (
                     <div className="space-y-2">
                       <Label htmlFor="gender">Gender</Label>
                       {isEditing ? (
@@ -947,8 +951,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                     </div>
                   )}
 
-                  {/* Admin-only sensitive fields block */}
-                  {isAdmin && (
+                  {/* Sensitive fields block — visible to admin or the employee themselves */}
+                  {canViewSensitiveFields && (
                     <>
                       {/* Date of Birth */}
                       <div className="space-y-2">
@@ -959,8 +963,8 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
                           type="date"
                           value={profileData.dateOfBirth || ''}
                           onChange={handleChange}
-                          disabled={!isEditing}
-                          className={!isEditing ? "bg-muted" : ""}
+                          disabled={!isEditing || !canEditBasicInfo}
+                          className={(!isEditing || !canEditBasicInfo) ? "bg-muted" : ""}
                         />
                       </div>
 
