@@ -360,7 +360,6 @@ resources:
                 - kms:DescribeKey
               Resource:
                 - !GetAtt ZenithFieldEncryptionKey.Arn
-            # CMK from deploy env (e.g. pre-existing key used during backfill). IAM + KMS key policy both required.
             - Sid: FieldEncryptionKmsFromDeployEnv
               Effect: Allow
               Action:
@@ -370,16 +369,18 @@ resources:
                 - kms:DescribeKey
               Resource:
                 - ${self:custom.fieldEncryptionKmsKeyArn}
-            - Sid: FieldEncryptionKmsV2FromDeployEnv
-              Condition: HasFieldEncryptionKmsKeyArnV2
-              Effect: Allow
-              Action:
-                - kms:Encrypt
-                - kms:Decrypt
-                - kms:GenerateDataKey
-                - kms:DescribeKey
-              Resource:
-                - ${self:custom.fieldEncryptionKmsKeyArnV2}
+            - Fn::If:
+              - HasFieldEncryptionKmsKeyArnV2
+              - Sid: FieldEncryptionKmsV2FromDeployEnv
+                Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:DescribeKey
+                Resource:
+                  - ${self:custom.fieldEncryptionKmsKeyArnV2}
+              - !Ref AWS::NoValue
 
     # One-time deploy hook: add ZenithAppTaskRole to the configured CMK key policy (idempotent).
     GrantFieldEncryptionKmsPolicyLambdaRole:
