@@ -70,18 +70,18 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
         run: npm ci --no-audit --no-fund
 
-      - name: Check if serverless.yml changed
+      - name: Check if serverless.yml or env file changed
         if: matrix.branch == github.ref_name
         run: |
-          # Check if backend/serverless.yml changed
           CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git log -1 --name-only --pretty="")
-          
-          if echo "$CHANGED_FILES" | grep -q 'backend/serverless.yml' || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          ENV_FILE="backend/${{ matrix.env_file }}"
+
+          if echo "$CHANGED_FILES" | grep -qE 'backend/serverless\.yml|'"$ENV_FILE" || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             echo "DEPLOY_SERVERLESS=true" >> $GITHUB_ENV
-            echo "Serverless config changed or manual trigger. DEPLOY_SERVERLESS=true"
+            echo "Serverless config or env file changed. DEPLOY_SERVERLESS=true"
           else
             echo "DEPLOY_SERVERLESS=false" >> $GITHUB_ENV
-            echo "No changes in backend/serverless.yml. DEPLOY_SERVERLESS=false"
+            echo "No changes in serverless.yml or $ENV_FILE. DEPLOY_SERVERLESS=false"
           fi
 
       - name: Check and create ECR repository

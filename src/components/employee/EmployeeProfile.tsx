@@ -17,12 +17,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Edit2, X, Upload, User, Building, MapPin, Mail, Phone, Calendar, Award, Save, Clock } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { useEmployees } from '@/hooks/use-employees';
+import { useEmployees, mapEmployeeRow, findEmployeeByRef } from '@/hooks/use-employees';
 import { useClients } from '@/hooks/use-clients';
 import { useEmployeeStatuses } from '@/hooks/use-employee-statuses';
 import { useAuth } from '@/hooks/use-auth';
 import { authenticatedFetch } from "@/utils/auth-utils";
-import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { consolidateRemoteLocations, DEPARTMENT_OPTIONS, EMPLOYEE_STATUS_OPTIONS, CLIENT_OPTIONS, toCamelCase } from "@/lib/utils";
 import { ImageCrop } from "@/components/ui/ImageCrop";
 import { API_BASE_URL } from "@/config/api";
@@ -127,31 +126,45 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
     if (!employee) return;
     setProfileData(prev => ({
       ...employee,
-      // Only update photoUrl if it hasn't been explicitly cleared by the user
       photoUrl: photoClearedByUser ? '' : (employee.photoUrl || ""),
-      // Use the actual status from the API response, only default to 'active' if status is undefined/null
       status: employee.status !== undefined ? employee.status : 'active'
     }));
-    // Initialize skills input with current skills
     setSkillsInput(employee.skills ? employee.skills.join(', ') : '');
   }, [employee, photoClearedByUser]);
 
-  // Update profileData when employees list changes (in case of updates from other components)
+  // List refresh must not wipe decrypted fields loaded from GET /employees/{id}
   useEffect(() => {
     if (!employee) return;
     const updatedEmployee = employees.find(emp => emp.id === employee.id);
     if (updatedEmployee) {
       setProfileData(prev => ({
         ...updatedEmployee,
-        // Only update photoUrl if it hasn't been explicitly cleared by the user
         photoUrl: photoClearedByUser ? '' : (updatedEmployee.photoUrl || ""),
-        // Use the actual status from the updated employee, only default to 'active' if status is undefined/null
-        status: updatedEmployee.status !== undefined ? updatedEmployee.status : 'active'
+        status: updatedEmployee.status !== undefined ? updatedEmployee.status : 'active',
+        phone: updatedEmployee.phone || prev.phone,
+        mobile: updatedEmployee.mobile || prev.mobile,
+        gender: updatedEmployee.gender || prev.gender,
+        dateOfBirth: updatedEmployee.dateOfBirth || prev.dateOfBirth,
+        dateOfJoining: updatedEmployee.dateOfJoining || prev.dateOfJoining,
+        projectStartDate: updatedEmployee.projectStartDate || prev.projectStartDate,
+        projectEndDate: updatedEmployee.projectEndDate || prev.projectEndDate,
+        reporting_to: updatedEmployee.reporting_to || prev.reporting_to,
       }));
-      // Also update skills input
-      setSkillsInput(updatedEmployee.skills ? updatedEmployee.skills.join(', ') : '');
+      setSkillsInput(updatedEmployee.skills?.length ? updatedEmployee.skills.join(', ') : skillsInput);
     }
   }, [employees, employee, photoClearedByUser]);
+
+  useEffect(() => {
+    if (!isOpen || !employee?.id) return;
+    authenticatedFetch(`${API_BASE_URL}/employees/${employee.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        const fresh = mapEmployeeRow(data as Record<string, unknown>);
+        setProfileData((prev) => ({ ...prev, ...fresh }));
+      })
+      .catch(() => undefined);
+  }, [isOpen, employee?.id]);
 
   // Get unique departments, locations, and managers for dropdowns
   const departments = DEPARTMENT_OPTIONS; // Use predefined department options
@@ -170,28 +183,16 @@ export function EmployeeProfile({ isOpen, onClose, employee }: EmployeeProfilePr
   // Gender options
   const genderOptions = ['MALE', 'FEMALE'];
 
-  // Sync profileData with employee prop when it changes
+  // Find manager name from reporting_to (UUID or employee_id)
   useEffect(() => {
-    if (!employee) return;
-    setProfileData(prev => ({
-      ...employee,
-      // Only update photoUrl if it hasn't been explicitly cleared by the user
-      photoUrl: photoClearedByUser ? '' : (employee.photoUrl || ""),
-      // Preserve other user changes
-      status: prev.status !== undefined ? prev.status : (employee.status !== undefined ? employee.status : 'active')
-    }));
-  }, [employee, photoClearedByUser]);
-
-  // Find manager name from reporting_to UUID
-  useEffect(() => {
-    if (!employee?.reporting_to || employees.length === 0) return;
-    const manager = employees.find(emp => emp.id === employee.reporting_to);
-    if (manager) {
-      setManagerName(manager.name);
-    } else {
-      setManagerName('Manager not found');
+    const ref = profileData.reporting_to || employee?.reporting_to;
+    if (!ref) {
+      setManagerName('');
+      return;
     }
-  }, [employee?.reporting_to, employees]);
+    const manager = findEmployeeByRef(employees, ref);
+    setManagerName(manager?.name || 'Manager not found');
+  }, [profileData.reporting_to, employee?.reporting_to, employees]);
 
   // Fetch tools from self-assessment review metadata and filter 2 and 3-star ratings
   useEffect(() => {

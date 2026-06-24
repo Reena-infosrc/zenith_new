@@ -10,7 +10,6 @@ custom:
   awsAccountId: ${env:AWS_ACCOUNT_ID}
   # KMS: explicit ARN from env, else stack alias created by ZenithFieldEncryptionKeyAlias
   fieldEncryptionKmsKeyArn: ${env:DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN, 'arn:aws:kms:${self:provider.region}:${self:custom.awsAccountId}:alias/zenith-hr-field-encryption-${self:provider.stage}'}
-  fieldEncryptionKmsKeyArnV2: ${env:DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2, ''}
 
   s3PhotosBucket: ${env:S3_BUCKET_PHOTOS}
   s3DocumentsBucket: ${env:S3_BUCKET_DOCUMENTS}
@@ -124,13 +123,6 @@ provider:
           Resource: arn:aws:bedrock:${self:provider.region}::foundation-model/*
 
 resources:
-  Conditions:
-    HasFieldEncryptionKmsKeyArnV2:
-      Fn::Not:
-        - Fn::Equals:
-            - ${env:DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2, ''}
-            - ''
-
   Resources:
     ZenithHrPulseVPC:
       Type: AWS::EC2::VPC
@@ -351,7 +343,7 @@ resources:
                 - s3:*
                 - bedrock:*
               Resource: "*"
-            - Sid: FieldEncryptionKmsOnStackCmk
+            - Sid: FieldEncryptionKms
               Effect: Allow
               Action:
                 - kms:Encrypt
@@ -360,146 +352,7 @@ resources:
                 - kms:DescribeKey
               Resource:
                 - !GetAtt ZenithFieldEncryptionKey.Arn
-            - Sid: FieldEncryptionKmsFromDeployEnv
-              Effect: Allow
-              Action:
-                - kms:Encrypt
-                - kms:Decrypt
-                - kms:GenerateDataKey
-                - kms:DescribeKey
-              Resource:
                 - ${self:custom.fieldEncryptionKmsKeyArn}
-            - Fn::If:
-              - HasFieldEncryptionKmsKeyArnV2
-              - Sid: FieldEncryptionKmsV2FromDeployEnv
-                Effect: Allow
-                Action:
-                  - kms:Encrypt
-                  - kms:Decrypt
-                  - kms:GenerateDataKey
-                  - kms:DescribeKey
-                Resource:
-                  - ${self:custom.fieldEncryptionKmsKeyArnV2}
-              - !Ref AWS::NoValue
-
-    # One-time deploy hook: add ZenithAppTaskRole to the configured CMK key policy (idempotent).
-    GrantFieldEncryptionKmsPolicyLambdaRole:
-      Type: AWS::IAM::Role
-      Properties:
-        AssumeRolePolicyDocument:
-          Version: "2012-10-17"
-          Statement:
-            - Effect: Allow
-              Principal:
-                Service: lambda.amazonaws.com
-              Action: sts:AssumeRole
-        ManagedPolicyArns:
-          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        Policies:
-          - PolicyName: GrantFieldEncryptionKmsKeyPolicy
-            PolicyDocument:
-              Version: "2012-10-17"
-              Statement:
-                - Effect: Allow
-                  Action:
-                    - kms:GetKeyPolicy
-                    - kms:PutKeyPolicy
-                    - kms:DescribeKey
-                  Resource: "*"
-
-    GrantFieldEncryptionKmsPolicyFunction:
-      Type: AWS::Lambda::Function
-      DependsOn: ZenithAppTaskRole
-      Properties:
-        FunctionName: zenith-grant-field-enc-kms-${self:provider.stage}
-        Runtime: python3.12
-        Handler: index.handler
-        Role: !GetAtt GrantFieldEncryptionKmsPolicyLambdaRole.Arn
-        Timeout: 120
-        Code:
-          ZipFile: |
-            import json
-            import traceback
-            import urllib3
-            import boto3
-
-            SID = "AllowZenithAppTaskRoleFieldEncryption"
-            http = urllib3.PoolManager()
-
-            def cfn_send(event, context, status, data=None, physical_resource_id=None, reason=None):
-                body = json.dumps({
-                    "Status": status,
-                    "Reason": reason or ("See log stream: " + context.log_stream_name),
-                    "PhysicalResourceId": physical_resource_id or event.get("PhysicalResourceId") or context.log_stream_name,
-                    "StackId": event["StackId"],
-                    "RequestId": event["RequestId"],
-                    "LogicalResourceId": event["LogicalResourceId"],
-                    "Data": data or {},
-                })
-                http.request(
-                    "PUT",
-                    event["ResponseURL"],
-                    headers={"content-type": "", "content-length": str(len(body))},
-                    body=body,
-                )
-
-            def resolve_key_id(kms, key_arn):
-                if ":alias/" in key_arn:
-                    return kms.describe_key(KeyId=key_arn)["KeyMetadata"]["KeyId"]
-                return key_arn.split("/")[-1]
-
-            def grant_key_policy(kms, key_arn, task_role_arn):
-                key_id = resolve_key_id(kms, key_arn)
-                policy = json.loads(kms.get_key_policy(KeyId=key_id, PolicyName="default")["Policy"])
-                for statement in policy.get("Statement", []):
-                    if statement.get("Sid") == SID:
-                        return "already_present"
-                policy.setdefault("Statement", []).append({
-                    "Sid": SID,
-                    "Effect": "Allow",
-                    "Principal": {"AWS": task_role_arn},
-                    "Action": [
-                        "kms:Encrypt",
-                        "kms:Decrypt",
-                        "kms:GenerateDataKey",
-                        "kms:DescribeKey",
-                    ],
-                    "Resource": "*",
-                })
-                kms.put_key_policy(KeyId=key_id, PolicyName="default", Policy=json.dumps(policy))
-                return "granted"
-
-            def handler(event, context):
-                props = event["ResourceProperties"]
-                key_arn = props["KeyArn"]
-                task_role_arn = props["TaskRoleArn"]
-                try:
-                    if event["RequestType"] == "Delete":
-                        cfn_send(event, context, "SUCCESS", physical_resource_id=key_arn)
-                        return
-                    kms = boto3.client("kms")
-                    result = grant_key_policy(kms, key_arn, task_role_arn)
-                    cfn_send(event, context, "SUCCESS", {"Result": result}, physical_resource_id=key_arn)
-                except Exception as exc:
-                    traceback.print_exc()
-                    cfn_send(event, context, "FAILED", reason=str(exc))
-
-    GrantFieldEncryptionKmsKeyPolicy:
-      Type: AWS::CloudFormation::CustomResource
-      DependsOn:
-        - GrantFieldEncryptionKmsPolicyFunction
-        - ZenithAppTaskPolicy
-      Properties:
-        ServiceToken: !GetAtt GrantFieldEncryptionKmsPolicyFunction.Arn
-        KeyArn: ${self:custom.fieldEncryptionKmsKeyArn}
-        TaskRoleArn: !GetAtt ZenithAppTaskRole.Arn
-
-    GrantFieldEncryptionKmsPolicyInvoke:
-      Type: AWS::Lambda::Permission
-      Properties:
-        FunctionName: !Ref GrantFieldEncryptionKmsPolicyFunction
-        Action: lambda:InvokeFunction
-        Principal: cloudformation.amazonaws.com
 
     ECSLogGroup:
       Type: AWS::Logs::LogGroup

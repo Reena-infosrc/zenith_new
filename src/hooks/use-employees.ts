@@ -51,7 +51,13 @@ export interface Employee {
   emergencyContactPhone?: string;
 }
 
-function mapEmployeeRow(emp: Record<string, unknown>): Employee {
+function normalizeApiDate(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '';
+  const s = String(value);
+  return s.includes('T') ? s.split('T')[0] : s;
+}
+
+export function mapEmployeeRow(emp: Record<string, unknown>): Employee {
   return {
     id: (emp.id as string) || 'temp-' + Math.random().toString(36).substring(2, 11),
     employeeId: (emp.employee_id as string) || '',
@@ -63,8 +69,8 @@ function mapEmployeeRow(emp: Record<string, unknown>): Employee {
     phone: (emp.phone as string) || '',
     mobile: (emp.mobile as string) || '',
     bio: (emp.bio as string) || '',
-    projectStartDate: (emp.project_start_date as string) || '',
-    projectEndDate: (emp.project_end_date as string) || '',
+    projectStartDate: normalizeApiDate(emp.project_start_date),
+    projectEndDate: normalizeApiDate(emp.project_end_date),
     manager: (emp.reporting_to as string) || '',
     reporting_to: (emp.reporting_to as string) || null,
     skills: (emp.skills as string[]) || [],
@@ -76,8 +82,8 @@ function mapEmployeeRow(emp: Record<string, unknown>): Employee {
     location: (emp.location as string) || '',
     usageLocation: (emp.usage_location as string) || '',
     account: (emp.account as string) || '',
-    dateOfBirth: (emp.date_of_birth as string) || '',
-    dateOfJoining: (emp.date_of_joining as string) || '',
+    dateOfBirth: normalizeApiDate(emp.date_of_birth),
+    dateOfJoining: normalizeApiDate(emp.date_of_joining),
     gender: (emp.gender as string) || '',
     employmentCategory: (emp.employment_category as string) || '',
     employeeStatus: (emp.employee_status as string) || '',
@@ -86,12 +92,25 @@ function mapEmployeeRow(emp: Record<string, unknown>): Employee {
       emp.status !== undefined && emp.status !== null && emp.status !== ''
         ? (emp.status as string)
         : 'active',
-    resignationDate: (emp.resignation_date as string) || '',
+    resignationDate: normalizeApiDate(emp.resignation_date),
     reasonForResignation: (emp.reason_for_resignation as string) || '',
     emergencyContactName: (emp.emergency_contact_name as string) || '',
     emergencyContactRelationship: (emp.emergency_contact_relationship as string) || '',
     emergencyContactPhone: (emp.emergency_contact_phone as string) || '',
   };
+}
+
+/** Resolve an employee reference that may be stored as id (UUID) or employee_id (numeric). */
+export function findEmployeeByRef(
+  employees: Employee[],
+  ref: string | null | undefined
+): Employee | undefined {
+  if (!ref) return undefined;
+  const trimmed = ref.trim();
+  if (!trimmed) return undefined;
+  return employees.find(
+    (emp) => emp.id === trimmed || (emp.employeeId && emp.employeeId === trimmed)
+  );
 }
 
 function invalidateEmployeesAndDashboardCache(): void {

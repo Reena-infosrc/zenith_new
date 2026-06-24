@@ -151,18 +151,6 @@ def _should_encrypt_on_write() -> bool:
     return is_field_encryption_active()
 
 
-def _item_has_encrypted_fields(item: Dict[str, Any], table_logical_name: str) -> bool:
-    try:
-        fields = get_encrypted_fields_by_table().get(table_logical_name, [])
-    except Exception:
-        fields = []
-    for field in fields:
-        enc_key = f"{field}_enc"
-        if enc_key in item and item[enc_key] is not None:
-            return True
-    return any(str(k).endswith("_enc") for k in item)
-
-
 def _should_decrypt_on_read() -> bool:
     """Dual-read: decrypt existing *_enc when KMS is configured, even if writes are disabled."""
     if is_field_encryption_active():
@@ -170,12 +158,6 @@ def _should_decrypt_on_read() -> bool:
     if not _env_bool("DYNAMODB_FIELD_ENCRYPTION_DECRYPT_ON_READ", True):
         return False
     return _kms_configured()
-
-
-def _must_decrypt_item(table_logical_name: str, parsed_item: Dict[str, Any]) -> bool:
-    if _should_decrypt_on_read():
-        return True
-    return _kms_configured() and _item_has_encrypted_fields(parsed_item, table_logical_name)
 
 
 def _compress_before_encrypt() -> bool:
@@ -625,7 +607,7 @@ def decrypt_item_after_read(table_logical_name: str, parsed_item: Dict[str, Any]
     Legacy AWS Encryption SDK blobs are supported if aws-encryption-sdk is installed.
     """
     _log_bootstrap_once()
-    if not _must_decrypt_item(table_logical_name, parsed_item):
+    if not _should_decrypt_on_read():
         return parsed_item
 
     try:

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 class JWKSValidator:
     _instance = None
-    _jwks_cache = {}
-    _last_fetched = 0
+    _jwks_cache: dict = {}
+    _last_fetched: dict = {}  # per-tenant: tenant_id -> float timestamp
     _cache_duration = 86400  # 24 hours
 
     def __new__(cls):
@@ -30,7 +30,8 @@ class JWKSValidator:
 
     def _fetch_jwks(self, tenant_id: str):
         current_time = time.time()
-        if tenant_id in self._jwks_cache and (current_time - self._last_fetched) < self._cache_duration:
+        last = self._last_fetched.get(tenant_id, 0)
+        if tenant_id in self._jwks_cache and (current_time - last) < self._cache_duration:
             return self._jwks_cache[tenant_id]
 
         logger.info(f"Fetching JWKS for tenant: {tenant_id}")
@@ -40,7 +41,7 @@ class JWKSValidator:
             response.raise_for_status()
             jwks = response.json()
             self._jwks_cache[tenant_id] = jwks
-            self._last_fetched = current_time
+            self._last_fetched[tenant_id] = current_time
             return jwks
         except Exception as e:
             logger.error(f"Failed to fetch JWKS: {e}")
@@ -138,17 +139,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
-    """Generate password hash with proper length handling for bcrypt."""
-    # Ensure we're working with a string
-    password_str = str(password)
-    
-    # Convert to bytes and truncate to 72 bytes if necessary
-    password_bytes = password_str.encode('utf-8')
-    if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
-        password_str = password_bytes.decode('utf-8', errors='ignore')
-    
-    return pwd_context.hash(password_str)
+    """Generate bcrypt password hash. passlib handles the 72-byte limit internally."""
+    return pwd_context.hash(str(password))
 
 def get_user(username: str) -> Optional[dict]:
     """Get user from database."""
@@ -187,7 +179,7 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create access token."""
     to_encode = data.copy()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta
     else:

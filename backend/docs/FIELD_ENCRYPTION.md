@@ -49,16 +49,13 @@ python -m app.scripts.rotate_field_encryption --logical-table employees goals re
 
 - Per-request **DEK cache**: the first field encryption in a request calls KMS `GenerateDataKey`; further fields in the same HTTP request reuse that DEK. The cache is cleared at the **start** of each request (`main.py` middleware).
 
-## IAM (ECS task role)
+## IAM
 
-On deploy, `serverless.yml` grants **ZenithAppTaskRole**:
+ECS task role needs `kms:Decrypt`, `kms:GenerateDataKey`, `kms:Encrypt`, `kms:DescribeKey` on the CMK in `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN`. `serverless.yml` grants IAM on the stack CMK and that env ARN.
 
-| IAM statement | KMS actions | Resources |
-|---------------|-------------|-----------|
-| `FieldEncryptionKmsOnStackCmk` | Encrypt, Decrypt, GenerateDataKey, DescribeKey | Stack CMK (`ZenithFieldEncryptionKey`) |
-| `FieldEncryptionKmsFromDeployEnv` | same | `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN` from env |
-| `FieldEncryptionKmsV2FromDeployEnv` | same | `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2` (if set) |
+You must also add **ZenithAppTaskRole** to the **KMS key policy** on that CMK (IAM alone is not enough). Run once:
 
-A deploy-time Lambda custom resource (`GrantFieldEncryptionKmsKeyPolicy`) also adds **ZenithAppTaskRole** to the **configured CMK key policy** (idempotent). Manual script `scripts/grant_field_encryption_kms_to_ecs.ps1` is optional if deploy already succeeded.
-
-The API principal (ECS **task role**, Lambda execution role, or IAM user running backfill) needs the same KMS actions on **each CMK** used for backfill, plus normal DynamoDB/S3 permissions.
+```powershell
+cd backend
+.\scripts\grant_field_encryption_kms_to_ecs.ps1 -KmsKeyArn "arn:aws:kms:REGION:ACCOUNT:key/KEY-ID" -Stage staging
+```

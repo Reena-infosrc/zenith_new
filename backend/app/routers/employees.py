@@ -351,42 +351,14 @@ async def is_user_admin(email: str) -> bool:
         return False
 
 
-def _normalize_reporting_to_references(employees: List[Dict[str, Any]]) -> None:
-    """Map reporting_to values that use employee_id strings to canonical id UUIDs."""
-    by_id = {str(d["id"]): d for d in employees if d.get("id")}
-    by_employee_id: Dict[str, Dict[str, Any]] = {}
-    for doc in employees:
-        emp_num = doc.get("employee_id")
-        if emp_num is not None and str(emp_num).strip():
-            by_employee_id[str(emp_num).strip()] = doc
-
-    for doc in employees:
-        reporting_to = doc.get("reporting_to")
-        if not reporting_to:
-            continue
-        ref = str(reporting_to).strip()
-        if not ref:
-            doc.pop("reporting_to", None)
-            continue
-        if ref in by_id:
-            continue
-        manager = by_employee_id.get(ref)
-        if manager and manager.get("id"):
-            doc["reporting_to"] = manager["id"]
-
-
-async def _resolve_reporting_to_uuid(table, doc: Dict[str, Any]) -> None:
-    """Normalize a single employee's reporting_to when it stores employee_id instead of id."""
-    reporting_to = doc.get("reporting_to")
-    if not reporting_to:
-        return
-    ref = str(reporting_to).strip()
+async def _get_employee_raw_by_ref(table, ref: str) -> Optional[Dict[str, Any]]:
+    """Load by UUID id or legacy employee_id."""
+    ref = (ref or "").strip()
     if not ref:
-        doc.pop("reporting_to", None)
-        return
-    existing = await table.get_item(Key={"id": ref})
-    if existing.get("Item"):
-        return
+        return None
+    response = await table.get_item(Key={"id": ref})
+    if "Item" in response:
+        return response["Item"]
     try:
         resp = await table.query(
             IndexName="EmployeeIdIndex",
@@ -396,36 +368,10 @@ async def _resolve_reporting_to_uuid(table, doc: Dict[str, Any]) -> None:
         )
         items = resp.get("Items", [])
         if items:
-            manager_id = parse_dynamodb_item(items[0], "employees").get("id")
-            if manager_id:
-                doc["reporting_to"] = manager_id
+            return items[0]
     except ClientError as exc:
-        logger.warning("Could not resolve reporting_to %s via EmployeeIdIndex: %s", ref, exc)
-
-
-_EMPLOYEE_DATE_FIELDS = (
-    "date_of_birth",
-    "date_of_joining",
-    "project_start_date",
-    "project_end_date",
-    "resignation_date",
-    "created_at",
-    "updated_at",
-)
-
-
-def _normalize_employee_api_fields(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """Ensure date fields are YYYY-MM-DD strings for API / frontend consumers."""
-    for key in _EMPLOYEE_DATE_FIELDS:
-        val = doc.get(key)
-        if val is None:
-            continue
-        if hasattr(val, "isoformat"):
-            iso = val.isoformat()
-            doc[key] = iso.split("T")[0] if "T" in iso else iso[:10]
-        elif isinstance(val, str) and "T" in val:
-            doc[key] = val.split("T")[0]
-    return doc
+        logger.warning("EmployeeIdIndex lookup failed for %s: %s", ref, exc)
+    return None
 
 
 def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = True) -> Optional[Dict[str, Any]]:
@@ -448,7 +394,7 @@ def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = True) -> O
         doc["department"] = ""
     if not doc.get("position"):
         doc["position"] = ""
-    return _normalize_employee_api_fields(doc)
+    return doc
 
 
 # DynamoDB scan page size per request (early-exit path stops after skip+limit rows).
@@ -595,8 +541,6 @@ async def get_employees(
                 
                 parsed.sort(key=get_date_key, reverse=reverse_order)
 
-        _normalize_reporting_to_references(parsed)
-
         end_idx = start_idx + end_limit
         sliced = parsed[start_idx:end_idx]
         logger.debug("get_employees returning %s employees (skip=%s limit=%s)", len(sliced), start_idx, end_limit)
@@ -722,22 +666,17 @@ async def check_team_members(current_user: dict = Depends(get_current_active_use
 
 @router.get("/{employee_id}", response_model=EmployeeInDB)
 async def get_employee(employee_id: str, current_user: dict = Depends(get_current_active_user)):
-    """Get a specific employee by ID"""
+    """Get a specific employee by UUID id or legacy employee_id."""
     try:
         table = await get_employees_table()
-        response = await table.get_item(Key={"id": employee_id})
-        
-        if "Item" not in response:
+        raw = await _get_employee_raw_by_ref(table, employee_id)
+        if not raw:
             raise HTTPException(status_code=404, detail="Employee not found")
-    
-        employee = parse_dynamodb_item(response["Item"], "employees")
-        await _resolve_reporting_to_uuid(table, employee)
-        
-        # Set default status to "active" if not present (but don't override explicit "inactive")
+
+        employee = parse_dynamodb_item(raw, "employees")
         if employee.get("status") is None or employee.get("status") == "":
             employee["status"] = "active"
-        
-        return _normalize_employee_api_fields(employee)
+        return employee
         
     except HTTPException:
         raise
