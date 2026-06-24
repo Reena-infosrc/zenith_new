@@ -256,8 +256,10 @@ _cors_origins, _cors_credentials = _cors_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .security_config import validate_security_at_startup
+    from .services.field_crypto import validate_field_encryption_config
 
     validate_security_at_startup()
+    validate_field_encryption_config()
     yield
 
 

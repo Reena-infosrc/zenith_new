@@ -36,8 +36,8 @@ import boto3
 from dotenv import load_dotenv
 
 from app.services.field_crypto import (
-    ENCRYPTED_FIELDS_BY_TABLE,
     describe_status,
+    get_encrypted_fields_by_table,
     is_field_encryption_active,
     re_encrypt_field_blob,
 )
@@ -99,7 +99,7 @@ def rotate_table(
 ) -> int:
     table_name = _table_name(logical)
     table = dynamodb.Table(table_name)
-    fields = ENCRYPTED_FIELDS_BY_TABLE.get(logical, [])
+    fields = get_encrypted_fields_by_table().get(logical, [])
     if not fields:
         print(f"  No encrypted fields configured for {logical}, skipping.")
         return 0

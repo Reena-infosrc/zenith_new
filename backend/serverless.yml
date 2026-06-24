@@ -8,6 +8,8 @@ custom:
   ecrImageUri: ${env:ECR_IMAGE_URI, "${env:AWS_ACCOUNT_ID}.dkr.ecr.${self:provider.region}.amazonaws.com/${env:ECR_REPOSITORY}:latest"}
   acmCertificateArn: ${env:ACM_CERTIFICATE_ARN}
   awsAccountId: ${env:AWS_ACCOUNT_ID}
+  # KMS: explicit ARN from env, else stack alias created by ZenithFieldEncryptionKeyAlias
+  fieldEncryptionKmsKeyArn: ${env:DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN, 'arn:aws:kms:${self:provider.region}:${self:custom.awsAccountId}:alias/zenith-hr-field-encryption-${self:provider.stage}'}
 
   s3PhotosBucket: ${env:S3_BUCKET_PHOTOS}
   s3DocumentsBucket: ${env:S3_BUCKET_DOCUMENTS}
@@ -487,17 +489,21 @@ resources:
               - Name: SERVICE_NAME
                 Value: ${env:SERVICE_NAME, 'zenith-hr-pulse'}
               - Name: DYNAMODB_FIELD_ENCRYPTION_ENABLED
-                Value: "true"
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_ENABLED, 'false'}
               - Name: DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN
-                Value: !GetAtt ZenithFieldEncryptionKey.Arn
+                Value: ${self:custom.fieldEncryptionKmsKeyArn}
               - Name: DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2
-                Value: ""
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2, ''}
               - Name: DYNAMODB_FIELD_ENCRYPTION_VERSION
-                Value: "v1"
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_VERSION, 'v1'}
               - Name: DYNAMODB_FIELD_ENCRYPTION_COMPRESS
-                Value: "false"
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_COMPRESS, 'false'}
+              - Name: DYNAMODB_FIELD_ENCRYPTION_DECRYPT_ON_READ
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_DECRYPT_ON_READ, 'true'}
               - Name: DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP
-                Value: zenith-hr-pulse
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP, ''}
+              - Name: DYNAMODB_FIELD_ENCRYPTION_ALLOWLIST_FILE
+                Value: ${env:DYNAMODB_FIELD_ENCRYPTION_ALLOWLIST_FILE, 'config/field_encryption_allowlist.json'}
               - Name: CORS_ORIGINS
                 Value: "https://zenith-hr-${self:provider.stage}.apps.infoservices.com,https://zenith-api.apps.infoservices.com,http://localhost:3000,http://localhost:8080"
               - Name: SECURITY_SECRET_KEY

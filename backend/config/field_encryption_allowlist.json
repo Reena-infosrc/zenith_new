@@ -1,0 +1,44 @@
+{
+  "employees": [
+    "bio",
+    "date_of_birth",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+    "emergency_contact_relationship",
+    "gender",
+    "mobile",
+    "overall_rating",
+    "performance_client_feedback",
+    "performance_communication",
+    "performance_leadership",
+    "phone",
+    "reason_for_resignation",
+    "strengths"
+  ],
+  "goals": [
+    "description",
+    "milestones",
+    "title"
+  ],
+  "review": [
+    "attachments",
+    "comments",
+    "improvements",
+    "metadata",
+    "ratings",
+    "strengths"
+  ],
+  "reviewDraft": [
+    "attachments",
+    "comments",
+    "improvements",
+    "metadata",
+    "ratings",
+    "strengths"
+  ],
+  "clientRmFeedback": [
+    "ratings",
+    "additional_feedback",
+    "overall_satisfaction"
+  ]
+}

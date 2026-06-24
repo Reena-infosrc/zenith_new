@@ -11,11 +11,14 @@ Sensitive attributes are encrypted **before** `put_item` using **AES-256-GCM** w
 | `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2` | Optional second CMK for **v2** writes / rotation |
 | `DYNAMODB_FIELD_ENCRYPTION_VERSION` | `v1` or `v2` — version label for new envelopes and AAD |
 | `DYNAMODB_FIELD_ENCRYPTION_COMPRESS` | `true` to zlib-compress large JSON payloads before encrypt |
-| `DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP` | String included in KMS encryption context metadata |
+| `DYNAMODB_FIELD_ENCRYPTION_DECRYPT_ON_READ` | `true` (default): decrypt existing `*_enc` when KMS is configured, even if `ENABLED=false` (prod rollout) |
+| `DYNAMODB_FIELD_ENCRYPTION_CONTEXT_APP` | Optional KMS context; defaults to `SERVICE_NAME` |
+| `DYNAMODB_FIELD_ENCRYPTION_ALLOWLIST_FILE` | Path to JSON allowlist relative to `backend/` (default `config/field_encryption_allowlist.json`) |
+| `DYNAMODB_FIELD_ENCRYPTION_ALLOWLIST_JSON` | Optional inline JSON override for allowlist (advanced) |
 
 ## Allowlisted fields
 
-Configured in `app/services/field_crypto.py` → `ENCRYPTED_FIELDS_BY_TABLE`.
+Configured in `backend/config/field_encryption_allowlist.json` (or override via env above). Edit the JSON and redeploy — no code change required.
 
 ## Legacy data (AWS Encryption SDK)
 
