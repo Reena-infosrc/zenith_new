@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import contextvars
+import hashlib
 import json
 import logging
 import os
@@ -39,6 +40,10 @@ GCM_NONCE_LEN = 12
 _dek_request_cache: contextvars.ContextVar[Optional[Dict[Tuple[str, str], Tuple[bytes, bytes]]]] = (
     contextvars.ContextVar("field_crypto_dek_cache", default=None)
 )
+# Request-scoped cache: sha256(edk) -> plaintext DEK (avoids repeated KMS Decrypt per row/field)
+_edk_plaintext_cache: contextvars.ContextVar[Optional[Dict[str, bytes]]] = contextvars.ContextVar(
+    "field_crypto_edk_plaintext_cache", default=None
+)
 
 
 def _get_dek_cache() -> Dict[Tuple[str, str], Tuple[bytes, bytes]]:
@@ -49,9 +54,18 @@ def _get_dek_cache() -> Dict[Tuple[str, str], Tuple[bytes, bytes]]:
     return cache
 
 
+def _get_edk_plaintext_cache() -> Dict[str, bytes]:
+    cache = _edk_plaintext_cache.get()
+    if cache is None:
+        cache = {}
+        _edk_plaintext_cache.set(cache)
+    return cache
+
+
 def clear_dek_request_cache() -> None:
     """Clear per-request DEK cache (e.g. after batch or for tests)."""
     _dek_request_cache.set(None)
+    _edk_plaintext_cache.set(None)
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -137,6 +151,18 @@ def _should_encrypt_on_write() -> bool:
     return is_field_encryption_active()
 
 
+def _item_has_encrypted_fields(item: Dict[str, Any], table_logical_name: str) -> bool:
+    try:
+        fields = get_encrypted_fields_by_table().get(table_logical_name, [])
+    except Exception:
+        fields = []
+    for field in fields:
+        enc_key = f"{field}_enc"
+        if enc_key in item and item[enc_key] is not None:
+            return True
+    return any(str(k).endswith("_enc") for k in item)
+
+
 def _should_decrypt_on_read() -> bool:
     """Dual-read: decrypt existing *_enc when KMS is configured, even if writes are disabled."""
     if is_field_encryption_active():
@@ -144,6 +170,12 @@ def _should_decrypt_on_read() -> bool:
     if not _env_bool("DYNAMODB_FIELD_ENCRYPTION_DECRYPT_ON_READ", True):
         return False
     return _kms_configured()
+
+
+def _must_decrypt_item(table_logical_name: str, parsed_item: Dict[str, Any]) -> bool:
+    if _should_decrypt_on_read():
+        return True
+    return _kms_configured() and _item_has_encrypted_fields(parsed_item, table_logical_name)
 
 
 def _compress_before_encrypt() -> bool:
@@ -326,12 +358,19 @@ def _generate_data_key(kms_arn: str) -> Tuple[bytes, bytes]:
 
 
 def _decrypt_data_key(encrypted_dek: bytes) -> bytes:
+    digest = hashlib.sha256(encrypted_dek).hexdigest()
+    cache = _get_edk_plaintext_cache()
+    cached = cache.get(digest)
+    if cached is not None:
+        return cached
     kms = _kms_client()
     resp = kms.decrypt(CiphertextBlob=encrypted_dek)
     pt = resp["Plaintext"]
     if not isinstance(pt, (bytes, bytearray)):
         raise RuntimeError("KMS decrypt returned no Plaintext")
-    return bytes(pt)
+    plain = bytes(pt)
+    cache[digest] = plain
+    return plain
 
 
 def _get_or_create_dek_for_encrypt(kms_arn: str, crypto_version: str) -> Tuple[bytes, bytes]:
@@ -586,10 +625,15 @@ def decrypt_item_after_read(table_logical_name: str, parsed_item: Dict[str, Any]
     Legacy AWS Encryption SDK blobs are supported if aws-encryption-sdk is installed.
     """
     _log_bootstrap_once()
-    if not _should_decrypt_on_read():
+    if not _must_decrypt_item(table_logical_name, parsed_item):
         return parsed_item
 
-    fields = get_encrypted_fields_by_table().get(table_logical_name, [])
+    try:
+        fields = get_encrypted_fields_by_table().get(table_logical_name, [])
+    except Exception as exc:
+        logger.error("Cannot load encryption allowlist for decrypt: %s", exc)
+        return parsed_item
+
     if not fields:
         return parsed_item
 
@@ -613,8 +657,14 @@ def decrypt_item_after_read(table_logical_name: str, parsed_item: Dict[str, Any]
             )
             del out[enc_key]
         except Exception as e:
-            logger.exception("Field decryption failed for %s.%s: %s", table_logical_name, field, e)
-            raise
+            # Do not fail the whole row when one field cannot be decrypted (e.g. KMS policy gap).
+            logger.error(
+                "Field decryption failed for %s.%s (item id=%s): %s",
+                table_logical_name,
+                field,
+                out.get("id") or out.get("pk"),
+                e,
+            )
 
     return out
 

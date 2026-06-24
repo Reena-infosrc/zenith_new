@@ -351,6 +351,83 @@ async def is_user_admin(email: str) -> bool:
         return False
 
 
+def _normalize_reporting_to_references(employees: List[Dict[str, Any]]) -> None:
+    """Map reporting_to values that use employee_id strings to canonical id UUIDs."""
+    by_id = {str(d["id"]): d for d in employees if d.get("id")}
+    by_employee_id: Dict[str, Dict[str, Any]] = {}
+    for doc in employees:
+        emp_num = doc.get("employee_id")
+        if emp_num is not None and str(emp_num).strip():
+            by_employee_id[str(emp_num).strip()] = doc
+
+    for doc in employees:
+        reporting_to = doc.get("reporting_to")
+        if not reporting_to:
+            continue
+        ref = str(reporting_to).strip()
+        if not ref:
+            doc.pop("reporting_to", None)
+            continue
+        if ref in by_id:
+            continue
+        manager = by_employee_id.get(ref)
+        if manager and manager.get("id"):
+            doc["reporting_to"] = manager["id"]
+
+
+async def _resolve_reporting_to_uuid(table, doc: Dict[str, Any]) -> None:
+    """Normalize a single employee's reporting_to when it stores employee_id instead of id."""
+    reporting_to = doc.get("reporting_to")
+    if not reporting_to:
+        return
+    ref = str(reporting_to).strip()
+    if not ref:
+        doc.pop("reporting_to", None)
+        return
+    existing = await table.get_item(Key={"id": ref})
+    if existing.get("Item"):
+        return
+    try:
+        resp = await table.query(
+            IndexName="EmployeeIdIndex",
+            KeyConditionExpression="employee_id = :eid",
+            ExpressionAttributeValues={":eid": ref},
+            Limit=1,
+        )
+        items = resp.get("Items", [])
+        if items:
+            manager_id = parse_dynamodb_item(items[0], "employees").get("id")
+            if manager_id:
+                doc["reporting_to"] = manager_id
+    except ClientError as exc:
+        logger.warning("Could not resolve reporting_to %s via EmployeeIdIndex: %s", ref, exc)
+
+
+_EMPLOYEE_DATE_FIELDS = (
+    "date_of_birth",
+    "date_of_joining",
+    "project_start_date",
+    "project_end_date",
+    "resignation_date",
+    "created_at",
+    "updated_at",
+)
+
+
+def _normalize_employee_api_fields(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure date fields are YYYY-MM-DD strings for API / frontend consumers."""
+    for key in _EMPLOYEE_DATE_FIELDS:
+        val = doc.get(key)
+        if val is None:
+            continue
+        if hasattr(val, "isoformat"):
+            iso = val.isoformat()
+            doc[key] = iso.split("T")[0] if "T" in iso else iso[:10]
+        elif isinstance(val, str) and "T" in val:
+            doc[key] = val.split("T")[0]
+    return doc
+
+
 def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = True) -> Optional[Dict[str, Any]]:
     """Parse a DynamoDB employee row for list responses; returns None if invalid.
 
@@ -371,7 +448,7 @@ def _parse_employee_list_item(raw: Dict[str, Any], *, decrypt: bool = True) -> O
         doc["department"] = ""
     if not doc.get("position"):
         doc["position"] = ""
-    return doc
+    return _normalize_employee_api_fields(doc)
 
 
 # DynamoDB scan page size per request (early-exit path stops after skip+limit rows).
@@ -518,6 +595,8 @@ async def get_employees(
                 
                 parsed.sort(key=get_date_key, reverse=reverse_order)
 
+        _normalize_reporting_to_references(parsed)
+
         end_idx = start_idx + end_limit
         sliced = parsed[start_idx:end_idx]
         logger.debug("get_employees returning %s employees (skip=%s limit=%s)", len(sliced), start_idx, end_limit)
@@ -652,12 +731,13 @@ async def get_employee(employee_id: str, current_user: dict = Depends(get_curren
             raise HTTPException(status_code=404, detail="Employee not found")
     
         employee = parse_dynamodb_item(response["Item"], "employees")
+        await _resolve_reporting_to_uuid(table, employee)
         
         # Set default status to "active" if not present (but don't override explicit "inactive")
         if employee.get("status") is None or employee.get("status") == "":
             employee["status"] = "active"
         
-        return employee
+        return _normalize_employee_api_fields(employee)
         
     except HTTPException:
         raise

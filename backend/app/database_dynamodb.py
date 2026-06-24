@@ -310,6 +310,23 @@ def generate_id() -> str:
     import uuid
     return str(uuid.uuid4())
 
+
+# DynamoDB rejects empty strings on GSI/hash key attributes (e.g. ReportingToIndex).
+_EMPLOYEES_GSI_KEY_ATTRS = frozenset({"reporting_to", "department", "email", "employee_id"})
+
+
+def _omit_empty_index_key_strings(
+    item: Dict[str, Any], table_logical_name: Optional[str]
+) -> Dict[str, Any]:
+    if table_logical_name != "employees":
+        return item
+    out = dict(item)
+    for key in _EMPLOYEES_GSI_KEY_ATTRS:
+        if out.get(key) == "":
+            del out[key]
+    return out
+
+
 def format_dynamodb_item(item: Dict[str, Any], table_logical_name: Optional[str] = None) -> Dict[str, Any]:
     """Format item for DynamoDB storage.
 
@@ -342,8 +359,8 @@ def format_dynamodb_item(item: Dict[str, Any], table_logical_name: Optional[str]
             formatted_item[key] = str(value)
     if table_logical_name:
         from .services.field_crypto import encrypt_item_for_write
-        return encrypt_item_for_write(table_logical_name, formatted_item)
-    return formatted_item
+        formatted_item = encrypt_item_for_write(table_logical_name, formatted_item)
+    return _omit_empty_index_key_strings(formatted_item, table_logical_name)
 
 def parse_dynamodb_item(item: Dict[str, Any], table_logical_name: Optional[str] = None) -> Dict[str, Any]:
     """Parse item from DynamoDB storage.
@@ -354,8 +371,12 @@ def parse_dynamodb_item(item: Dict[str, Any], table_logical_name: Optional[str] 
     """
     parsed_item = {}
     # Fields that should remain as strings (not converted to datetime)
-    string_date_fields = ['created_at', 'updated_at', 'targetDate', 'dueDate', 'completedDate', 
-                          'startDate', 'endDate', 'createdAt', 'updatedAt', 'submittedAt']
+    string_date_fields = [
+        'created_at', 'updated_at', 'targetDate', 'dueDate', 'completedDate',
+        'startDate', 'endDate', 'createdAt', 'updatedAt', 'submittedAt',
+        'date_of_birth', 'date_of_joining', 'project_start_date', 'project_end_date',
+        'resignation_date',
+    ]
     # Boolean fields that may come as strings and need explicit conversion
     boolean_fields = ['is_active', 'is_deleted', 'is_verified', 'is_approved', 'is_complete']
     

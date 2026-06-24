@@ -49,8 +49,16 @@ python -m app.scripts.rotate_field_encryption --logical-table employees goals re
 
 - Per-request **DEK cache**: the first field encryption in a request calls KMS `GenerateDataKey`; further fields in the same HTTP request reuse that DEK. The cache is cleared at the **start** of each request (`main.py` middleware).
 
-## IAM
+## IAM (ECS task role)
 
-The API principal (ECS **task role**, Lambda execution role, or IAM user running backfill) needs at least **`kms:GenerateDataKey`**, **`kms:Decrypt`**, and optionally **`kms:DescribeKey`** / **`kms:Encrypt`** on **each CMK** referenced by `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN` and `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2`, plus normal DynamoDB/S3 permissions.
+On deploy, `serverless.yml` grants **ZenithAppTaskRole**:
 
-In **`serverless.yml`**: `ZenithAppTaskRole` carries app permissions; KMS actions are scoped to `!GetAtt ZenithFieldEncryptionKey.Arn` only. **`ZenithFieldEncryptionKey`** key policy includes **`AllowAppTaskRole`** so the CMK trusts that same role. If you point `..._KMS_KEY_ARN_V2` at a **second** CMK created outside this stack, add the task role to **that** key’s policy and extend **`ZenithAppTaskPolicy`** with a second KMS statement on that key’s ARN.
+| IAM statement | KMS actions | Resources |
+|---------------|-------------|-----------|
+| `FieldEncryptionKmsOnStackCmk` | Encrypt, Decrypt, GenerateDataKey, DescribeKey | Stack CMK (`ZenithFieldEncryptionKey`) |
+| `FieldEncryptionKmsFromDeployEnv` | same | `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN` from env |
+| `FieldEncryptionKmsV2FromDeployEnv` | same | `DYNAMODB_FIELD_ENCRYPTION_KMS_KEY_ARN_V2` (if set) |
+
+A deploy-time Lambda custom resource (`GrantFieldEncryptionKmsKeyPolicy`) also adds **ZenithAppTaskRole** to the **configured CMK key policy** (idempotent). Manual script `scripts/grant_field_encryption_kms_to_ecs.ps1` is optional if deploy already succeeded.
+
+The API principal (ECS **task role**, Lambda execution role, or IAM user running backfill) needs the same KMS actions on **each CMK** used for backfill, plus normal DynamoDB/S3 permissions.
