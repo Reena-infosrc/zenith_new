@@ -13,6 +13,9 @@ let globalFetchPromise: Promise<void> | null = null;
 
 const FIRST_PAGE_LIMIT = 72;
 const FULL_PAGE_LIMIT = 10000;
+// Hard ceiling on any single page request so a slow/hung backend can never
+// leave the spinner spinning forever — the fetch aborts and surfaces as an error.
+const FETCH_TIMEOUT_MS = 30000;
 
 // Employee type definition
 export interface Employee {
@@ -210,11 +213,27 @@ export function useEmployees(options?: { includeInactive?: boolean }) {
         params.append('include_inactive', 'true');
         if (sortBy) params.append('sort_by', sortBy);
         if (sortOrder) params.append('sort_order', sortOrder);
-        const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, { headers });
-        if (!response.ok) return null;
-        const data = await response.json();
-        if (!data || !Array.isArray(data)) return [];
-        return data.map((emp: Record<string, unknown>) => mapEmployeeRow(emp));
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        try {
+          const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, {
+            headers,
+            signal: controller.signal,
+          });
+          if (!response.ok) return null;
+          const data = await response.json();
+          if (!data || !Array.isArray(data)) return [];
+          return data.map((emp: Record<string, unknown>) => mapEmployeeRow(emp));
+        } catch (err) {
+          // Aborted (timeout) or network error -> treat as page failure so the
+          // caller's error/degraded path runs instead of awaiting forever.
+          if ((err as Error)?.name === 'AbortError') {
+            console.warn(`Employees page fetch timed out after ${FETCH_TIMEOUT_MS}ms (skip=${skip}, limit=${limit})`);
+          }
+          return null;
+        } finally {
+          clearTimeout(timeout);
+        }
       };
 
       const applyDevMock = () => {
@@ -337,6 +356,11 @@ export function useEmployees(options?: { includeInactive?: boolean }) {
         globalLoading = false;
         globalIsLoadingMore = false;
         globalFetchPromise = null;
+        // Terminal broadcast: earlier 'employeesUpdated' events fire while
+        // globalIsLoadingMore is still true, so subscribed consumers latch the
+        // spinner on. This final event (after flags are cleared) guarantees every
+        // mounted useEmployees clears isLoadingMore, even on error/timeout.
+        window.dispatchEvent(new CustomEvent('employeesUpdated'));
       }
     })();
 
