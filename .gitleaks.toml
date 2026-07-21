@@ -1,0 +1,16 @@
+title = "Zenith HR Pulse gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths excluded from secret scanning"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)__pycache__/''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)bun\.lockb$''',
+  '''\.pyc$''',
+]

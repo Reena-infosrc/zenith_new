@@ -142,6 +142,22 @@ ENVIRONMENT=development
 DEBUG=true
 ```
 
+## ✅ Git Hooks (required for contributors)
+
+This repo blocks commits containing secrets and enforces
+[Conventional Commits](https://www.conventionalcommits.org/) via
+[pre-commit](https://pre-commit.com/) + [gitleaks](https://github.com/gitleaks/gitleaks) +
+[commitlint](https://commitlint.js.org/). One-time setup per clone:
+
+```bash
+pip install pre-commit
+npm install   # pulls @commitlint/cli, @commitlint/config-conventional
+pre-commit install --hook-type pre-commit --hook-type commit-msg
+```
+
+Commit messages must follow `type(scope): subject` — allowed types are in
+`commitlint.config.cjs`. Notable changes go in `CHANGELOG.md` under `[Unreleased]`.
+
 ## 🚀 Running the Application
 
 ### Development Mode

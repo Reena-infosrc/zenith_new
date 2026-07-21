@@ -1,0 +1,44 @@
+# Enterprise git-hook gate for this repo.
+#
+# Setup (one time per clone):
+#   pip install pre-commit
+#   pre-commit install --hook-type pre-commit --hook-type commit-msg
+#
+# Runs on every `git commit`:
+#   - gitleaks: blocks commits containing secrets (uses .gitleaks.toml)
+#   - basic file hygiene
+#   - commitlint: enforces Conventional Commits (see commitlint.config.cjs)
+#
+# CI must also run `pre-commit run --all-files` — local hooks are
+# developer convenience, not a security boundary on their own.
+
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+        args: ["--maxkb=2000"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+        exclude: ^backend/serverless\.yml$
+
+  - repo: local
+    hooks:
+      - id: commitlint
+        name: commitlint
+        entry: npx --no-install commitlint --edit
+        language: system
+        stages: [commit-msg]
