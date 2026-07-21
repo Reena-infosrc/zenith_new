@@ -1,0 +1,78 @@
+name: Lint, Scan & Commit Convention
+
+# Required-status-check gate for PRs into staging/main. Local pre-commit
+# hooks (.pre-commit-config.yaml) are the fast feedback layer; this is the
+# enforcement layer for anyone who skipped hook setup. See
+# docs/GIT-GOVERNANCE-SOP.md.
+
+on:
+  pull_request:
+    branches:
+      - staging
+      - main
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install --legacy-peer-deps
+      - name: Validate PR commit messages
+        run: npx commitlint --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}" --verbose
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks (free CLI, pinned to match .pre-commit-config.yaml)
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/
+      - name: Scan PR commits for secrets
+        run: |
+          gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --log-opts="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
+            --redact -v
+
+  pre-commit-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pre-commit
+      # gitleaks already ran as its own job above (scanning the PR commit
+      # range); skip it here to avoid running it twice with a different,
+      # staged-diff-oriented invocation.
+      - run: SKIP=gitleaks pre-commit run --all-files --show-diff-on-failure
+
+  frontend-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm install --legacy-peer-deps
+      - run: npm run lint
+      - name: Build (staging config, verifies the bundle compiles)
+        env:
+          VITE_API_BASE: ${{ secrets.ZENITH_API_BASE_STAGING }}
+          VITE_MSAL_CLIENT_ID: ${{ secrets.REACT_APP_CLIENT_ID }}
+          VITE_MSAL_TENANT_ID: ${{ secrets.REACT_APP_TENANT_ID }}
+        run: npm run build

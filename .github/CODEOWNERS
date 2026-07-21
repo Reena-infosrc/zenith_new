@@ -1,0 +1,22 @@
+# Code owners for infosrv-zenith-hr-pulse.
+#
+# Requires branch protection with "Require review from Code Owners" enabled
+# on main and staging (see docs/GIT-GOVERNANCE-SOP.md) to actually gate PRs —
+# without that setting, this file documents ownership but doesn't enforce it.
+#
+# Syntax: GitHub matches the LAST rule that fits a given path, so more
+# specific rules must come after the general fallback.
+# Entries accept @github-username or a verified email on the account.
+
+# --- Code Owners (default reviewer for everything not matched below) ---
+# Mayoori Peradka — Code Owner (per docs/SOP_Zenith.docx Document Control)
+*                                   Mayoori.Peradka@infoservices.com
+
+# --- Infrastructure Owner: IaC, deploy pipeline, container/runtime config ---
+# TODO: replace with Sakthivel Saravanan's GitHub @username or verified email
+# before this line takes effect — no identifier was available when this file
+# was created, so GitHub will currently ignore this rule.
+/backend/serverless.yml            @REPLACE_WITH_SAKTHIVEL_GITHUB_HANDLE
+/backend/Dockerfile                @REPLACE_WITH_SAKTHIVEL_GITHUB_HANDLE
+/.github/workflows/                @REPLACE_WITH_SAKTHIVEL_GITHUB_HANDLE
+/backend/enforce_s3_private_aws.py @REPLACE_WITH_SAKTHIVEL_GITHUB_HANDLE

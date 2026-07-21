@@ -81,7 +81,7 @@ See companion **`docs/ENTERPRISE-GOVERNANCE-AND-JML.md`** for the full model.
 | README / setup | 🟡 | `README.md` present + Git Hooks section added | Onboarding slow | Add arch diagram | 🟡 | S | No |
 | Architecture docs | 🟡 | `docs/` has security + field-encryption + governance/JML + this doc | Partial | Add C4/context diagram + ADRs | 🟡 | M | No |
 | Env setup guide | 🟡 | `.env.staging`/`.env.prod` exist as real files (not `.env.example`); `.gitignore` now blanket-ignores `.env*` going forward | Secret leak risk in existing tracked files | Move secrets to SSM/Secrets Manager; add `.env.example`; untrack real env files | 🔴 | S | No |
-| **GitHub onboarding / repo permissions / CODEOWNERS** | ❌ | No `CODEOWNERS`, no branch-protection evidence | Unreviewed merges | Add `CODEOWNERS`, PR/issue templates, required reviews | 🟠 | S | No |
+| **GitHub onboarding / repo permissions / CODEOWNERS** | 🟡 | `.github/CODEOWNERS` added — see `docs/GIT-GOVERNANCE-SOP.md` §5 for one pending identity (infra-owner GitHub handle) before it fully takes effect. Branch protection still not applied — §6 of that doc is a runbook, not yet run | Unreviewed merges until branch protection is applied | Run the branch-protection runbook (`docs/GIT-GOVERNANCE-SOP.md` §6) | 🔴 | S | No |
 | **Developer JML process documented** | ✅ | `docs/developer-lifecycle/` (Joiner, Mover, Leaver, access matrix, KT guide) | — | Was fully missing; now addressed. Keep it current as tooling changes | — | — | No |
 | AWS/Azure access, KT process | ✅ | `docs/developer-lifecycle/01-joiner-onboarding.md` §3–4, `kt-technical-guide.md` | — | Keep current | — | — | No |
 | **Developer offboarding** (revoke GH/AWS/Azure/secrets/CI) | ✅ | `docs/developer-lifecycle/03-leaver-offboarding.md` | Process exists but is entirely manual — no automated deprovisioning | Execute checklist same-day on every departure; consider automation later | 🟡 | S | No |
@@ -211,9 +211,9 @@ See companion **`docs/ENTERPRISE-GOVERNANCE-AND-JML.md`** for the full model.
 |---|---|---|---|---|---|---|---|
 | CI/CD pipeline | ✅ | `deploy.yml` build→push→deploy | — | Add quality gates (below) | — | — | No |
 | **Tests in CI** | ❌ | No test step; only 2 FE tests total, no BE tests | Regressions ship | Add `pytest` + `vitest` gate; raise coverage | 🔴 | M | No |
-| **Lint / typecheck gate** | ❌ | `lint` script exists, not run in CI | Quality drift | Run eslint + `tsc --noEmit` + ruff/mypy in CI | 🟠 | S | No |
-| **Branch protection / required reviews** | ❌ | Deploys on direct push to main/staging | Unreviewed prod deploys | Protect branches; require PR + review + green CI | 🔴 | S | No |
-| CODEOWNERS / PR & issue templates | ❌ | absent | Ownership unclear | Add all three | 🟠 | S | No |
+| **Lint / typecheck gate** | ✅ (new) | `.github/workflows/lint-and-scan.yml` → `frontend-quality` job runs `npm run lint` + build on every PR into `staging`/`main` | Not yet a *required* check until branch protection is applied (`docs/GIT-GOVERNANCE-SOP.md` §6) | Apply the branch-protection runbook | 🟠 | S | No |
+| **Branch protection / required reviews** | ❌ | Deploys on direct push to main/staging; `docs/GIT-GOVERNANCE-SOP.md` §3 confirms the rule doesn't actually exist yet despite SOP §9.2 describing it as active | Unreviewed prod deploys | Runbook is written (`docs/GIT-GOVERNANCE-SOP.md` §6) — needs a repo admin to execute it | 🔴 | S | No |
+| CODEOWNERS / PR & issue templates | ✅ (new) | `.github/CODEOWNERS`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/*` all added | CODEOWNERS has one placeholder identity pending — `docs/GIT-GOVERNANCE-SOP.md` §5 | — | — | — |
 | **commitlint / pre-commit hooks** | ✅ | `.pre-commit-config.yaml`, `commitlint.config.cjs`, `.gitleaks.toml` | Local-only until CI runs `pre-commit run --all-files` | Add the CI job; keep local hooks as the fast feedback layer | 🟡 | S | No |
 | **Rollback strategy** | 🟡 | ECS force-new-deploy; `:latest` tag → no pinned rollback | Cannot cleanly revert image | Tag images by SHA; deploy by digest; documented rollback | 🟠 | M | Yes |
 | **Blue/Green / Canary** | ❌ | `DesiredCount:1` rolling → brief downtime | No zero-downtime, no canary | CodeDeploy blue/green on ECS; raise desired count | 🟠 | L | **Yes** |
@@ -307,7 +307,7 @@ See companion **`docs/ENTERPRISE-GOVERNANCE-AND-JML.md`** for the full model.
 | 1 | Move secrets to Secrets Manager/SSM; add `.env.example`, untrack real env files | Security | 🔴 | M | Yes | Open |
 | 2 | Enable DynamoDB **PITR** on all tables | Data/DR | 🔴 | S | Yes | Open |
 | 3 | Add **audit trail** for all mutations (who/what/old/new/ts/IP/corr-id) | Audit | 🔴 | M | No | Open |
-| 4 | **Branch protection** + required PR review + green CI on main/staging | DevOps | 🔴 | S | No | Open |
+| 4 | **Branch protection** + required PR review + green CI on main/staging | DevOps | 🔴 | S | No | **Runbook written (`docs/GIT-GOVERNANCE-SOP.md` §6) — needs admin to execute** |
 | 5 | Add **tests in CI** (pytest + vitest) + coverage gate | DevOps | 🔴 | M | No | Open |
 | 6 | Add **secret scanning** (gitleaks) pre-commit + CI | Security | 🟡 | S | No | **Local done — CI enforcement open** |
 | 7 | Replace wildcard **IAM** task policy with resource-scoped actions | Security | 🔴 | M | Yes | Open |
@@ -323,7 +323,7 @@ See companion **`docs/ENTERPRISE-GOVERNANCE-AND-JML.md`** for the full model.
 | 17 | Session **revocation / token denylist** (offboard + compromise) | AuthN | 🟠 | M | No | Open |
 | 18 | **API versioning** (`/api/v1`) + gate Swagger in prod | API | 🟠 | M | No | Open |
 | 19 | **Prompt-injection** guardrails + permission-aware AI context | AI Safety | 🟠 | M | No | Open |
-| 20 | CODEOWNERS + PR/issue templates + expand README/runbooks | DevOps/Docs | 🟠 | S | No | commitlint/CHANGELOG done, rest open |
+| 20 | CODEOWNERS + PR/issue templates + expand README/runbooks | DevOps/Docs | 🟠 | S | No | **Done** — CODEOWNERS/templates/CI lint gate added (`docs/GIT-GOVERNANCE-SOP.md`); one pending identity, README expansion still open |
 
 ---
 

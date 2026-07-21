@@ -25,6 +25,22 @@ below reflect what has actually landed on `staging`.
 - `docs/PRODUCTION-READINESS-ASSESSMENT.md` — full production-readiness
   review across auth, data, CI/CD, monitoring, and governance, with a
   prioritized improvement list.
+- `docs/GIT-GOVERNANCE-SOP.md` — verifies `docs/SOP_Zenith.docx` §9.2's
+  branch-protection/PR-review claims against actual repo state, and
+  documents the gap closure below.
+- `.github/CODEOWNERS` — Mayoori Peradka as default code owner; infra paths
+  intended for Sakthivel Saravanan, pending his GitHub identity (see
+  `docs/GIT-GOVERNANCE-SOP.md` §5).
+- `.github/PULL_REQUEST_TEMPLATE.md` — change-request format (business
+  justification, impact assessment, rollback plan, testing evidence)
+  matching `docs/SOP_Zenith.docx` §16.
+- `.github/ISSUE_TEMPLATE/bug_report.md`, `feature_request.md` — severity
+  triage matching SOP §14.
+- `.github/workflows/lint-and-scan.yml` — PR-time enforcement (cannot be
+  skipped by not installing local hooks): commit-message linting over the
+  full PR range, secret scanning with the free `gitleaks` CLI, file
+  hygiene, ESLint, and a build check. This is what makes SOP §7.3's
+  "automated quality gates must pass" claim actually true.
 
 ### Fixed
 - Employee directory "Loading more employees" spinner could hang forever
