@@ -54,7 +54,7 @@ Covers: commit message convention, code ownership and required reviewers, pull r
 
 | Control | File | Enforced where | Status |
 |---|---|---|---|
-| Code ownership | `.github/CODEOWNERS` | GitHub PR review UI, **once** branch protection's "Require review from Code Owners" is enabled (§6) | 🟡 Partial — see §5 |
+| Code ownership | `.github/CODEOWNERS` | GitHub PR review UI, **once** branch protection's "Require review from Code Owners" is enabled (§6) | ✅ Identities resolved — see §5; enforcement itself still needs §6 applied |
 | PR change-request format | `.github/PULL_REQUEST_TEMPLATE.md` | Every new PR, pre-filled | ✅ |
 | Issue severity triage | `.github/ISSUE_TEMPLATE/bug_report.md`, `feature_request.md` | Every new issue, pre-filled | ✅ |
 | Commit convention (author-time) | `commitlint.config.cjs` + `.pre-commit-config.yaml` | Local `git commit`, if hooks installed | ✅ (pre-existing) |
@@ -67,13 +67,17 @@ Covers: commit message convention, code ownership and required reviewers, pull r
 
 ---
 
-## 5. Known Gap: CODEOWNERS Identity
+## 5. CODEOWNERS Identity — Resolved
 
-`.github/CODEOWNERS` currently has:
-- **Mayoori Peradka** — global code owner, via her known corporate email (`Mayoori.Peradka@infoservices.com`). GitHub CODEOWNERS accepts a verified email on the account; if this email isn't linked/verified on her GitHub account, replace with her `@github-username`.
-- **Sakthivel Saravanan** — intended as owner for infrastructure paths (`backend/serverless.yml`, `backend/Dockerfile`, `.github/workflows/`, `backend/enforce_s3_private_aws.py`), but **no GitHub identifier was available** when this file was written. Those lines currently reference a placeholder (`@REPLACE_WITH_SAKTHIVEL_GITHUB_HANDLE`) that GitHub will silently ignore — meaning infra-path PRs are **not yet** gated to his review.
+`.github/CODEOWNERS` is a single global rule:
 
-**Action required:** confirm Sakthivel's GitHub `@username`, replace the placeholder in `.github/CODEOWNERS`, and confirm Mayoori's email is verified on GitHub (or swap to her `@username` too).
+- **Mayoori Peradka** (`@mayoori-infosrc`) — code owner and required reviewer
+  for every PR, all paths.
+- **Sakthivel Saravanan** (`@sakthi-saravanan-dev`) — Infrastructure Owner
+  per `docs/SOP_Zenith.docx` Document Control; recorded in the CODEOWNERS
+  file header for ownership/record purposes. By decision, no separate
+  per-path infra review rule is enforced — infra-path PRs route through the
+  same code-owner rule above, not a distinct gate.
 
 ---
 
@@ -160,8 +164,8 @@ the single highest-leverage remaining step in this document.
 
 | Role | Responsibility |
 |---|---|
-| Code Owner (Mayoori Peradka) | Reviews/approves all PRs by default; maintains `.github/CODEOWNERS`, `commitlint.config.cjs`, `.gitleaks.toml` |
-| Infrastructure Owner (Sakthivel Saravanan) | Reviews/approves PRs touching `backend/serverless.yml`, Dockerfile, CI workflows, S3 hardening script — **pending §5** |
+| Code Owner (Mayoori Peradka, `@mayoori-infosrc`) | Required reviewer/approver on every PR (once §6 is applied); maintains `.github/CODEOWNERS`, `commitlint.config.cjs`, `.gitleaks.toml` |
+| Infrastructure Owner (Sakthivel Saravanan, `@sakthi-saravanan-dev`) | Holds repo admin access and is recorded as Infrastructure Owner per SOP Document Control; not a separate CODEOWNERS review gate by decision — see §5 |
 | Application Owner (Prasanna Balaji) | Approves this SOP; final sign-off per SOP §16 change management |
 | Any contributor | Installs local hooks (`docs/developer-lifecycle/01-joiner-onboarding.md` §1), writes Conventional Commit messages, fills out the PR template honestly |
 
@@ -173,8 +177,7 @@ Matches the format of `docs/SOP_Zenith.docx` §18.
 
 | Risk | Impact | Likelihood | Mitigation | Owner | Target Date |
 |---|---|---|---|---|---|
-| Branch protection not applied — PRs can merge without review or passing CI | High | High until §6 is run | Apply the runbook in §6 | Infrastructure Owner | Immediate |
-| CODEOWNERS infra-path rule inactive (placeholder handle) | Medium | High until §5 resolved | Confirm Sakthivel's GitHub identity, edit `.github/CODEOWNERS` | Code Owner + Infrastructure Owner | Immediate |
+| Branch protection not applied — PRs can merge without review or passing CI | High | High until §6 is run | Apply the runbook in §6 — both Code Owner and Infrastructure Owner hold admin access, either can execute it | Code Owner / Infrastructure Owner | Immediate |
 | `enforce_admins` left `false` on `main` | Medium | Low | Admins can still bypass required review on `main` if left disabled — confirm intended posture, SOP §9.2 implies it should be `true` | Application Owner | Immediate |
 
 ---

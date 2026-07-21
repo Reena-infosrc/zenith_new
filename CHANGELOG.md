@@ -28,9 +28,9 @@ below reflect what has actually landed on `staging`.
 - `docs/GIT-GOVERNANCE-SOP.md` — verifies `docs/SOP_Zenith.docx` §9.2's
   branch-protection/PR-review claims against actual repo state, and
   documents the gap closure below.
-- `.github/CODEOWNERS` — Mayoori Peradka as default code owner; infra paths
-  intended for Sakthivel Saravanan, pending his GitHub identity (see
-  `docs/GIT-GOVERNANCE-SOP.md` §5).
+- `.github/CODEOWNERS` — `@mayoori-infosrc` as required reviewer on every
+  PR; `@sakthi-saravanan-dev` recorded as Infrastructure Owner (no separate
+  per-path review gate, by decision — see `docs/GIT-GOVERNANCE-SOP.md` §5).
 - `.github/PULL_REQUEST_TEMPLATE.md` — change-request format (business
   justification, impact assessment, rollback plan, testing evidence)
   matching `docs/SOP_Zenith.docx` §16.

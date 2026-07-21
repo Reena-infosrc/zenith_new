@@ -81,7 +81,7 @@ See companion **`docs/ENTERPRISE-GOVERNANCE-AND-JML.md`** for the full model.
 | README / setup | 🟡 | `README.md` present + Git Hooks section added | Onboarding slow | Add arch diagram | 🟡 | S | No |
 | Architecture docs | 🟡 | `docs/` has security + field-encryption + governance/JML + this doc | Partial | Add C4/context diagram + ADRs | 🟡 | M | No |
 | Env setup guide | 🟡 | `.env.staging`/`.env.prod` exist as real files (not `.env.example`); `.gitignore` now blanket-ignores `.env*` going forward | Secret leak risk in existing tracked files | Move secrets to SSM/Secrets Manager; add `.env.example`; untrack real env files | 🔴 | S | No |
-| **GitHub onboarding / repo permissions / CODEOWNERS** | 🟡 | `.github/CODEOWNERS` added — see `docs/GIT-GOVERNANCE-SOP.md` §5 for one pending identity (infra-owner GitHub handle) before it fully takes effect. Branch protection still not applied — §6 of that doc is a runbook, not yet run | Unreviewed merges until branch protection is applied | Run the branch-protection runbook (`docs/GIT-GOVERNANCE-SOP.md` §6) | 🔴 | S | No |
+| **GitHub onboarding / repo permissions / CODEOWNERS** | 🟡 | `.github/CODEOWNERS` added, identities resolved (`@mayoori-infosrc` as required reviewer, `@sakthi-saravanan-dev` recorded as Infrastructure Owner — see `docs/GIT-GOVERNANCE-SOP.md` §5). Branch protection still not applied — §6 of that doc is a runbook, not yet run | Unreviewed merges until branch protection is applied | Run the branch-protection runbook (`docs/GIT-GOVERNANCE-SOP.md` §6) — both admins can execute it | 🔴 | S | No |
 | **Developer JML process documented** | ✅ | `docs/developer-lifecycle/` (Joiner, Mover, Leaver, access matrix, KT guide) | — | Was fully missing; now addressed. Keep it current as tooling changes | — | — | No |
 | AWS/Azure access, KT process | ✅ | `docs/developer-lifecycle/01-joiner-onboarding.md` §3–4, `kt-technical-guide.md` | — | Keep current | — | — | No |
 | **Developer offboarding** (revoke GH/AWS/Azure/secrets/CI) | ✅ | `docs/developer-lifecycle/03-leaver-offboarding.md` | Process exists but is entirely manual — no automated deprovisioning | Execute checklist same-day on every departure; consider automation later | 🟡 | S | No |
@@ -323,7 +323,7 @@ See companion **`docs/ENTERPRISE-GOVERNANCE-AND-JML.md`** for the full model.
 | 17 | Session **revocation / token denylist** (offboard + compromise) | AuthN | 🟠 | M | No | Open |
 | 18 | **API versioning** (`/api/v1`) + gate Swagger in prod | API | 🟠 | M | No | Open |
 | 19 | **Prompt-injection** guardrails + permission-aware AI context | AI Safety | 🟠 | M | No | Open |
-| 20 | CODEOWNERS + PR/issue templates + expand README/runbooks | DevOps/Docs | 🟠 | S | No | **Done** — CODEOWNERS/templates/CI lint gate added (`docs/GIT-GOVERNANCE-SOP.md`); one pending identity, README expansion still open |
+| 20 | CODEOWNERS + PR/issue templates + expand README/runbooks | DevOps/Docs | 🟠 | S | No | **Done** — CODEOWNERS (identities resolved)/templates/CI lint gate added (`docs/GIT-GOVERNANCE-SOP.md`); README expansion still open |
 
 ---
 
