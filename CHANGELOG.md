@@ -17,7 +17,14 @@ below reflect what has actually landed on `staging`.
 - `.gitleaks.toml` — secret-scan config with a path allowlist.
 - This CHANGELOG.
 - `docs/developer-lifecycle/` — Developer Joiner–Mover–Leaver (JML) / KT
-  documentation.
+  documentation: onboarding, role-change, offboarding, an access matrix, and
+  a technical KT guide.
+- `docs/ENTERPRISE-GOVERNANCE-AND-JML.md` — enterprise safety/governance
+  analysis and the employee JML model, cross-referencing
+  `docs/developer-lifecycle/`.
+- `docs/PRODUCTION-READINESS-ASSESSMENT.md` — full production-readiness
+  review across auth, data, CI/CD, monitoring, and governance, with a
+  prioritized improvement list.
 
 ### Fixed
 - Employee directory "Loading more employees" spinner could hang forever
