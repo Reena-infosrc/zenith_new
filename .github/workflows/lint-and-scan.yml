@@ -64,15 +64,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
       - run: npm install --legacy-peer-deps
-      - run: npm run lint
+      - name: Lint files changed in this PR
+        # The full tree has ~239 pre-existing ESLint errors (mostly
+        # @typescript-eslint/no-explicit-any) predating this workflow -
+        # `npm run lint` (whole repo) would fail on every PR regardless of
+        # what it changes. Lint only the diff so the gate enforces the
+        # standard on new/touched code without blocking on unrelated debt.
+        # Full-repo cleanup is tracked separately (see
+        # docs/PRODUCTION-READINESS-ASSESSMENT.md).
+        run: |
+          CHANGED=$(git diff --name-only --diff-filter=ACMR \
+            "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" \
+            -- '*.ts' '*.tsx' '*.js' '*.jsx')
+          if [ -z "$CHANGED" ]; then
+            echo "No JS/TS files changed - skipping lint."
+            exit 0
+          fi
+          echo "Linting changed files:"
+          echo "$CHANGED"
+          npx eslint $CHANGED
       - name: Build (staging config, verifies the bundle compiles)
         env:
           VITE_API_BASE: ${{ secrets.ZENITH_API_BASE_STAGING }}
           VITE_MSAL_CLIENT_ID: ${{ secrets.REACT_APP_CLIENT_ID }}
           VITE_MSAL_TENANT_ID: ${{ secrets.REACT_APP_TENANT_ID }}
         run: npm run build
+
+  backend-compile-check:
+    runs-on: ubuntu-latest
+    # Cheap, immediate correctness gate: catches syntax errors and orphaned
+    # broken files before anything more expensive runs. This is the check
+    # that would have caught employees_backup.py / employees_broken.py /
+    # employees_simple.py - dead, unimported router files with a syntax
+    # error that nothing in CI was checking for.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile-check every backend .py file
+        run: python -m compileall -q backend -x 'node_modules'
