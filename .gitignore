@@ -23,15 +23,20 @@ dist-ssr
 *.sln
 *.sw?
 .serverless/
-.env
-.env.dev
-.env.staging
-.env.production
-.env.local
-backend/app/services/__pycache__/
-backend/__pycache__/
-backend/app/__pycache__/
-backend/app/models/__pycache__/
+
+# Env files: ignore everything under this pattern, never allowlist by name
+# (a per-file list here is how .env.prod stayed untracked-but-not-really and
+# ended up committed). Keep only .env.example tracked as the documented template.
+.env*
+!.env.example
+
+# Compiled Python: blanket-ignore every __pycache__ dir and .pyc, anywhere in
+# the tree. A per-directory allowlist here previously missed new directories
+# (routers/, scripts/) every time one was added, leaving the working tree
+# permanently dirty.
+__pycache__/
+*.pyc
+
 backend/layer/
 backend/layer/requirements.txt
 .requirements.zip
