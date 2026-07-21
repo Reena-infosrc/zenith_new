@@ -54,7 +54,7 @@ Covers: commit message convention, code ownership and required reviewers, pull r
 
 | Control | File | Enforced where | Status |
 |---|---|---|---|
-| Code ownership | `.github/CODEOWNERS` | GitHub PR review UI, **once** branch protection's "Require review from Code Owners" is enabled (§6) | ✅ Identities resolved — see §5; enforcement itself still needs §6 applied |
+| Code ownership | `.github/CODEOWNERS` | Auto-requests `@mayoori-infosrc` as a reviewer on every PR. Not enforced as a required approval — see §6, "No CODEOWNERS enforcement, by decision" | ✅ Identities resolved (§5); intentionally informational, not gating |
 | PR change-request format | `.github/PULL_REQUEST_TEMPLATE.md` | Every new PR, pre-filled | ✅ |
 | Issue severity triage | `.github/ISSUE_TEMPLATE/bug_report.md`, `feature_request.md` | Every new issue, pre-filled | ✅ |
 | Commit convention (author-time) | `commitlint.config.cjs` + `.pre-commit-config.yaml` | Local `git commit`, if hooks installed | ✅ (pre-existing) |
@@ -63,7 +63,7 @@ Covers: commit message convention, code ownership and required reviewers, pull r
 | Secret scanning (PR-time, cannot be skipped) | `.github/workflows/lint-and-scan.yml` → `gitleaks` job | Every PR into `staging`/`main`, scans the PR's commit range with the free `gitleaks` CLI (no license/cost — private-repo use of `gitleaks-action` requires a paid license, deliberately avoided) | ✅ **new** |
 | File hygiene (trailing whitespace, large files, private keys, merge conflicts) | Same workflow → `pre-commit-hygiene` job | Every PR | ✅ **new** |
 | Lint + build gate | Same workflow → `frontend-quality` job | Every PR | ✅ **new** — this is what makes SOP §7.3's claim true |
-| Branch protection (require PR, required status checks, Code Owner review, no force-push) | GitHub repo settings | `main`, `staging` | ❌ **Not applied by this change — requires repo admin action, see §6** |
+| Branch protection (require PR, required status checks, 1 approval, no force-push) | GitHub repo settings | `main`, `staging` | ❌ **Not applied by this change — requires repo admin action, see §6** |
 
 ---
 
@@ -98,9 +98,10 @@ gh api -X PUT repos/infoservices-dev/infosrv-zenith-hr-pulse/branches/main/prote
   -f 'required_status_checks[contexts][]=gitleaks' \
   -f 'required_status_checks[contexts][]=pre-commit-hygiene' \
   -f 'required_status_checks[contexts][]=frontend-quality' \
+  -f 'required_status_checks[contexts][]=backend-compile-check' \
   -f enforce_admins=true \
   -f required_pull_request_reviews[required_approving_review_count]=1 \
-  -f required_pull_request_reviews[require_code_owner_reviews]=true \
+  -f required_pull_request_reviews[require_code_owner_reviews]=false \
   -f restrictions=null \
   -f allow_force_pushes=false \
   -f allow_deletions=false
@@ -114,18 +115,28 @@ gh api -X PUT repos/infoservices-dev/infosrv-zenith-hr-pulse/branches/staging/pr
   -f 'required_status_checks[contexts][]=gitleaks' \
   -f 'required_status_checks[contexts][]=pre-commit-hygiene' \
   -f 'required_status_checks[contexts][]=frontend-quality' \
+  -f 'required_status_checks[contexts][]=backend-compile-check' \
   -f enforce_admins=false \
   -f required_pull_request_reviews[required_approving_review_count]=1 \
-  -f required_pull_request_reviews[require_code_owner_reviews]=true \
+  -f required_pull_request_reviews[require_code_owner_reviews]=false \
   -f restrictions=null \
   -f allow_force_pushes=false \
   -f allow_deletions=false
 ```
 
-The four `required_status_checks` context names must exactly match the job
+The five `required_status_checks` context names must exactly match the job
 names in `.github/workflows/lint-and-scan.yml` — they only appear as
 selectable checks in GitHub **after** that workflow has run at least once
 on a PR.
+
+**No CODEOWNERS enforcement, by decision.** `require_code_owner_reviews` is
+`false` above. With only two people on the team and one code owner
+(`@mayoori-infosrc`), enforcing it would deadlock: GitHub never counts a PR
+author's own approval, so any PR Mayoori opens would have no one who could
+satisfy a code-owner-specific review requirement. `.github/CODEOWNERS`
+stays as an ownership record (and auto-requests her as a reviewer on every
+PR), but the generic "1 approval, from anyone with write access" rule below
+is what actually gates merges.
 
 ### Option B — GitHub UI
 
@@ -133,11 +144,12 @@ Repo → **Settings → Branches → Add branch protection rule**, for each of
 `main` and `staging`:
 
 1. Branch name pattern: `main` (repeat for `staging`).
-2. ✅ Require a pull request before merging → Require approvals: **1** →
-   ✅ Require review from Code Owners.
+2. ✅ Require a pull request before merging → Require approvals: **1**.
+   Leave **Require review from Code Owners** unchecked (see note above).
 3. ✅ Require status checks to pass before merging → Require branches to be
    up to date → select `commitlint`, `gitleaks`, `pre-commit-hygiene`,
-   `frontend-quality` (available after the workflow's first run).
+   `frontend-quality`, `backend-compile-check` (available after the
+   workflow's first run).
 4. ✅ Do not allow force pushes.
 5. ✅ Do not allow deletions.
 6. For `main` only: ✅ Do not allow bypassing the above settings (applies
@@ -164,7 +176,7 @@ the single highest-leverage remaining step in this document.
 
 | Role | Responsibility |
 |---|---|
-| Code Owner (Mayoori Peradka, `@mayoori-infosrc`) | Required reviewer/approver on every PR (once §6 is applied); maintains `.github/CODEOWNERS`, `commitlint.config.cjs`, `.gitleaks.toml` |
+| Code Owner (Mayoori Peradka, `@mayoori-infosrc`) | Auto-requested as reviewer on every PR via CODEOWNERS; the required approval itself (§6) can come from either team member, so a PR she authors can still be approved by Sakthivel. Maintains `.github/CODEOWNERS`, `commitlint.config.cjs`, `.gitleaks.toml` |
 | Infrastructure Owner (Sakthivel Saravanan, `@sakthi-saravanan-dev`) | Holds repo admin access and is recorded as Infrastructure Owner per SOP Document Control; not a separate CODEOWNERS review gate by decision — see §5 |
 | Application Owner (Prasanna Balaji) | Approves this SOP; final sign-off per SOP §16 change management |
 | Any contributor | Installs local hooks (`docs/developer-lifecycle/01-joiner-onboarding.md` §1), writes Conventional Commit messages, fills out the PR template honestly |
