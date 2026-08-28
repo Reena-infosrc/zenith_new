@@ -246,6 +246,63 @@ jobs:
         if: matrix.branch == github.ref_name
         env:
           DISTRIBUTION_ID: ${{ secrets[matrix.cloudfront_secret] }}
+          S3_BUCKET: ${{ secrets[matrix.s3_bucket_secret] }}
         # Invalidate everything: clears the stale index.html AND any HTML-fallback responses
         # CloudFront may have cached for asset paths (which caused the blank page).
-        run: aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+        run: |
+          set -euo pipefail
+
+          TARGET_DIST_ID="${DISTRIBUTION_ID:-}"
+          RESOLVED_ID=""
+
+          # 1) Check if the secret DISTRIBUTION_ID is valid in AWS
+          if [ -n "$TARGET_DIST_ID" ] && [ "$TARGET_DIST_ID" != "None" ]; then
+            if aws cloudfront get-distribution --id "$TARGET_DIST_ID" >/dev/null 2>&1; then
+              RESOLVED_ID="$TARGET_DIST_ID"
+              echo "Using valid CloudFront distribution from secret: $RESOLVED_ID"
+            else
+              echo "Warning: Configured distribution ID '$TARGET_DIST_ID' does not exist in AWS CloudFront."
+            fi
+          fi
+
+          # 2) If not valid, attempt to discover the distribution ID dynamically
+          if [ -z "$RESOLVED_ID" ]; then
+            echo "Attempting to dynamically resolve CloudFront distribution ID..."
+
+            # Method A: Query CloudFormation stack resource
+            STACK_NAME="${SERVICE_NAME}-${STAGE}"
+            CFN_DIST_ID=$(aws cloudformation describe-stack-resource \
+              --stack-name "$STACK_NAME" \
+              --logical-resource-id ZenithCloudFrontDistribution \
+              --region "$AWS_REGION" \
+              --query "StackResourceDetail.PhysicalResourceId" \
+              --output text 2>/dev/null || echo "")
+
+            if [ -n "$CFN_DIST_ID" ] && [ "$CFN_DIST_ID" != "None" ]; then
+              RESOLVED_ID="$CFN_DIST_ID"
+              echo "Resolved CloudFront distribution from CloudFormation stack '$STACK_NAME': $RESOLVED_ID"
+            fi
+
+            # Method B: Search CloudFront distributions by origin bucket or S3_BUCKET_DOMAIN alias
+            if [ -z "$RESOLVED_ID" ]; then
+              LOOKUP_DOMAIN="${S3_BUCKET_DOMAIN:-$S3_BUCKET}"
+              if [ -n "$LOOKUP_DOMAIN" ]; then
+                MATCHED_ID=$(aws cloudfront list-distributions \
+                  --query "DistributionList.Items[?contains(Aliases.Items || \`[]\`, \`$LOOKUP_DOMAIN\`) || contains(Origins.Items[0].DomainName, \`$S3_BUCKET\`)].Id | [0]" \
+                  --output text 2>/dev/null || echo "")
+                if [ -n "$MATCHED_ID" ] && [ "$MATCHED_ID" != "None" ]; then
+                  RESOLVED_ID="$MATCHED_ID"
+                  echo "Resolved CloudFront distribution matching domain/bucket '$LOOKUP_DOMAIN': $RESOLVED_ID"
+                fi
+              fi
+            fi
+          fi
+
+          # 3) Invalidate cache if a valid distribution is found, else log a safe warning
+          if [ -n "$RESOLVED_ID" ] && [ "$RESOLVED_ID" != "None" ] && [ "$RESOLVED_ID" != "null" ]; then
+            echo "Creating CloudFront invalidation for distribution: $RESOLVED_ID"
+            aws cloudfront create-invalidation --distribution-id "$RESOLVED_ID" --paths "/*"
+            echo "CloudFront invalidation created successfully."
+          else
+            echo "Warning: No valid CloudFront distribution found. Skipping cache invalidation."
+          fi
