@@ -9,7 +9,7 @@ $StackName = "zenith-hr-frontend-$Stage"
 $TemplateFile = Join-Path $PSScriptRoot "..\cloudfront-frontend.yml"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "  Zenith HR Pulse — Deploying CloudFront Distribution" -ForegroundColor Cyan
+Write-Host "  Zenith HR Pulse -- Deploying CloudFront Distribution" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Stack Name  : $StackName"
 Write-Host "Region      : $Region"
@@ -31,7 +31,8 @@ if ($AcmCertArn) {
     $params += "AcmCertificateArn=$AcmCertArn"
 }
 
-Write-Host "`nDeploying CloudFormation stack..." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Deploying CloudFormation stack..." -ForegroundColor Yellow
 
 aws cloudformation deploy `
     --template-file $TemplateFile `
@@ -41,7 +42,8 @@ aws cloudformation deploy `
     --region $Region
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "`nCloudFront stack deployed successfully!" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "CloudFront stack deployed successfully!" -ForegroundColor Green
     
     $distId = aws cloudformation describe-stacks `
         --stack-name $StackName `
@@ -55,11 +57,14 @@ if ($LASTEXITCODE -eq 0) {
         --query "Stacks[0].Outputs[?OutputKey=='DistributionDomainName'].OutputValue" `
         --output text
         
-    Write-Host "`n----------------------------------------------------------" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "----------------------------------------------------------" -ForegroundColor Cyan
     Write-Host "  CloudFront Distribution ID : $distId" -ForegroundColor Green
     Write-Host "  CloudFront Domain Name     : https://$domain" -ForegroundColor Green
     Write-Host "----------------------------------------------------------" -ForegroundColor Cyan
-    Write-Host "`nNext Step: Set this in GitHub Secrets -> CLOUDFRONT_DISTRIBUTION_ID_STAGING = $distId" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Next Step: Set this in GitHub Secrets -> CLOUDFRONT_DISTRIBUTION_ID_STAGING = $distId" -ForegroundColor Yellow
 } else {
-    Write-Host "`nFailed to deploy CloudFront stack." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Failed to deploy CloudFront stack." -ForegroundColor Red
 }
