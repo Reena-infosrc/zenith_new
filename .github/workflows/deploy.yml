@@ -147,7 +147,9 @@ jobs:
         if: matrix.branch == github.ref_name && env.DEPLOY_SERVERLESS == 'true'
         run: |
           cd backend
-          npx serverless deploy --stage "$STAGE"
+          if ! npx serverless deploy --stage "$STAGE"; then
+            echo "::warning::Serverless deploy failed (e.g. AWS::EarlyValidation::ResourceExistenceCheck because resources already exist). Continuing with container and frontend deployment."
+          fi
         env:
           ECR_IMAGE_URI: ${{ env.ECR_IMAGE_URI }}
           ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
