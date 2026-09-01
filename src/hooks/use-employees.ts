@@ -58,7 +58,7 @@ export interface Employee {
   emergencyContactPhone?: string;
 }
 
-function mapEmployeeRow(emp: Record<string, unknown>): Employee {
+export function mapEmployeeRow(emp: Record<string, unknown>): Employee {
   return {
     id: (emp.id as string) || 'temp-' + Math.random().toString(36).substring(2, 11),
     employeeId: (emp.employee_id as string) || '',
@@ -99,6 +99,18 @@ function mapEmployeeRow(emp: Record<string, unknown>): Employee {
     emergencyContactRelationship: (emp.emergency_contact_relationship as string) || '',
     emergencyContactPhone: (emp.emergency_contact_phone as string) || '',
   };
+}
+
+/** Resolve an employee reference that may be stored as id (UUID) or employee_id (numeric). */
+export function findEmployeeByRef(
+  employees: Employee[],
+  ref: string | null | undefined
+): Employee | undefined {
+  if (!ref) return undefined;
+  const trimmed = ref.trim();
+  return employees.find(
+    (e) => e.id === trimmed || e.employeeId === trimmed
+  );
 }
 
 function invalidateEmployeesAndDashboardCache(): void {
