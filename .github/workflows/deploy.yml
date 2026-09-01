@@ -205,9 +205,10 @@ jobs:
         if: matrix.branch == github.ref_name
         env:
           VITE_API_BASE: ${{ secrets[matrix.api_base_secret] }}
-          VITE_MSAL_CLIENT_ID: ${{ secrets.REACT_APP_CLIENT_ID }}
-          # Use tenant (directory) ID, not application ID - add REACT_APP_TENANT_ID in GitHub secrets
-          VITE_MSAL_TENANT_ID: ${{ secrets.REACT_APP_TENANT_ID }}
+          # Consolidated onto the same secrets the backend uses (AZURE_MSAL_*) so frontend
+          # and backend can never validate against different tenant/app registrations.
+          VITE_MSAL_CLIENT_ID: ${{ secrets.AZURE_MSAL_CLIENT_ID }}
+          VITE_MSAL_TENANT_ID: ${{ secrets.AZURE_MSAL_TENANT_ID }}
         run: npm run build
 
       - name: Deploy frontend to S3

@@ -243,6 +243,7 @@ def _cors_settings() -> tuple:
             "https://zenith-hr-staging.apps.infoservices.com",
             "https://zenith-hr-prod.apps.infoservices.com",
             "https://zenith-api.apps.infoservices.com",
+            "https://dc1u4ql4m6dcl.cloudfront.net",
             "http://localhost:3000",
             "http://localhost:8080",
         ],
