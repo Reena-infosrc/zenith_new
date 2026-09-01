@@ -156,17 +156,24 @@ export default function Login() {
         // Token stored successfully
       } else {
         const errorText = await backendRes.text();
+        console.error("Backend login error:", backendRes.status, errorText);
         clearAuthMemory();
         loginCompletedRef.current = false;
         setIsProcessingLogin(false);
-        alert('Authentication failed. Please try again.');
+        try {
+          const parsed = JSON.parse(errorText);
+          alert(`Authentication failed: ${parsed.detail || errorText}`);
+        } catch {
+          alert(`Authentication failed (${backendRes.status}): ${errorText || 'Please try again.'}`);
+        }
         return;
       }
     } catch (error) {
+      console.error("Authentication network error:", error);
       clearAuthMemory();
       loginCompletedRef.current = false;
       setIsProcessingLogin(false);
-      alert('Authentication failed. Please try again.');
+      alert(`Authentication failed: ${(error as Error)?.message || 'Please check your connection and try again.'}`);
       return;
     }
 
