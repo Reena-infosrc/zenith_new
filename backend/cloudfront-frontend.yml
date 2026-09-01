@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2012-10-17"
+Description: "Zenith HR Pulse - Dedicated CloudFront Distribution & S3 Policy Stack"
+
+Parameters:
+  Stage:
+    Type: String
+    Default: "staging"
+    AllowedValues:
+      - staging
+      - prod
+    Description: "Deployment stage"
+
+  DomainBucketName:
+    Type: String
+    Default: "zenith-hr-staging.apps.infoservices.com"
+    Description: "S3 Bucket hosting the static frontend assets"
+
+  AcmCertificateArn:
+    Type: String
+    Default: ""
+    Description: "Optional ACM Certificate ARN in us-east-1 for custom domain (leave empty to use default *.cloudfront.net)"
+
+Conditions:
+  HasCustomCertificate: !Not [!Equals [!Ref AcmCertificateArn, ""]]
+
+Resources:
+  # 1. Origin Access Identity for CloudFront to read private S3 objects
+  CloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "OAI for Zenith frontend ${Stage}"
+
+  # 2. S3 Bucket Policy allowing CloudFront OAI read access
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DomainBucketName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontGetObject
+            Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+            Action: "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::${DomainBucketName}/*"
+
+  # 3. CloudFront Distribution configured for React SPA
+  FrontendCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Comment: !Sub "Zenith HR Pulse Frontend (${Stage})"
+        Origins:
+          - Id: S3Origin
+            DomainName: !Sub "${DomainBucketName}.s3.amazonaws.com"
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          MinTTL: 0
+          DefaultTTL: 86400
+          MaxTTL: 31536000
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 0
+        Aliases: !If
+          - HasCustomCertificate
+          - [!Ref DomainBucketName]
+          - !Ref "AWS::NoValue"
+        ViewerCertificate: !If
+          - HasCustomCertificate
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+
+Outputs:
+  DistributionId:
+    Description: "CloudFront Distribution ID (save as CLOUDFRONT_DISTRIBUTION_ID_STAGING in GitHub Secrets)"
+    Value: !Ref FrontendCloudFrontDistribution
+    Export:
+      Name: !Sub "zenith-hr-${Stage}-CloudFrontDistributionId"
+
+  DistributionDomainName:
+    Description: "CloudFront Domain Name"
+    Value: !GetAtt FrontendCloudFrontDistribution.DomainName
