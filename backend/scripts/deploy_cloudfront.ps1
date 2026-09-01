@@ -8,6 +8,16 @@ param(
 $StackName = "zenith-hr-frontend-$Stage"
 $TemplateFile = Join-Path $PSScriptRoot "..\cloudfront-frontend.yml"
 
+# Locate aws executable
+$awsExe = (Get-Command "aws.exe" -ErrorAction SilentlyContinue).Source
+if (-not $awsExe -or !(Test-Path $awsExe)) {
+    if (Test-Path "C:\Program Files\Amazon\AWSCLIV2\aws.exe") {
+        $awsExe = "C:\Program Files\Amazon\AWSCLIV2\aws.exe"
+    } else {
+        $awsExe = "aws"
+    }
+}
+
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  Zenith HR Pulse -- Deploying CloudFront Distribution" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -34,7 +44,7 @@ if ($AcmCertArn) {
 Write-Host ""
 Write-Host "Deploying CloudFormation stack..." -ForegroundColor Yellow
 
-aws cloudformation deploy `
+& $awsExe cloudformation deploy `
     --template-file $TemplateFile `
     --stack-name $StackName `
     --parameter-overrides @params `
@@ -45,13 +55,13 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "CloudFront stack deployed successfully!" -ForegroundColor Green
     
-    $distId = aws cloudformation describe-stacks `
+    $distId = & $awsExe cloudformation describe-stacks `
         --stack-name $StackName `
         --region $Region `
         --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" `
         --output text
         
-    $domain = aws cloudformation describe-stacks `
+    $domain = & $awsExe cloudformation describe-stacks `
         --stack-name $StackName `
         --region $Region `
         --query "Stacks[0].Outputs[?OutputKey=='DistributionDomainName'].OutputValue" `

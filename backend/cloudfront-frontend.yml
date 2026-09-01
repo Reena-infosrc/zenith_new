@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: "2012-10-17"
+AWSTemplateFormatVersion: "2010-09-09"
 Description: "Zenith HR Pulse - Dedicated CloudFront Distribution & S3 Policy Stack"
 
 Parameters:
