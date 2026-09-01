@@ -91,19 +91,23 @@ class JWKSValidator:
                 logger.error(f"JWT decode failed (signature/exp): {e}")
                 return None
 
-            # Validate issuer (token may have trailing slash; normalize)
+            # Validate issuer (support v2.0, v1.0, and standard Entra ID formats)
             token_iss_val = (payload.get("iss") or "").rstrip("/")
-            expected_issuer_norm = expected_issuer.rstrip("/")
-            if token_iss_val != expected_issuer_norm:
-                logger.error(f"Issuer mismatch: token iss={token_iss_val!r}, expected={expected_issuer_norm!r}")
+            allowed_issuers = {
+                f"https://login.microsoftonline.com/{tenant_id}/v2.0".rstrip("/"),
+                f"https://login.microsoftonline.com/{tenant_id}".rstrip("/"),
+                f"https://sts.windows.net/{tenant_id}".rstrip("/"),
+            }
+            if token_iss_val not in allowed_issuers:
+                logger.error(f"Issuer mismatch: token iss={token_iss_val!r}, expected one of={allowed_issuers!r}")
                 return None
 
             # STRICT FIX: Only allow the specific client_id or custom API scope. NEVER "https://graph.microsoft.com"
             # to prevent cross-app Graph token replay.
             token_aud_val = payload.get("aud")
-            allowed_audiences = (client_id, f"api://{client_id}")
+            allowed_audiences = {client_id, f"api://{client_id}", f"https://{client_id}"}
             if isinstance(token_aud_val, list):
-                aud_ok = any(a in token_aud_val for a in allowed_audiences)
+                aud_ok = any(a in allowed_audiences for a in token_aud_val)
             else:
                 aud_ok = token_aud_val in allowed_audiences
             if not aud_ok:
