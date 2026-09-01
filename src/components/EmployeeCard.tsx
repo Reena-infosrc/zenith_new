@@ -68,7 +68,7 @@ export function EmployeeCard(props: EmployeeCardProps) {
   return (
     <>
       <div className={cn(
-        "group h-full [perspective:1000px] aspect-[1/1.5] min-h-[210px]",
+        "group h-full [perspective:1000px] aspect-[1/1.4] min-h-[190px]",
         isInactive && !showInactiveDetails && "opacity-60 grayscale pointer-events-none",
         isInactive && showInactiveDetails && "opacity-80 grayscale",
         props.className

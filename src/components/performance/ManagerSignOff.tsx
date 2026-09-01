@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   CheckCircle2,
   XCircle,
@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { usePreserveScroll } from "@/hooks/use-preserve-scroll";
@@ -75,9 +76,21 @@ export function ManagerSignOff() {
   const [viewDetailError, setViewDetailError] = useState<string | null>(null);
   const [viewDetail, setViewDetail] = useState<{ manager?: any; self?: any } | null>(null);
   const [viewSubmission, setViewSubmission] = useState<ReviewSubmission | null>(null);
+  // Bulk approve (pending tab only)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkComment, setBulkComment] = useState('');
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const { preserveScroll } = usePreserveScroll();
   const { toast } = useToast();
   const { employees } = useEmployees();
+  // Read employees from a ref inside fetchSubmissions so the directory streaming
+  // in incrementally doesn't re-trigger a full manager-review refetch per batch.
+  const employeesRef = useRef(employees);
+  useEffect(() => {
+    employeesRef.current = employees;
+  }, [employees]);
 
   // Fetch manager-submitted reviews from API
   const fetchSubmissions = useCallback(async () => {
@@ -89,11 +102,11 @@ export function ManagerSignOff() {
       // Include inactive reviews to catch rejected reviews that might be marked inactive
       const [submittedResponse, draftResponse] = await Promise.all([
         authenticatedFetch(
-          `${API_BASE_URL}/reviews?reviewType=manager&isDraft=false&includeInactive=true`,
+          `${API_BASE_URL}/reviews?reviewType=manager&isDraft=false&includeInactive=true&activeEmployeesOnly=true`,
           { method: 'GET' }
         ),
         authenticatedFetch(
-          `${API_BASE_URL}/reviews?reviewType=manager&isDraft=true&includeInactive=true`,
+          `${API_BASE_URL}/reviews?reviewType=manager&isDraft=true&includeInactive=true&activeEmployeesOnly=true`,
           { method: 'GET' }
         )
       ]);
@@ -193,7 +206,7 @@ export function ManagerSignOff() {
       const mappedSubmissions: ReviewSubmission[] = await Promise.all(
         reviews.map(async (review: any) => {
           // Find employee info
-          const employee = employees.find(emp => emp.id === review.employeeId);
+          const employee = employeesRef.current.find(emp => emp.id === review.employeeId);
           const employeeName = employee?.name || 'Unknown Employee';
           
           // Find cycle info
@@ -218,10 +231,24 @@ export function ManagerSignOff() {
           }
 
           // Extract manager rating from review data
-          const managerRating = review.ratings?.overall || 
-                                review.metadata?.finalRating?.overallRating || 
-                                review.metadata?.ratings?.overall || 
+          const managerRating = review.ratings?.overall ||
+                                review.metadata?.finalRating?.overallRating ||
+                                review.metadata?.ratings?.overall ||
                                 undefined;
+
+          // Reviewer of record: prefer the snapshot frozen at submission, then
+          // resolve the id/email against the directory, then fall back to the id.
+          const reviewerSnap = review.metadata?.reviewerSnapshot;
+          const reviewerRef = reviewerSnap?.reviewerId || review.reviewerId || '';
+          const reviewerFromDir = reviewerRef
+            ? employeesRef.current.find(
+                e =>
+                  (e.email && e.email.toLowerCase() === String(reviewerRef).toLowerCase()) ||
+                  e.id === reviewerRef,
+              )
+            : undefined;
+          const managerName =
+            reviewerSnap?.reviewerName || reviewerFromDir?.name || reviewerRef || 'Unknown';
 
           return {
             id: review.reviewId || review.id,
@@ -234,8 +261,8 @@ export function ManagerSignOff() {
             cycleName,
             submittedAt: review.submittedAt || review.updatedAt || review.createdAt,
             status,
-            managerId: review.reviewerId,
-            managerName: review.reviewerId, // Could fetch manager name if needed
+            managerId: reviewerRef,
+            managerName,
             escalationLevel: review.metadata?.escalationLevel || (status === 'escalated' ? 1 : undefined),
             comments: review.metadata?.hrComments || review.comments,
             rejectionReason: review.metadata?.rejectionReason || review.metadata?.hrRejectionReason,
@@ -260,13 +287,31 @@ export function ManagerSignOff() {
     } finally {
       setLoading(false);
     }
-  }, [employees, toast]);
+  }, [toast]);
 
+  const employeesLoaded = employees.length > 0;
   useEffect(() => {
-    if (employees.length > 0) {
+    if (employeesLoaded) {
       fetchSubmissions();
     }
-  }, [employees, fetchSubmissions]);
+  }, [employeesLoaded, fetchSubmissions]);
+
+  // As the directory streams in, backfill names for rows that resolved to
+  // "Unknown Employee" on the first pass — without refetching the reviews.
+  useEffect(() => {
+    setSubmissions((prev) => {
+      if (!prev.some((s) => s.employeeName === 'Unknown Employee')) return prev;
+      let changed = false;
+      const next = prev.map((s) => {
+        if (s.employeeName !== 'Unknown Employee') return s;
+        const emp = employees.find((e) => e.id === s.employeeId);
+        if (!emp) return s;
+        changed = true;
+        return { ...s, employeeName: emp.name, employeePhoto: emp.photoUrl };
+      });
+      return changed ? next : prev;
+    });
+  }, [employees]);
 
   const getDaysPending = (submittedAt: string) => {
     return Math.floor((Date.now() - new Date(submittedAt).getTime()) / (1000 * 60 * 60 * 24));
@@ -324,6 +369,89 @@ export function ManagerSignOff() {
   const pendingCount = submissions.filter(s => s.status === 'pending').length;
   const approvedCount = submissions.filter(s => s.status === 'approved').length;
   const rejectedCount = submissions.filter(s => s.status === 'rejected').length;
+
+  const pendingVisible = getFilteredAndSortedSubmissions('pending');
+  const allVisibleSelected = pendingVisible.length > 0 && pendingVisible.every(s => selectedIds.has(s.id));
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (pendingVisible.every(s => next.has(s.id))) {
+        pendingVisible.forEach(s => next.delete(s.id));
+      } else {
+        pendingVisible.forEach(s => next.add(s.id));
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const runBulkApprove = async () => {
+    const targets = pendingVisible
+      .filter(s => selectedIds.has(s.id))
+      .map(s => ({ id: s.id, reviewId: s.reviewId, name: s.employeeName }));
+    if (targets.length === 0) return;
+
+    setBulkRunning(true);
+    setBulkProgress({ done: 0, total: targets.length });
+
+    const CONCURRENCY = 4;
+    const failures: { name: string; reason: string }[] = [];
+    let cursor = 0;
+    let done = 0;
+
+    const worker = async () => {
+      while (cursor < targets.length) {
+        const item = targets[cursor];
+        cursor += 1;
+        try {
+          await approveOneReview(item.reviewId, bulkComment);
+        } catch (e) {
+          failures.push({ name: item.name, reason: e instanceof Error ? e.message : 'Unknown error' });
+        } finally {
+          done += 1;
+          setBulkProgress({ done, total: targets.length });
+        }
+      }
+    };
+
+    try {
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => worker())
+      );
+    } finally {
+      await fetchSubmissions();
+      setBulkRunning(false);
+      setBulkProgress(null);
+      setShowBulkModal(false);
+      setBulkComment('');
+      setSelectedIds(new Set());
+    }
+
+    const approved = targets.length - failures.length;
+    if (failures.length === 0) {
+      toast({
+        title: "Bulk approve complete",
+        description: `${approved} review${approved === 1 ? '' : 's'} approved.`
+      });
+    } else {
+      console.warn('Bulk approve failures:', failures);
+      toast({
+        title: `Approved ${approved} of ${targets.length}`,
+        description: `${failures.length} failed: ${failures.slice(0, 3).map(f => f.name).join(', ')}${failures.length > 3 ? '…' : ''}`,
+        variant: "destructive"
+      });
+    }
+  };
 
   const getStatusBadge = (status: string, escalationLevel?: number) => {
     const configs: Record<string, { label: string; variant: any; icon: any }> = {
@@ -433,51 +561,52 @@ export function ManagerSignOff() {
     fetchViewDetails(submission);
   }, [fetchViewDetails]);
 
+  // Approve a single review by id. Fetches the current review, then PUTs only
+  // the fields that change (plus submittedAt so the backend doesn't read this as
+  // an un-submit). Throws with a useful message on failure. Shared by the
+  // single-row and bulk approve flows.
+  const approveOneReview = useCallback(async (reviewId: string, comment: string) => {
+    const reviewResponse = await authenticatedFetch(
+      `${API_BASE_URL}/reviews/${reviewId}`,
+      { method: 'GET' }
+    );
+    if (!reviewResponse.ok) {
+      throw new Error(`Couldn't load review (${reviewResponse.status})`);
+    }
+    const review = await reviewResponse.json();
+
+    const updatedReview = {
+      submittedAt: review.submittedAt,
+      status: 'hr_approved',
+      metadata: {
+        ...review.metadata,
+        status: 'hr_approved',
+        hrComments: comment,
+        hrApprovedAt: new Date().toISOString()
+      }
+    };
+
+    const updateResponse = await authenticatedFetch(
+      `${API_BASE_URL}/reviews/${reviewId}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedReview)
+      }
+    );
+    if (!updateResponse.ok) {
+      const detail = await updateResponse.text().catch(() => '');
+      throw new Error(detail || `Approve failed (${updateResponse.status})`);
+    }
+  }, []);
+
   const handleApprove = async (submissionId: string) => {
     const submission = submissions.find(s => s.id === submissionId);
     if (!submission) return;
 
     try {
       setActionLoading(true);
-      
-      // Fetch the current review to update it
-      const reviewResponse = await authenticatedFetch(
-        `${API_BASE_URL}/reviews/${submission.reviewId}`,
-        { method: 'GET' }
-      );
-
-      if (!reviewResponse.ok) {
-        throw new Error('Failed to fetch review');
-      }
-
-      const review = await reviewResponse.json();
-
-      // Update review with approval status
-      const updatedReview = {
-        ...review,
-        status: 'hr_approved',
-        metadata: {
-          ...review.metadata,
-          status: 'hr_approved',
-          hrComments: actionComment,
-          hrApprovedAt: new Date().toISOString()
-        }
-      };
-
-      const updateResponse = await authenticatedFetch(
-        `${API_BASE_URL}/reviews/${submission.reviewId}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(updatedReview)
-        }
-      );
-
-      if (!updateResponse.ok) {
-        throw new Error('Failed to approve review');
-      }
+      await approveOneReview(submission.reviewId, actionComment);
 
       toast({
         title: "Success",
@@ -527,9 +656,9 @@ export function ManagerSignOff() {
 
       const review = await reviewResponse.json();
 
-      // Update review with rejection status
+      // Update review with rejection status (delta only — see handleApprove).
       const updatedReview = {
-        ...review,
+        submittedAt: review.submittedAt,
         status: 'changes_requested',
         metadata: {
           ...review.metadata,
@@ -594,10 +723,10 @@ export function ManagerSignOff() {
 
       const review = await reviewResponse.json();
 
-      // Update review with escalation status
+      // Update review with escalation status (delta only — see handleApprove).
       const escalationLevel = (submission.escalationLevel || 0) + 1;
       const updatedReview = {
-        ...review,
+        submittedAt: review.submittedAt,
         status: 'escalated',
         metadata: {
           ...review.metadata,
@@ -694,6 +823,7 @@ export function ManagerSignOff() {
       {/* Submissions */}
       <Tabs defaultValue="pending" className="space-y-4" onValueChange={() => {
         preserveScroll();
+        clearSelection();
       }}>
         <TabsList>
           <TabsTrigger value="pending">
@@ -759,6 +889,42 @@ export function ManagerSignOff() {
         </div>
 
         <TabsContent value="pending" className="space-y-2">
+          {!loading && pendingVisible.length > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-background/60 px-3 py-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <Checkbox
+                  checked={allVisibleSelected}
+                  onCheckedChange={toggleSelectAllVisible}
+                  aria-label="Select all visible pending reviews"
+                />
+                <span className="text-muted-foreground">
+                  {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
+                </span>
+              </label>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearSelection}
+                    disabled={bulkRunning}
+                    className="h-8 px-2 text-xs"
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => { setBulkComment(''); setShowBulkModal(true); }}
+                    disabled={actionLoading || bulkRunning}
+                    className="h-8 px-3 text-xs bg-gradient-to-r from-primary to-primary/80"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    Approve selected ({selectedIds.size})
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -788,6 +954,13 @@ export function ManagerSignOff() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <Checkbox
+                        checked={selectedIds.has(submission.id)}
+                        onCheckedChange={() => toggleSelect(submission.id)}
+                        disabled={bulkRunning}
+                        aria-label={`Select ${submission.employeeName}`}
+                        className="shrink-0"
+                      />
                       <Avatar className="h-10 w-10 shrink-0">
                         <AvatarImage src={submission.employeePhoto} />
                         <AvatarFallback className="text-xs">
@@ -1046,6 +1219,70 @@ export function ManagerSignOff() {
         </TabsContent>
       </Tabs>
 
+      {/* Bulk Approve Modal */}
+      <Dialog
+        open={showBulkModal}
+        onOpenChange={(open) => {
+          if (bulkRunning) return;
+          setShowBulkModal(open);
+          if (!open) setBulkComment('');
+        }}
+      >
+        <DialogContent className="bg-gradient-to-br from-background/98 to-background/95 backdrop-blur-xl border-border/50 w-[95vw] max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Approve {selectedIds.size} review{selectedIds.size === 1 ? '' : 's'}
+            </DialogTitle>
+            <DialogDescription>
+              Every selected review is marked HR-approved. The comment below is applied to all of them.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 py-2">
+            <Label>Comment (optional)</Label>
+            <Textarea
+              value={bulkComment}
+              onChange={(e) => setBulkComment(e.target.value)}
+              placeholder="Applied to all selected reviews..."
+              className="min-h-[90px] bg-background/50"
+              disabled={bulkRunning}
+            />
+          </div>
+
+          {bulkProgress && (
+            <div className="space-y-1">
+              <Progress value={(bulkProgress.done / bulkProgress.total) * 100} />
+              <p className="text-xs text-muted-foreground text-center">
+                {bulkProgress.done} / {bulkProgress.total} processed
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkModal(false)} disabled={bulkRunning}>
+              Cancel
+            </Button>
+            <Button
+              onClick={runBulkApprove}
+              disabled={bulkRunning || selectedIds.size === 0}
+              className="bg-gradient-to-r from-primary to-primary/80"
+            >
+              {bulkRunning ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Approving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Approve {selectedIds.size}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Action Modal */}
       <Dialog
         open={showActionModal}
@@ -1246,7 +1483,15 @@ function ReviewDetailSection({ loading, error, detail, submission }: ReviewDetai
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 text-sm">
           <InfoStat label="Employee" value={submission.employeeName} />
           <InfoStat label="Cycle" value={submission.cycleName} />
-          <InfoStat label="Manager" value={detail.manager.reviewerId} />
+          <InfoStat
+            label="Manager"
+            value={
+              detail.manager.metadata?.reviewerSnapshot?.reviewerName ||
+              submission.managerName ||
+              detail.manager.metadata?.reviewerSnapshot?.reviewerId ||
+              detail.manager.reviewerId
+            }
+          />
         </div>
       </div>
 

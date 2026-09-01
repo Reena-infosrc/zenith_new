@@ -692,7 +692,7 @@ export default function Directory() {
                         );
 
                         return (
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 3xl:grid-cols-12 gap-x-2.5 gap-y-6 pt-3">
+                          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-11 gap-x-2.5 gap-y-5 pt-3">
                             {currentUserEmployee && (
                               <div className="relative h-full">
                                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white text-[11px] uppercase tracking-wider font-black px-5 py-2 rounded-full z-10 shadow-2xl shadow-indigo-600/50 border border-white/30 whitespace-nowrap flex items-center gap-2 group/myprofile">

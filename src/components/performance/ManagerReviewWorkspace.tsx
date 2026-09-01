@@ -1084,10 +1084,23 @@ export function ManagerReviewWorkspace({ initialEmployeeId, initialCycleYear, hi
       console.log('Validation passed. Proceeding with submission...');
 
       setLoading(true);
+      const submittedAtIso = new Date().toISOString();
       const payload = buildReviewPayload({
         status: 'manager_submitted',
-        submittedAt: new Date().toISOString(),  // Setting submittedAt moves to submitted table
-        metadata: { status: 'manager_submitted' }
+        submittedAt: submittedAtIso,  // Setting submittedAt moves to submitted table
+        metadata: {
+          status: 'manager_submitted',
+          // Reviewer of record — frozen by the backend on first submit so this
+          // review always shows the manager who signed it, even if the
+          // employee's line manager changes later.
+          reviewerSnapshot: {
+            reviewerId: user?.email || user?.id || 'unknown',
+            reviewerName: user?.name || '',
+            reviewerEmployeeId: user?.id || '',
+            capturedAt: submittedAtIso,
+            source: 'manager_submit',
+          },
+        }
       });
       
       console.log('Submitting payload:', payload);

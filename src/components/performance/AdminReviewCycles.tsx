@@ -183,15 +183,47 @@ export function AdminReviewCycles() {
           activeEmployeeIds.has(assignment.employeeId)
         );
         
-        // Update employee info in existing assignments
+        // Update employee info in existing assignments.
+        // The manager of record is FROZEN once the manager has submitted for this
+        // employee (status beyond not_started / self_submitted). Before that, it
+        // still tracks the employee's current line manager. When a frozen
+        // assignment's live manager differs, we surface it as currentManager*
+        // and log the change in managerHistory without touching manager of record.
         const updatedActiveAssignments = activeAssignments.map((assignment: any) => {
           const employee = activeEmployees.find(emp => emp.id === assignment.employeeId);
-          const manager = allEmployees.find(m => m.id === employee?.reporting_to);
+          const liveManager = allEmployees.find(m => m.id === employee?.reporting_to);
+          const frozen = !!assignment.status
+            && assignment.status !== 'not_started'
+            && assignment.status !== 'self_submitted';
+
+          if (frozen) {
+            const changed = liveManager && liveManager.id && liveManager.id !== assignment.managerId;
+            const managerHistory = changed
+              ? [
+                  ...(assignment.managerHistory || []),
+                  {
+                    managerId: assignment.managerId || '',
+                    managerName: assignment.managerName || '',
+                    replacedBy: liveManager?.id || '',
+                    replacedAt: new Date().toISOString(),
+                  },
+                ]
+              : assignment.managerHistory;
+            return {
+              ...assignment,
+              employeeName: employee?.name || assignment.employeeName || 'Unknown',
+              // manager of record untouched
+              currentManagerId: liveManager?.id || assignment.managerId || '',
+              currentManagerName: liveManager?.name || assignment.managerName || 'Unassigned',
+              ...(managerHistory ? { managerHistory } : {}),
+            };
+          }
+
           return {
             ...assignment,
             employeeName: employee?.name || assignment.employeeName || 'Unknown',
-            managerId: manager?.id || assignment.managerId || '',
-            managerName: manager?.name || assignment.managerName || 'Unassigned'
+            managerId: liveManager?.id || assignment.managerId || '',
+            managerName: liveManager?.name || assignment.managerName || 'Unassigned'
           };
         });
         

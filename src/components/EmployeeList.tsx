@@ -13,7 +13,7 @@ import {
   TableRow
 } from "@/components/ui/table";
 
-import { Employee, findEmployeeByRef } from '@/hooks/use-employees';
+import { Employee } from '@/hooks/use-employees';
 
 interface EmployeeListProps {
   employees: Employee[];
@@ -30,7 +30,7 @@ export function EmployeeList({ employees, updateEmployee, sortBy, sortOrder, onS
 
   // Helper function to get employee name by ID
   const getEmployeeName = (employeeId: string) => {
-    const employee = findEmployeeByRef(employees, employeeId);
+    const employee = employees.find(emp => emp.id === employeeId);
     return employee ? employee.name : "Unknown";
   };
 

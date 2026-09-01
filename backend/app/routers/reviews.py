@@ -74,6 +74,13 @@ _rating_distribution_cache = {}
 # Cache for team performance (TTL: 5 minutes)
 _team_performance_cache = {}
 
+# Cache for the set of active (non-inactive) employee IDs (TTL: 5 minutes)
+_active_employees_cache = {
+    "ids": None,
+    "timestamp": 0,
+    "ttl": 300,
+}
+
 CYCLE_PK_PREFIX = "CYCLE#"
 REVIEW_SK_PREFIX = "REVIEW#"
 CYCLE_SK_VALUE = "CYCLE"
@@ -132,7 +139,7 @@ def _review_sk(review_id: str) -> str:
 
 
 def _map_cycle(item: Dict[str, Any]) -> ReviewCycleInDB:
-    parsed = parse_dynamodb_item(item, "cycle")
+    parsed = parse_dynamodb_item(item)
     
     # Ensure date fields are ISO strings, not datetime objects
     def to_iso_string(value: Any) -> Optional[str]:
@@ -164,6 +171,28 @@ def _map_review(item: Dict[str, Any], is_draft: bool = False) -> ReviewInDB:
     # Remove isDraft from parsed data if it exists (legacy data)
     parsed.pop("isDraft", None)
     status_value = parsed.get("status") or parsed.get("metadata", {}).get("status")
+
+    metadata = parsed.get("metadata", {}) or {}
+    # Reviewer of record: for a submitted manager review that predates snapshot
+    # tracking, derive one on read from the stored reviewerId + submittedAt so the
+    # UI always shows the manager who actually submitted it, not whoever the
+    # employee reports to now. This is not persisted here — update_review freezes
+    # a real snapshot the next time the row is written.
+    if (
+        parsed.get("reviewType") == "manager"
+        and parsed.get("submittedAt")
+        and not metadata.get("reviewerSnapshot")
+    ):
+        metadata = {
+            **metadata,
+            "reviewerSnapshot": {
+                "reviewerId": parsed.get("reviewerId"),
+                "reviewerName": None,
+                "capturedAt": parsed.get("submittedAt"),
+                "source": "derived",
+            },
+        }
+
     return ReviewInDB(
         reviewId=parsed["reviewId"],
         cycleYear=parsed["cycleYear"],
@@ -177,7 +206,7 @@ def _map_review(item: Dict[str, Any], is_draft: bool = False) -> ReviewInDB:
         strengths=parsed.get("strengths", []),
         improvements=parsed.get("improvements", []),
         attachments=parsed.get("attachments", []),
-        metadata=parsed.get("metadata", {}),
+        metadata=metadata,
         submittedAt=parsed.get("submittedAt"),
         createdAt=parsed.get("createdAt"),
         updatedAt=parsed.get("updatedAt"),
@@ -231,7 +260,7 @@ async def _get_active_cycle() -> Dict[str, Any]:
         
         if items:
             # Parse and return the first active cycle found
-            parsed_item = parse_dynamodb_item(items[0], "cycle")
+            parsed_item = parse_dynamodb_item(items[0])
             return parsed_item
         
         last_evaluated_key = response.get("LastEvaluatedKey")
@@ -346,6 +375,53 @@ async def _find_existing_review(
     return None, table
 
 
+async def _get_active_employee_ids(force_refresh: bool = False) -> Optional[set]:
+    """Return the set of employee IDs whose status is not 'inactive'.
+
+    Cached for 5 minutes. Returns None (or a possibly-stale set) if the lookup
+    fails, so callers treat "unknown" as "don't filter" rather than hiding
+    every row.
+    """
+    now = time.time()
+    cache = _active_employees_cache
+    if (
+        not force_refresh
+        and cache["ids"] is not None
+        and now - cache["timestamp"] < cache["ttl"]
+    ):
+        return cache["ids"]
+
+    try:
+        employees_table = await get_employees_table()
+        active_ids: set = set()
+        last_evaluated_key = None
+        while True:
+            scan_kwargs = {
+                "ProjectionExpression": "id, #status",
+                "ExpressionAttributeNames": {"#status": "status"},
+            }
+            if last_evaluated_key:
+                scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
+            response = await employees_table.scan(
+                **_strip_projection_if_encryption(scan_kwargs)
+            )
+            for item in response.get("Items", []):
+                parsed = parse_dynamodb_item(item)
+                if parsed.get("status", "active") != "inactive":
+                    emp_id = parsed.get("id")
+                    if emp_id:
+                        active_ids.add(emp_id)
+            last_evaluated_key = response.get("LastEvaluatedKey")
+            if not last_evaluated_key:
+                break
+        cache["ids"] = active_ids
+        cache["timestamp"] = now
+        return active_ids
+    except ClientError as exc:
+        logger.warning("Failed to load active employee IDs: %s", exc)
+        return cache["ids"]  # possibly stale, possibly None
+
+
 async def _validate_employee_and_goals(
     employee_id: str,
     goal_ids: List[str],
@@ -453,7 +529,7 @@ async def create_cycle(
 
     try:
         await cycles_table.put_item(
-            Item=format_dynamodb_item(item, "cycle"),
+            Item=format_dynamodb_item(item),
             ConditionExpression="attribute_not_exists(#year)",
             ExpressionAttributeNames={"#year": "year"},
         )
@@ -516,11 +592,16 @@ async def list_cycles(
         
     except ClientError as exc:
         logger.exception("Failed to list review cycles")
+        # Stale-while-error: a transient scan failure should not blank the
+        # dashboard when we still have a previous (expired) result to serve.
+        if _cycles_cache["data"] is not None:
+            logger.warning("Serving stale cycles cache after scan failure")
+            return _cycles_cache["data"]
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list review cycles",
         ) from exc
-    
+
     return cycles
 
 
@@ -826,7 +907,14 @@ async def get_review_stats(
         # Get reviews from both tables
         reviews_table = await get_reviews_table()
         drafts_table = await get_review_drafts_table()
-        
+
+        # Reviews belonging to employees who have left / are inactive must not
+        # keep a cycle from reaching 100%. None => lookup failed, so don't filter.
+        active_ids = await _get_active_employee_ids()
+
+        def _counts(emp_id: Optional[str]) -> bool:
+            return active_ids is None or emp_id in active_ids
+
         # Count pending (draft self-reviews)
         pending = 0
         last_evaluated_key = None
@@ -837,7 +925,7 @@ async def get_review_stats(
             response = await drafts_table.scan(**scan_kwargs)
             for item in response.get("Items", []):
                 parsed = parse_dynamodb_item(item, "reviewDraft")
-                if parsed.get("reviewType") == "self":
+                if parsed.get("reviewType") == "self" and _counts(parsed.get("employeeId")):
                     pending += 1
             last_evaluated_key = response.get("LastEvaluatedKey")
             if not last_evaluated_key:
@@ -861,12 +949,12 @@ async def get_review_stats(
                 submitted_at = parsed.get("submittedAt")
                 employee_id = parsed.get("employeeId")
                 cycle_year = parsed.get("cycleYear")
-                
-                if not submitted_at:
+
+                if not submitted_at or not _counts(employee_id):
                     continue
-                    
+
                 key = (employee_id, cycle_year)
-                
+
                 if review_type == "self":
                     submitted += 1
                     submitted_self_reviews.add(key)
@@ -1088,7 +1176,7 @@ async def get_dashboard_stats(
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await employees_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item, "employees")
+                    parsed = parse_dynamodb_item(item)
                     emp_status = parsed.get("status", "active")
                     if emp_status != "inactive":
                         emp_id = parsed.get("id")
@@ -1115,7 +1203,7 @@ async def get_dashboard_stats(
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await drafts_table.scan(**_strip_projection_if_encryption(scan_kwargs))
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item, "reviewDraft")
+                    parsed = parse_dynamodb_item(item)
                     if parsed.get("reviewType") == "self" and parsed.get("employeeId") in active_employee_ids:
                         count += 1
                 last_evaluated_key = response.get("LastEvaluatedKey")
@@ -1235,7 +1323,7 @@ async def get_completion_trend(
                         scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                     response = await cycles_table.scan(**scan_kwargs)
                     for item in response.get("Items", []):
-                        parsed = parse_dynamodb_item(item, "cycle")
+                        parsed = parse_dynamodb_item(item)
                         active_cycles.append(parsed)
                     last_evaluated_key = response.get("LastEvaluatedKey")
                     if not last_evaluated_key:
@@ -1259,7 +1347,7 @@ async def get_completion_trend(
                     ProjectionExpression="startDate",
                 )
                 if "Item" in response:
-                    cycle_data = parse_dynamodb_item(response["Item"], "cycle")
+                    cycle_data = parse_dynamodb_item(response["Item"])
                     cycle_start_date = cycle_data.get("startDate")
             except:
                 cycle_start_date = None
@@ -1632,7 +1720,7 @@ async def get_team_performance(
                         scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                     response = await cycles_table.scan(**scan_kwargs)
                     for item in response.get("Items", []):
-                        parsed = parse_dynamodb_item(item, "cycle")
+                        parsed = parse_dynamodb_item(item)
                         active_cycles.append(parsed)
                     last_evaluated_key = response.get("LastEvaluatedKey")
                     if not last_evaluated_key:
@@ -1906,7 +1994,7 @@ async def upload_review_attachment(
                     scan_kwargs["ExclusiveStartKey"] = last_evaluated_key
                 response = await cycles_table.scan(**scan_kwargs)
                 for item in response.get("Items", []):
-                    parsed = parse_dynamodb_item(item, "cycle")
+                    parsed = parse_dynamodb_item(item)
                     if parsed.get("status") in ["open", "active"]:
                         active_cycles.append(parsed)
                 last_evaluated_key = response.get("LastEvaluatedKey")
@@ -2312,12 +2400,16 @@ async def get_reviews(
     isDraft: Optional[bool] = Query(None, description="Filter by draft status"),
     includeSelfReview: Optional[bool] = Query(False, description="When querying manager reviews, also include corresponding self-review"),
     includeInactive: Optional[bool] = Query(False, description="Include inactive reviews (for debugging)"),
+    activeEmployeesOnly: Optional[bool] = Query(False, description="Exclude reviews whose employee has left / is marked inactive"),
     current_user: dict = Depends(get_current_active_user),
 ):
     """Query reviews with optional filters.
-    
+
     If includeSelfReview=True and reviewType=manager, also fetches the corresponding self-review
     for the same employeeId and cycleYear.
+
+    If activeEmployeesOnly=True, reviews belonging to employees who are no longer
+    in the directory or are marked inactive are dropped from the response.
     """
     del current_user
     reviews = []
@@ -2550,6 +2642,16 @@ async def get_reviews(
             detail="Failed to query reviews",
         ) from exc
 
+    if activeEmployeesOnly and reviews:
+        active_ids = await _get_active_employee_ids()
+        if active_ids is not None:
+            before = len(reviews)
+            reviews = [r for r in reviews if r.employeeId in active_ids]
+            if before != len(reviews):
+                logger.info(
+                    "activeEmployeesOnly filtered reviews %d -> %d", before, len(reviews)
+                )
+
     return reviews
 
 
@@ -2725,22 +2827,76 @@ async def update_review(
             detail=f"Cannot change reviewType from {existing_review_type} to {new_review_type}. Each review must maintain its original type."
         )
     
+    # ------------------------------------------------------------------
+    # Reviewer of record (manager reviews)
+    #
+    # Once a manager review has been submitted, the manager who submitted it is
+    # frozen. Later writes — HR sign-off, clarification round-trips, a different
+    # manager reopening it, or the employee's line manager changing — never
+    # rewrite reviewerId or metadata.reviewerSnapshot. Every submit event is
+    # appended to metadata.reviewerHistory for the audit trail.
+    # ------------------------------------------------------------------
+    if existing_review_type == "manager":
+        existing_metadata = parsed_item.get("metadata") or {}
+        existing_snapshot = existing_metadata.get("reviewerSnapshot")
+        already_submitted = bool(parsed_item.get("submittedAt"))
+        incoming_metadata = update_payload.get("metadata")
+        frozen_reviewer_id = parsed_item.get("reviewerId")
+
+        _im_status = incoming_metadata.get("status") if isinstance(incoming_metadata, dict) else None
+        incoming_status = update_payload.get("status") or _im_status
+        is_manager_submit_event = incoming_status in ("manager_submitted", "manager_resubmitted")
+
+        # Freeze reviewer identity once there is a submission or a snapshot.
+        if already_submitted or existing_snapshot:
+            if (
+                "reviewerId" in update_payload
+                and update_payload["reviewerId"] != frozen_reviewer_id
+            ):
+                logger.info(
+                    "update_review %s: keeping original reviewerId %s (ignoring %s)",
+                    review_id, frozen_reviewer_id, update_payload["reviewerId"],
+                )
+                update_payload["reviewerId"] = frozen_reviewer_id
+            if isinstance(incoming_metadata, dict) and existing_snapshot:
+                incoming_metadata["reviewerSnapshot"] = existing_snapshot
+
+        # Record the reviewer of record + an audit entry, only on an actual
+        # manager (re)submission — not on HR sign-off or clarification writes.
+        if is_manager_submit_event and update_payload.get("submittedAt") is not None:
+            base_meta = incoming_metadata if isinstance(incoming_metadata, dict) else dict(existing_metadata)
+            if not base_meta.get("reviewerSnapshot"):
+                base_meta["reviewerSnapshot"] = {
+                    "reviewerId": update_payload.get("reviewerId") or frozen_reviewer_id,
+                    "reviewerName": base_meta.get("reviewerName"),
+                    "capturedAt": update_payload.get("submittedAt"),
+                    "source": "submit",
+                }
+            history = list(existing_metadata.get("reviewerHistory") or [])
+            history.append({
+                "reviewerId": update_payload.get("reviewerId") or frozen_reviewer_id,
+                "at": update_payload.get("submittedAt") or datetime.utcnow().isoformat(),
+                "action": "resubmitted" if already_submitted else "submitted",
+            })
+            base_meta["reviewerHistory"] = history
+            update_payload["metadata"] = base_meta
+
     # Determine if we're moving between tables based on submittedAt
     current_submitted_at = parsed_item.get("submittedAt")
     new_submitted_at = update_payload.get("submittedAt")
-    
+
     # If submittedAt is being set (was None, now has value), move from draft to submitted
     # If submittedAt is being removed (had value, now None), move from submitted to draft
     moving_to_submitted = current_submitted_at is None and new_submitted_at is not None
     moving_to_draft = current_submitted_at is not None and new_submitted_at is None
-    
+
     goal_ids_for_validation = update_payload.get("goalIds")
     target_goal_ids = (
         goal_ids_for_validation
         if goal_ids_for_validation is not None
         else parsed_item.get("goalIds", [])
     )
-    
+
     # Determine target table
     if moving_to_submitted:
         target_is_draft = False
@@ -2748,12 +2904,21 @@ async def update_review(
         target_is_draft = True
     else:
         target_is_draft = current_is_draft
-    
-    await _validate_employee_and_goals(
-        parsed_item["employeeId"],
-        target_goal_ids,
-        enforce_goal_existence=not target_is_draft
+
+    # Only re-validate employee/goal existence when the goal set is actually
+    # changing or the review is moving between draft and submitted. A pure
+    # status/metadata update (e.g. HR sign-off) must not fail just because the
+    # employee has since left the org or a goal was cleaned up.
+    goals_changed = (
+        goal_ids_for_validation is not None
+        and set(goal_ids_for_validation) != set(parsed_item.get("goalIds", []))
     )
+    if goals_changed or moving_to_submitted or moving_to_draft:
+        await _validate_employee_and_goals(
+            parsed_item["employeeId"],
+            target_goal_ids,
+            enforce_goal_existence=not target_is_draft
+        )
 
     if not update_payload:
         return _map_review(item, is_draft=current_is_draft)
@@ -2839,7 +3004,7 @@ async def update_review(
             except ClientError as exc:
                 logger.exception("Failed to update review %s", review_id)
                 raise HTTPException(
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Failed to update review",
                 ) from exc
         else:
@@ -2953,7 +3118,7 @@ async def update_review(
         except ClientError as exc:
             logger.exception("Failed to update review %s", review_id)
             raise HTTPException(
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to update review",
             ) from exc
 

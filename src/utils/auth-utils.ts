@@ -125,14 +125,51 @@ export async function getValidToken(): Promise<string | null> {
   return null;
 }
 
+// Transient infrastructure failures (single ECS task recycling, ALB 5xx,
+// throttling) surface as these statuses or as a thrown network error. They are
+// safe to retry ONLY for idempotent requests.
+const TRANSIENT_RETRY_STATUS = new Set([429, 502, 503, 504]);
+const MAX_TRANSIENT_RETRIES = 2; // 3 attempts total
+
+function isIdempotentMethod(method?: string): boolean {
+  const m = (method || 'GET').toUpperCase();
+  return m === 'GET' || m === 'HEAD' || m === 'OPTIONS';
+}
+
+async function fetchWithTransientRetry(url: string, init: RequestInit): Promise<Response> {
+  const canRetry = isIdempotentMethod(init.method);
+  let attempt = 0;
+
+  for (;;) {
+    try {
+      const res = await fetch(url, init);
+      if (canRetry && attempt < MAX_TRANSIENT_RETRIES && TRANSIENT_RETRY_STATUS.has(res.status)) {
+        attempt += 1;
+        await new Promise((r) => setTimeout(r, 300 * 2 ** (attempt - 1) + Math.random() * 200));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (canRetry && attempt < MAX_TRANSIENT_RETRIES) {
+        attempt += 1;
+        await new Promise((r) => setTimeout(r, 300 * 2 ** (attempt - 1) + Math.random() * 200));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 /**
  * Make an authenticated request with automatic token refresh.
  *
  * On 401 responses, attempts a single token refresh + retry before giving up.
+ * Idempotent requests are also retried a couple of times on transient
+ * infrastructure errors (network failure, 429/502/503/504).
  */
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await getValidToken();
-  
+
   if (!token) {
     throw new Error('No valid authentication token available');
   }
@@ -142,7 +179,7 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
     'Authorization': `Bearer ${token}`,
   };
 
-  const response = await fetch(url, {
+  const response = await fetchWithTransientRetry(url, {
     ...options,
     headers,
   });
@@ -157,8 +194,8 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
         ...options.headers,
         'Authorization': `Bearer ${newToken}`,
       };
-      
-      return fetch(url, {
+
+      return fetchWithTransientRetry(url, {
         ...options,
         headers: retryHeaders,
       });

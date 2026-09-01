@@ -10,12 +10,16 @@ let globalLoading = false;
 let globalIsLoadingMore = false;
 let globalError: string | null = null;
 let globalFetchPromise: Promise<void> | null = null;
+let lastRevalidateAt = 0;
 
 const FIRST_PAGE_LIMIT = 72;
 const FULL_PAGE_LIMIT = 10000;
-// Hard ceiling on any single page request so a slow/hung backend can never
-// leave the spinner spinning forever — the fetch aborts and surfaces as an error.
-const FETCH_TIMEOUT_MS = 30000;
+// Background pages fetched after the first paint — bounded so each request stays
+// fast regardless of total headcount; matches the backend's parallel-scan cache warm.
+const CHUNK_PAGE_LIMIT = 500;
+// Don't silently re-revalidate on every mount (e.g. navigating back to Directory) —
+// only refresh in the background if the cached data hasn't been checked recently.
+const REVALIDATE_THROTTLE_MS = 2 * 60 * 1000;
 
 // Employee type definition
 export interface Employee {
@@ -54,13 +58,7 @@ export interface Employee {
   emergencyContactPhone?: string;
 }
 
-function normalizeApiDate(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '';
-  const s = String(value);
-  return s.includes('T') ? s.split('T')[0] : s;
-}
-
-export function mapEmployeeRow(emp: Record<string, unknown>): Employee {
+function mapEmployeeRow(emp: Record<string, unknown>): Employee {
   return {
     id: (emp.id as string) || 'temp-' + Math.random().toString(36).substring(2, 11),
     employeeId: (emp.employee_id as string) || '',
@@ -72,8 +70,8 @@ export function mapEmployeeRow(emp: Record<string, unknown>): Employee {
     phone: (emp.phone as string) || '',
     mobile: (emp.mobile as string) || '',
     bio: (emp.bio as string) || '',
-    projectStartDate: normalizeApiDate(emp.project_start_date),
-    projectEndDate: normalizeApiDate(emp.project_end_date),
+    projectStartDate: (emp.project_start_date as string) || '',
+    projectEndDate: (emp.project_end_date as string) || '',
     manager: (emp.reporting_to as string) || '',
     reporting_to: (emp.reporting_to as string) || null,
     skills: (emp.skills as string[]) || [],
@@ -85,8 +83,8 @@ export function mapEmployeeRow(emp: Record<string, unknown>): Employee {
     location: (emp.location as string) || '',
     usageLocation: (emp.usage_location as string) || '',
     account: (emp.account as string) || '',
-    dateOfBirth: normalizeApiDate(emp.date_of_birth),
-    dateOfJoining: normalizeApiDate(emp.date_of_joining),
+    dateOfBirth: (emp.date_of_birth as string) || '',
+    dateOfJoining: (emp.date_of_joining as string) || '',
     gender: (emp.gender as string) || '',
     employmentCategory: (emp.employment_category as string) || '',
     employeeStatus: (emp.employee_status as string) || '',
@@ -95,25 +93,12 @@ export function mapEmployeeRow(emp: Record<string, unknown>): Employee {
       emp.status !== undefined && emp.status !== null && emp.status !== ''
         ? (emp.status as string)
         : 'active',
-    resignationDate: normalizeApiDate(emp.resignation_date),
+    resignationDate: (emp.resignation_date as string) || '',
     reasonForResignation: (emp.reason_for_resignation as string) || '',
     emergencyContactName: (emp.emergency_contact_name as string) || '',
     emergencyContactRelationship: (emp.emergency_contact_relationship as string) || '',
     emergencyContactPhone: (emp.emergency_contact_phone as string) || '',
   };
-}
-
-/** Resolve an employee reference that may be stored as id (UUID) or employee_id (numeric). */
-export function findEmployeeByRef(
-  employees: Employee[],
-  ref: string | null | undefined
-): Employee | undefined {
-  if (!ref) return undefined;
-  const trimmed = ref.trim();
-  if (!trimmed) return undefined;
-  return employees.find(
-    (emp) => emp.id === trimmed || (emp.employeeId && emp.employeeId === trimmed)
-  );
 }
 
 function invalidateEmployeesAndDashboardCache(): void {
@@ -213,27 +198,11 @@ export function useEmployees(options?: { includeInactive?: boolean }) {
         params.append('include_inactive', 'true');
         if (sortBy) params.append('sort_by', sortBy);
         if (sortOrder) params.append('sort_order', sortOrder);
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-        try {
-          const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, {
-            headers,
-            signal: controller.signal,
-          });
-          if (!response.ok) return null;
-          const data = await response.json();
-          if (!data || !Array.isArray(data)) return [];
-          return data.map((emp: Record<string, unknown>) => mapEmployeeRow(emp));
-        } catch (err) {
-          // Aborted (timeout) or network error -> treat as page failure so the
-          // caller's error/degraded path runs instead of awaiting forever.
-          if ((err as Error)?.name === 'AbortError') {
-            console.warn(`Employees page fetch timed out after ${FETCH_TIMEOUT_MS}ms (skip=${skip}, limit=${limit})`);
-          }
-          return null;
-        } finally {
-          clearTimeout(timeout);
-        }
+        const response = await fetch(`${API_BASE_URL}/employees?${params.toString()}`, { headers });
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (!data || !Array.isArray(data)) return [];
+        return data.map((emp: Record<string, unknown>) => mapEmployeeRow(emp));
       };
 
       const applyDevMock = () => {
@@ -301,20 +270,32 @@ export function useEmployees(options?: { includeInactive?: boolean }) {
           globalIsLoadingMore = true;
           setIsLoadingMore(true);
 
-          const full = await fetchPage(0, FULL_PAGE_LIMIT);
-          if (full === null) {
-            globalError = globalError || 'Partial load';
-            toast({
-              title: 'Could not refresh full directory',
-              description: 'Showing the first page only. Try refreshing.',
-              variant: 'destructive',
-            });
-            return;
+          // Load the rest in bounded chunks instead of one huge request, so the
+          // directory fills in progressively and stays responsive as headcount grows.
+          let accumulated = first;
+          let skip = first.length;
+          for (;;) {
+            const chunk = await fetchPage(skip, CHUNK_PAGE_LIMIT);
+            if (chunk === null) {
+              globalError = globalError || 'Partial load';
+              toast({
+                title: 'Could not refresh full directory',
+                description: 'Showing a partial list. Try refreshing.',
+                variant: 'destructive',
+              });
+              break;
+            }
+            if (chunk.length === 0) break;
+
+            accumulated = accumulated.concat(chunk);
+            globalEmployees = accumulated;
+            globalError = null;
+            apiCache.set(cacheKey, accumulated);
+            window.dispatchEvent(new CustomEvent('employeesUpdated'));
+
+            if (chunk.length < CHUNK_PAGE_LIMIT) break;
+            skip += chunk.length;
           }
-          globalEmployees = full;
-          globalError = null;
-          apiCache.set(cacheKey, full);
-          window.dispatchEvent(new CustomEvent('employeesUpdated'));
           return;
         }
 
@@ -356,11 +337,6 @@ export function useEmployees(options?: { includeInactive?: boolean }) {
         globalLoading = false;
         globalIsLoadingMore = false;
         globalFetchPromise = null;
-        // Terminal broadcast: earlier 'employeesUpdated' events fire while
-        // globalIsLoadingMore is still true, so subscribed consumers latch the
-        // spinner on. This final event (after flags are cleared) guarantees every
-        // mounted useEmployees clears isLoadingMore, even on error/timeout.
-        window.dispatchEvent(new CustomEvent('employeesUpdated'));
       }
     })();
 
@@ -701,7 +677,10 @@ export function useEmployees(options?: { includeInactive?: boolean }) {
       setIsLoading(false);
       setIsLoadingMore(false);
       setError(null);
-      void fetchEmployees(undefined, undefined, { revalidate: true });
+      if (Date.now() - lastRevalidateAt > REVALIDATE_THROTTLE_MS) {
+        lastRevalidateAt = Date.now();
+        void fetchEmployees(undefined, undefined, { revalidate: true });
+      }
       return;
     }
     if (globalEmployees.length > 0) {

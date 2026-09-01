@@ -183,10 +183,12 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
       {/* User Management Modal */}
       {showUserManagement && createPortal(
         <div
-          className="fixed z-[100] bg-black/50 flex items-center justify-center p-4"
-          style={{ position: 'fixed', top: 0, left: 255, right: 0, bottom: 0 }}
+          className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowUserManagement(false);
+          }}
         >
-          <div className="bg-background rounded-lg shadow-lg max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+          <div className="bg-background rounded-lg shadow-2xl border max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col animate-in fade-in-0 zoom-in-95">
             <div className="flex-1 overflow-y-auto p-6">
               <UserManagement onClose={() => setShowUserManagement(false)} />
             </div>
@@ -198,10 +200,12 @@ export function AdminPortal({ disabled = false }: AdminPortalProps) {
       {/* Monthly feedback access (leadership) modal */}
       {showClientRmAccess && createPortal(
         <div
-          className="fixed z-[100] bg-black/50 flex items-center justify-center p-4"
-          style={{ position: 'fixed', top: 0, left: 255, right: 0, bottom: 0 }}
+          className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowClientRmAccess(false);
+          }}
         >
-          <div className="bg-background rounded-lg shadow-lg max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+          <div className="bg-background rounded-lg shadow-2xl border max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col animate-in fade-in-0 zoom-in-95">
             <div className="flex-1 overflow-y-auto p-6">
               <ClientRMFeedbackAccess onClose={() => setShowClientRmAccess(false)} />
             </div>
