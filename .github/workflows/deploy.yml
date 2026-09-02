@@ -1,4 +1,4 @@
-name: Zenith HR Pulse – Deploy
+name: Zenith HR Pulse â€“ Deploy
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
             ecr_account_secret: ECR_ACCOUNT_STAGING
             security_secret_key_secret: SECURITY_SECRET_KEY_STAGING
             # Staging: proxy /api/* through CloudFront so the browser makes
-            # same-origin requests — no CORS preflight needed.
+            # same-origin requests â€” no CORS preflight needed.
             cloudfront_api_proxy: "true"
             vite_api_base: "https://zenith-hr-staging.apps.infoservices.com"
           - branch: main
@@ -174,7 +174,7 @@ jobs:
           DYNAMODB_FIELD_ENCRYPTION_ALLOWLIST_FILE: ${{ env.DYNAMODB_FIELD_ENCRYPTION_ALLOWLIST_FILE }}
 
       # Always roll ECS after a new :latest push. Otherwise Fargate can keep an old digest until
-      # the task definition revision changes — staging API (e.g. zenith-api.apps.infoservices.com) stays stale.
+      # the task definition revision changes â€” staging API (e.g. zenith-api.apps.infoservices.com) stays stale.
       - name: Force ECS service deployment (pull new image)
         if: matrix.branch == github.ref_name
         run: |
@@ -205,7 +205,7 @@ jobs:
         if: matrix.branch == github.ref_name
         run: npm install --legacy-peer-deps
 
-      # Staging only: directly add /api/* → backend proxy behavior to the EXISTING
+      # Staging only: directly add /api/* â†’ backend proxy behavior to the EXISTING
       # CloudFront distribution (identified by CLOUDFRONT_DISTRIBUTION_ID_STAGING secret).
       # Uses direct AWS CloudFront API (not CloudFormation) so the LIVE distribution
       # is updated, not a new one created. Production is untouched (cloudfront_api_proxy=false).
@@ -287,8 +287,15 @@ jobs:
                           'Items': ['GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'PATCH', 'DELETE'],
                           'CachedMethods': {'Quantity': 2, 'Items': ['GET', 'HEAD']},
                       },
-                      'CachePolicyId': '4135ea2d-6df8-44a3-9df3-4b5a84be39ad',
-                      'OriginRequestPolicyId': '216adef6-5c7f-47e4-b362-e732665a044e',
+                      'ForwardedValues': {
+                          'QueryString': True,
+                          'Cookies': {'Forward': 'all'},
+                          'Headers': {'Quantity': 1, 'Items': ['*']},
+                          'QueryStringCacheKeys': {'Quantity': 0}
+                      },
+                      'MinTTL': 0,
+                      'DefaultTTL': 0,
+                      'MaxTTL': 0,
                       'Compress': True,
                       'SmoothStreaming': False,
                       'TrustedSigners': {'Enabled': False, 'Quantity': 0},
