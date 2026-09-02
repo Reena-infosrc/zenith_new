@@ -22,6 +22,14 @@ const getApiBaseUrl = () => {
 
 export const API_BASE_URL = getApiBaseUrl();
 
+/**
+ * Returns true when the API base URL is properly configured.
+ * Use this before making authenticated fetch calls to give a clear
+ * error instead of the cryptic "Failed to fetch" browser error.
+ */
+export const isApiConfigured = (): boolean =>
+  API_BASE_URL.length > 0 && API_BASE_URL.startsWith('http');
+
 // Backwards-compatible exports
 export const PRODUCTION_API_URL = API_BASE_URL;
 export const LOCAL_API_URL = normalize((import.meta.env.VITE_LOCAL_API_BASE as string) || '');

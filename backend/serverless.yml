@@ -507,7 +507,7 @@ resources:
               - Name: DYNAMODB_FIELD_ENCRYPTION_ALLOWLIST_FILE
                 Value: ${env:DYNAMODB_FIELD_ENCRYPTION_ALLOWLIST_FILE, 'config/field_encryption_allowlist.json'}
               - Name: CORS_ORIGINS
-                Value: "https://zenith-hr-${self:provider.stage}.apps.infoservices.com,https://zenith-api.apps.infoservices.com,http://localhost:3000,http://localhost:8080"
+                Value: ${env:CORS_ORIGINS, "https://zenith-hr-${self:provider.stage}.apps.infoservices.com,https://zenith-api.apps.infoservices.com,http://localhost:3000,http://localhost:8080"}
               - Name: SECURITY_SECRET_KEY
                 Value: ${env:SECURITY_SECRET_KEY}
             LogConfiguration:

@@ -8,7 +8,7 @@ import { getFirstAvailableModuleRoute } from "@/utils/navigation";
 import { useMsal } from "@azure/msal-react";
 import { apiCache, CACHE_KEYS } from "@/utils/api-cache";
 import { Loader2 } from "lucide-react";
-import { API_BASE_URL } from "@/config/api";
+import { API_BASE_URL, isApiConfigured } from "@/config/api";
 import {
   extractLoginHintFromUrl,
   attemptSsoSilent,
@@ -103,6 +103,15 @@ export default function Login() {
     
     setIsProcessingLogin(true);
     
+    // Guard: If VITE_API_BASE was not set at build time, fail fast with a clear message
+    if (!isApiConfigured()) {
+      console.error('[Login] API_BASE_URL is not configured. Set VITE_API_BASE in your build environment.');
+      loginCompletedRef.current = false;
+      setIsProcessingLogin(false);
+      alert('Backend API is not configured. Please contact support or check the deployment configuration (VITE_API_BASE is missing).');
+      return;
+    }
+
     // Fetch user profile from Microsoft Graph (use access token)
     const graphRes = await fetch("https://graph.microsoft.com/v1.0/me", {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -169,11 +178,20 @@ export default function Login() {
         return;
       }
     } catch (error) {
-      console.error("Authentication network error:", error);
+      const err = error as Error;
+      console.error("Authentication network error:", err);
       clearAuthMemory();
       loginCompletedRef.current = false;
       setIsProcessingLogin(false);
-      alert(`Authentication failed: ${(error as Error)?.message || 'Please check your connection and try again.'}`);
+      // 'Failed to fetch' typically means the backend is unreachable (wrong URL, container down, CORS preflight blocked)
+      const isNetworkError = err?.message?.toLowerCase().includes('failed to fetch') ||
+        err?.message?.toLowerCase().includes('networkerror') ||
+        err?.message?.toLowerCase().includes('load failed');
+      if (isNetworkError) {
+        alert(`Cannot reach the backend API (${API_BASE_URL || 'URL not configured'}).\n\nPossible causes:\n• The backend service (ECS) is not running\n• The API URL is incorrect or unreachable\n• A CORS policy is blocking the request\n\nPlease contact support if this persists.`);
+      } else {
+        alert(`Authentication failed: ${err?.message || 'Please check your connection and try again.'}`);
+      }
       return;
     }
 
