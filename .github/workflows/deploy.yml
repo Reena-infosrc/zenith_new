@@ -290,7 +290,7 @@ jobs:
                       'ForwardedValues': {
                           'QueryString': True,
                           'Cookies': {'Forward': 'all'},
-                          'Headers': {'Quantity': 1, 'Items': ['*']},
+                          'Headers': {'Quantity': 5, 'Items': ['Authorization', 'Content-Type', 'Accept', 'Origin', 'Referer']},
                           'QueryStringCacheKeys': {'Quantity': 0}
                       },
                       'MinTTL': 0,
