@@ -255,7 +255,7 @@ jobs:
                   behavior_exists = any(b.get('PathPattern') == '/api/*' for b in cfg['CacheBehaviors']['Items'])
                   
               if origin_exists and behavior_exists:
-                  print("ApiOrigin and /api/* behavior already present — no changes needed.")
+                  print("ApiOrigin and /api/* behavior already present ï¿½ no changes needed.")
                   sys.exit(0)
           
               # 1. Add API Origin (if missing)
@@ -298,6 +298,8 @@ jobs:
                   }
                   if 'CacheBehaviors' not in cfg or not cfg.get('CacheBehaviors'):
                       cfg['CacheBehaviors'] = {'Quantity': 0, 'Items': []}
+                  if 'Items' not in cfg['CacheBehaviors']:
+                      cfg['CacheBehaviors']['Items'] = []
                   cfg['CacheBehaviors']['Items'].insert(0, api_behavior)
                   cfg['CacheBehaviors']['Quantity'] = len(cfg['CacheBehaviors']['Items'])
           
