@@ -215,17 +215,35 @@ jobs:
           DIST_ID: ${{ secrets[matrix.cloudfront_secret] }}
         run: |
           set -euo pipefail
-          if [ -z "${DIST_ID:-}" ] || [ "$DIST_ID" = "None" ]; then
-            echo "WARNING: CLOUDFRONT_DISTRIBUTION_ID_STAGING not set — skipping CF update"
-            exit 0
-          fi
-          echo "Patching distribution $DIST_ID to add /api/* → zenith-api.apps.infoservices.com..."
           cat << 'PYEOF' > patch_cf.py
-          import os, json, subprocess, sys, copy
+          import os, json, subprocess, sys
           
-          dist_id = os.environ['DIST_ID']
+          domain = "zenith-hr-staging.apps.infoservices.com"
+          print(f"Looking up CloudFront distribution for {domain}...")
           
           try:
+              raw_list = subprocess.check_output(['aws', 'cloudfront', 'list-distributions'])
+              dists = json.loads(raw_list).get('DistributionList', {}).get('Items', [])
+              
+              dist_id = None
+              for d in dists:
+                  aliases = d.get('Aliases', {}).get('Items', [])
+                  if domain in aliases:
+                      dist_id = d['Id']
+                      break
+              
+              if not dist_id:
+                  print(f"ERROR: No CloudFront distribution found with alias {domain}")
+                  sys.exit(1)
+                  
+              print(f"Found distribution {dist_id}")
+              
+              # Export to GITHUB_ENV for the invalidation step later
+              env_file = os.environ.get('GITHUB_ENV')
+              if env_file:
+                  with open(env_file, 'a') as f:
+                      f.write(f"ACTUAL_DIST_ID={dist_id}\n")
+              
               raw = subprocess.check_output(['aws', 'cloudfront', 'get-distribution-config', '--id', dist_id])
               result = json.loads(raw)
               etag = result['ETag']
@@ -357,11 +375,8 @@ jobs:
         env:
           DISTRIBUTION_ID: ${{ secrets[matrix.cloudfront_secret] }}
           S3_BUCKET: ${{ secrets[matrix.s3_bucket_secret] }}
-        # Invalidate everything: clears the stale index.html AND any HTML-fallback responses
-        # CloudFront may have cached for asset paths (which caused the blank page).
         run: |
           set -euo pipefail
-
           TARGET_DIST_ID="${DISTRIBUTION_ID:-}"
           RESOLVED_ID=""
 
