@@ -22,6 +22,10 @@ jobs:
             cloudfront_secret: CLOUDFRONT_DISTRIBUTION_ID_STAGING
             ecr_account_secret: ECR_ACCOUNT_STAGING
             security_secret_key_secret: SECURITY_SECRET_KEY_STAGING
+            # Staging: proxy /api/* through CloudFront so the browser makes
+            # same-origin requests — no CORS preflight needed.
+            cloudfront_api_proxy: "true"
+            vite_api_base: "https://zenith-hr-staging.apps.infoservices.com"
           - branch: main
             stage: prod
             env_file: .env.prod
@@ -31,8 +35,8 @@ jobs:
             cloudfront_secret: CLOUDFRONT_DISTRIBUTION_ID_PROD
             ecr_account_secret: ECR_ACCOUNT_PROD
             security_secret_key_secret: SECURITY_SECRET_KEY
-
-
+            cloudfront_api_proxy: "false"
+            vite_api_base: ""
 
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -201,10 +205,38 @@ jobs:
         if: matrix.branch == github.ref_name
         run: npm install --legacy-peer-deps
 
+      # Staging only: update the CloudFront stack to enable /api/* → backend proxy.
+      # This makes all API calls same-origin so CORS is never needed.
+      # Production CloudFront is untouched (cloudfront_api_proxy=false).
+      - name: Update staging CloudFront stack (enable API proxy)
+        if: matrix.branch == github.ref_name && matrix.cloudfront_api_proxy == 'true'
+        env:
+          S3_BUCKET: ${{ secrets[matrix.s3_bucket_secret] }}
+          ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
+        run: |
+          set -euo pipefail
+          STACK_NAME="zenith-hr-frontend-${{ matrix.stage }}"
+          echo "Updating CloudFront stack: $STACK_NAME with API proxy enabled..."
+          aws cloudformation deploy \
+            --template-file backend/cloudfront-frontend.yml \
+            --stack-name "$STACK_NAME" \
+            --parameter-overrides \
+                Stage="${{ matrix.stage }}" \
+                DomainBucketName="$S3_BUCKET" \
+                EnableApiProxy="true" \
+                ApiDomain="zenith-api.apps.infoservices.com" \
+                AcmCertificateArn="${ACM_CERTIFICATE_ARN:-}" \
+            --capabilities CAPABILITY_IAM \
+            --region "$AWS_REGION" \
+            --no-fail-on-empty-changeset
+          echo "Staging CloudFront API proxy enabled."
+
       - name: Build frontend
         if: matrix.branch == github.ref_name
         env:
-          VITE_API_BASE: ${{ secrets[matrix.api_base_secret] }}
+          # Staging: use same-origin URL so /api/* goes through CloudFront proxy (no CORS).
+          # Production: use the configured API base secret.
+          VITE_API_BASE: ${{ matrix.vite_api_base != '' && matrix.vite_api_base || secrets[matrix.api_base_secret] }}
           # Consolidated onto the same secrets the backend uses (AZURE_MSAL_*) so frontend
           # and backend can never validate against different tenant/app registrations.
           VITE_MSAL_CLIENT_ID: ${{ secrets.AZURE_MSAL_CLIENT_ID }}

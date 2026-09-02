@@ -20,8 +20,25 @@ Parameters:
     Default: ""
     Description: "Optional ACM Certificate ARN in us-east-1 for custom domain (leave empty to use default *.cloudfront.net)"
 
+  # When true, CloudFront proxies /api/* to ApiDomain so the browser makes
+  # same-origin requests — completely eliminating CORS preflight failures.
+  # Set to true for staging, false (default) for production.
+  EnableApiProxy:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: "Enable /api/* reverse-proxy to ApiDomain (staging only)"
+
+  ApiDomain:
+    Type: String
+    Default: "zenith-api.apps.infoservices.com"
+    Description: "Backend API domain to proxy /api/* requests to (used only when EnableApiProxy=true)"
+
 Conditions:
   HasCustomCertificate: !Not [!Equals [!Ref AcmCertificateArn, ""]]
+  ApiProxyEnabled: !Equals [!Ref EnableApiProxy, "true"]
 
 Resources:
   # 1. Origin Access Identity for CloudFront to read private S3 objects
@@ -59,6 +76,51 @@ Resources:
             DomainName: !Sub "${DomainBucketName}.s3.amazonaws.com"
             S3OriginConfig:
               OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+          # API proxy origin — only used when EnableApiProxy=true (staging)
+          - !If
+            - ApiProxyEnabled
+            - Id: ApiOrigin
+              DomainName: !Ref ApiDomain
+              CustomOriginConfig:
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols:
+                  - TLSv1.2
+            - !Ref AWS::NoValue
+
+        # /api/* → backend API (staging only, no CORS because same CloudFront domain)
+        CacheBehaviors: !If
+          - ApiProxyEnabled
+          - - PathPattern: "/api/*"
+              TargetOriginId: ApiOrigin
+              ViewerProtocolPolicy: redirect-to-https
+              AllowedMethods:
+                - GET
+                - HEAD
+                - OPTIONS
+                - PUT
+                - POST
+                - PATCH
+                - DELETE
+              CachedMethods:
+                - GET
+                - HEAD
+              ForwardedValues:
+                QueryString: true
+                Headers:
+                  - Authorization
+                  - Content-Type
+                  - Accept
+                  - Origin
+                  - X-Requested-With
+                Cookies:
+                  Forward: none
+              # Never cache API responses
+              MinTTL: 0
+              DefaultTTL: 0
+              MaxTTL: 0
+          - !Ref AWS::NoValue
+
         DefaultCacheBehavior:
           TargetOriginId: S3Origin
           ViewerProtocolPolicy: redirect-to-https
