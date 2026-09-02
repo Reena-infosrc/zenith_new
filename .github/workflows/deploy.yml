@@ -294,7 +294,8 @@ jobs:
                       'TrustedSigners': {'Enabled': False, 'Quantity': 0},
                       'TrustedKeyGroups': {'Enabled': False, 'Quantity': 0},
                       'LambdaFunctionAssociations': {'Quantity': 0},
-                      'FunctionAssociations': {'Quantity': 0}
+                      'FunctionAssociations': {'Quantity': 0},
+                      'FieldLevelEncryptionId': ''
                   }
                   if 'CacheBehaviors' not in cfg or not cfg.get('CacheBehaviors'):
                       cfg['CacheBehaviors'] = {'Quantity': 0, 'Items': []}
