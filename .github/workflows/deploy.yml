@@ -253,34 +253,28 @@ try:
     })
     cfg['Origins']['Quantity'] = len(cfg['Origins']['Items'])
 
-    # 2. Add /api/* behavior
-    api_behavior = copy.deepcopy(cfg['DefaultCacheBehavior'])
-    api_behavior['PathPattern'] = '/api/*'
-    api_behavior['TargetOriginId'] = 'ApiOrigin'
-    api_behavior['AllowedMethods'] = {
-        'Quantity': 7,
-        'Items': ['GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'PATCH', 'DELETE'],
-        'CachedMethods': {'Quantity': 2, 'Items': ['GET', 'HEAD']},
+    # 2. Add /api/* behavior using robust AWS Managed Policies (no legacy schema conflicts)
+    api_behavior = {
+        'PathPattern': '/api/*',
+        'TargetOriginId': 'ApiOrigin',
+        'ViewerProtocolPolicy': 'redirect-to-https',
+        'AllowedMethods': {
+            'Quantity': 7,
+            'Items': ['GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'PATCH', 'DELETE'],
+            'CachedMethods': {'Quantity': 2, 'Items': ['GET', 'HEAD']},
+        },
+        'CachePolicyId': '4135ea2d-6df8-44a3-9df3-4b5a84be39ad',       # Managed-CachingDisabled
+        'OriginRequestPolicyId': '216adef6-5c7f-47e4-b362-e732665a044e', # Managed-AllViewer
+        'Compress': True,
+        'SmoothStreaming': False,
+        'TrustedSigners': {'Enabled': False, 'Quantity': 0},
+        'TrustedKeyGroups': {'Enabled': False, 'Quantity': 0},
+        'LambdaFunctionAssociations': {'Quantity': 0},
+        'FunctionAssociations': {'Quantity': 0}
     }
-    
-    # Safely update ForwardedValues
-    fv = api_behavior.get('ForwardedValues', {})
-    fv['QueryString'] = True
-    fv['Cookies'] = {'Forward': 'none'}
-    fv['Headers'] = {
-        'Quantity': 5,
-        'Items': ['Authorization', 'Content-Type', 'Accept', 'Origin', 'X-Requested-With']
-    }
-    # QueryStringCacheKeys is REQUIRED when QueryString is True
-    if 'QueryStringCacheKeys' not in fv:
-        fv['QueryStringCacheKeys'] = {'Quantity': 0}
-    
-    api_behavior['ForwardedValues'] = fv
-    api_behavior['MinTTL'] = 0
-    api_behavior['DefaultTTL'] = 0
-    api_behavior['MaxTTL'] = 0
 
     if 'CacheBehaviors' not in cfg or not cfg.get('CacheBehaviors'):
+
         cfg['CacheBehaviors'] = {'Quantity': 0, 'Items': []}
     cfg['CacheBehaviors']['Items'].insert(0, api_behavior)
     cfg['CacheBehaviors']['Quantity'] = len(cfg['CacheBehaviors']['Items'])
