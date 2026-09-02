@@ -250,19 +250,13 @@ jobs:
           
               # Idempotent checks
               origin_exists = any(o['Id'] == 'ApiOrigin' for o in cfg['Origins']['Items'])
-              behavior_exists = False
               if cfg.get('CacheBehaviors') and cfg['CacheBehaviors'].get('Items'):
                   for b in list(cfg['CacheBehaviors']['Items']):
                       if b.get('PathPattern') == '/api/*':
-                          if b.get('TargetOriginId') == 'ApiOrigin':
-                              behavior_exists = True
-                          else:
-                              cfg['CacheBehaviors']['Items'].remove(b)
+                          cfg['CacheBehaviors']['Items'].remove(b)
                           break
-                  
-              if origin_exists and behavior_exists:
-                  print("ApiOrigin and CORRECT /api/* behavior already present � no changes needed.")
-                  sys.exit(0)
+              
+              behavior_exists = False
           
               # 1. Add API Origin (if missing)
               if not origin_exists:
