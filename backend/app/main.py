@@ -236,7 +236,7 @@ def _cors_settings() -> tuple:
     """CORS: cannot use allow_origins=['*'] with allow_credentials=True (browser rejects)."""
     raw = (os.getenv("CORS_ORIGINS") or "").strip()
     if raw:
-        origins = [o.strip() for o in raw.split(",") if o.strip()]
+        origins = [o.strip().strip('"').strip("'") for o in raw.split(",") if o.strip()]
         return origins, True
     return (
         [
