@@ -156,8 +156,8 @@ async def exchange_msal_token(
     try:
         logger.info("Received MSAL token for exchange")
         
-        tenant_id = os.getenv("AZURE_MSAL_TENANT_ID")
-        client_id = os.getenv("AZURE_MSAL_CLIENT_ID")
+        tenant_id = (os.getenv("AZURE_MSAL_TENANT_ID") or "").strip().strip('"').strip("'")
+        client_id = (os.getenv("AZURE_MSAL_CLIENT_ID") or "").strip().strip('"').strip("'")
 
         if not tenant_id or not client_id:
             logger.error("AZURE_MSAL_TENANT_ID or AZURE_MSAL_CLIENT_ID not configured")

@@ -88,8 +88,8 @@ def validate_security_at_startup() -> None:
 
     secret = get_jwt_secret_key()
 
-    tenant = (os.getenv("AZURE_MSAL_TENANT_ID") or "").strip()
-    client = (os.getenv("AZURE_MSAL_CLIENT_ID") or "").strip()
+    tenant = (os.getenv("AZURE_MSAL_TENANT_ID") or "").strip().strip('"').strip("'")
+    client = (os.getenv("AZURE_MSAL_CLIENT_ID") or "").strip().strip('"').strip("'")
 
     if is_production_like():
         weak = (
