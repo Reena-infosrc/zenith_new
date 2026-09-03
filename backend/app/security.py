@@ -45,7 +45,7 @@ class JWKSValidator:
             return jwks
         except Exception as e:
             logger.error(f"Failed to fetch JWKS: {e}")
-            return self._jwks_cache.get(tenant_id)
+            raise ValueError(f"Could not retrieve JWKS: {str(e)} (tenant: {tenant_id})")
 
     def validate_token(self, token: str, tenant_id: str, client_id: str):
         try:
@@ -62,9 +62,13 @@ class JWKSValidator:
             jwks_tenant = tenant_id
             expected_issuer = f"https://login.microsoftonline.com/{tenant_id}/v2.0"
 
-            jwks = self._fetch_jwks(jwks_tenant)
+            try:
+                jwks = self._fetch_jwks(jwks_tenant)
+            except ValueError as ve:
+                raise ValueError(str(ve))
+                
             if not jwks:
-                raise JWTError("Could not retrieve JWKS")
+                raise ValueError("JWKS fetch returned empty")
 
             # Find the correct public key (Azure JWKS may omit "alg"; python-jose needs it for RSA)
             public_key = None
