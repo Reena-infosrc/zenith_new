@@ -24,8 +24,8 @@ jobs:
             security_secret_key_secret: SECURITY_SECRET_KEY_STAGING
             # Staging: proxy /api/* through CloudFront so the browser makes
             # same-origin requests â€” no CORS preflight needed.
-            cloudfront_api_proxy: "true"
-            vite_api_base: "https://zenith-hr-staging.apps.infoservices.com"
+            cloudfront_api_proxy: "false"
+            vite_api_base: "https://zenith-api.apps.infoservices.com"
           - branch: main
             stage: prod
             env_file: .env.prod
