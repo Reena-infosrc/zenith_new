@@ -172,9 +172,13 @@ async def exchange_msal_token(
                 raise HTTPException(status_code=401, detail="Invalid MSAL token")
         else:
             # Production/staging: validate via JWKS
-            payload = jwks_validator.validate_token(msal_token, tenant_id, client_id)
-            if not payload:
-                logger.warning("Token validation failed via JWKS validator")
+            try:
+                payload = jwks_validator.validate_token(msal_token, tenant_id, client_id)
+            except ValueError as ve:
+                logger.warning(f"Token validation failed via JWKS validator: {ve}")
+                raise HTTPException(status_code=401, detail=str(ve))
+            except Exception as e:
+                logger.warning(f"Unexpected token validation error: {e}")
                 raise HTTPException(status_code=401, detail="Invalid MSAL token")
 
         user_email = payload.get("preferred_username") or payload.get("email") or payload.get("upn")

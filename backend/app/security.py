@@ -89,7 +89,7 @@ class JWKSValidator:
                 )
             except JWTError as e:
                 logger.error(f"JWT decode failed (signature/exp): {e}")
-                return None
+                raise ValueError(f"JWT decode failed: {e}")
 
             # Validate issuer (support v2.0, v1.0, and standard Entra ID formats)
             token_iss_val = (payload.get("iss") or "").rstrip("/")
@@ -100,7 +100,7 @@ class JWKSValidator:
             }
             if token_iss_val not in allowed_issuers:
                 logger.error(f"Issuer mismatch: token iss={token_iss_val!r}, expected one of={allowed_issuers!r}")
-                return None
+                raise ValueError(f"Issuer mismatch: got {token_iss_val}")
 
             # STRICT FIX: Only allow the specific client_id or custom API scope. NEVER "https://graph.microsoft.com"
             # to prevent cross-app Graph token replay.
@@ -112,16 +112,16 @@ class JWKSValidator:
                 aud_ok = token_aud_val in allowed_audiences
             if not aud_ok:
                 logger.error(f"Audience mismatch: token aud={token_aud_val!r}, allowed={allowed_audiences}")
-                return None
+                raise ValueError(f"Audience mismatch: got {token_aud_val}")
 
             logger.debug("Microsoft token validated via JWKS")
             return payload
         except JWTError as e:
             logger.error(f"JWT Validation Error: {e}")
-            return None
+            raise ValueError(f"JWT Validation Error: {e}")
         except Exception as e:
             logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
-            return None
+            raise ValueError(f"Unexpected error: {e}")
 
 jwks_validator = JWKSValidator()
 
