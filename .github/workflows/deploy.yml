@@ -195,9 +195,23 @@ jobs:
           RESOLVED_SERVICE_NAME="${RESOLVED_SERVICE_ARN##*/}"
           echo "Resolved ECS service: $RESOLVED_SERVICE_NAME"
 
+          TASK_DEF_ARN=$(aws ecs describe-services --cluster "$ECS_CLUSTER_NAME" --services "$RESOLVED_SERVICE_NAME" --query 'services[0].taskDefinition' --output text)
+          aws ecs describe-task-definition --task-definition "$TASK_DEF_ARN" --query 'taskDefinition' > task-def.json
+          
+          jq --arg tenant "$AZURE_MSAL_TENANT_ID" --arg client "$AZURE_MSAL_CLIENT_ID" \
+            '.containerDefinitions[0].environment |= map(if .name == "AZURE_MSAL_TENANT_ID" then .value = $tenant elif .name == "AZURE_MSAL_CLIENT_ID" then .value = $client else . end)' \
+            task-def.json > new-task-def.json
+            
+          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' new-task-def.json > final-task-def.json
+          
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file://final-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          
+          echo "Registered new task definition: $NEW_TASK_DEF_ARN"
+
           aws ecs update-service \
             --cluster "$ECS_CLUSTER_NAME" \
             --service "$RESOLVED_SERVICE_NAME" \
+            --task-definition "$NEW_TASK_DEF_ARN" \
             --force-new-deployment \
             --region "$AWS_REGION"
 
