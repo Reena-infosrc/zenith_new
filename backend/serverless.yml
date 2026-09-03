@@ -1227,3 +1227,5 @@ resources:
     ALBEndpoint:
       Value: !GetAtt ZenithALB.DNSName
       Description: "URL of the Application Load Balancer"
+#   F o r c e   d e p l o y   t o   s y n c   s e c r e t s  
+ 
